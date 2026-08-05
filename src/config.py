@@ -11,7 +11,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
-
+#đã xem
     # App
     app_name: str = "AI20K Agent"
     app_env: Literal["development", "production", "test"] = "development"
