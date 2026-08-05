@@ -1,18 +1,14 @@
-"""ORM models. Import ở đây để Base.metadata thấy được toàn bộ bảng."""
+# Import Base trước
+from app.database import Base
 
-from app.models.blacklist import BlacklistEntry
-from app.models.scam_scenario import ScamScenario
-from app.models.transaction import RiskLevel, Transaction, UserDecision
-from app.models.trusted_payee import TrustedPayee
-from app.models.user import User, UserRole
+# Import User TRƯỚC TẤT CẢ các model có Foreign Key đến nó
+from app.models.user import User
 
-__all__ = [
-    "BlacklistEntry",
-    "RiskLevel",
-    "ScamScenario",
-    "Transaction",
-    "TrustedPayee",
-    "User",
-    "UserDecision",
-    "UserRole",
-]
+# Sau đó import các model còn lại
+from app.models.transaction import Transaction
+from app.models.blacklist import Blacklist
+from app.models.scam_pattern import ScamPattern
+from app.models.trusted_recipient import TrustedRecipient
+from app.models.audit_log import AuditLog
+from app.models.intervention_log import InterventionLog
+from app.models.scam_report import ScamReport

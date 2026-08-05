@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
-
+from app.database import Base
 
 class UserRole(str, enum.Enum):
     USER = "user"

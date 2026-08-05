@@ -33,7 +33,7 @@ class TransactionCreate(BaseModel):
     recipient_name: str = Field(..., min_length=1, max_length=100)
     recipient_account: str = Field(..., min_length=1, max_length=100)
     recipient_bank: Optional[str] = Field(None, max_length=20)
-    amount: Decimal = Field(..., gt=0)
+    amount: Decimal = Field(..., gt=0, decimal_places=2)
     currency: str = Field(default="VND", max_length=10)
     description: Optional[str] = None
 
@@ -64,17 +64,6 @@ class TransactionDecision(BaseModel):
     decision: str = Field(..., pattern="^(confirmed|cancelled|escalated)$")
     user_note: Optional[str] = None
 
-# ========== INTERVENTION ==========
-class InterventionResponse(BaseModel):
-    transaction_id: UUID
-    current_step: int
-    total_steps: int
-    message: str
-    actions: List[str]
-    can_proceed: bool
-    risk_factors: List[str] = []
-    requires_decision: bool = True
-
 # ========== BLACKLIST (Admin) ==========
 class BlacklistCreate(BaseModel):
     entity_type: str = Field(..., pattern="^(account|phone|email|url)$")
@@ -88,6 +77,22 @@ class BlacklistResponse(BlacklistCreate):
     id: UUID
     is_active: bool
     created_at: datetime
+
+# ========== INTERVENTION ==========
+class InterventionStep(BaseModel):
+    step_number: int
+    agent_message: str
+    suggested_actions: List[str]
+    risk_factors: List[str]
+
+class InterventionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    transaction_id: UUID
+    current_step: int
+    total_steps: int
+    message: str
+    actions: List[str]
+    can_proceed: bool  # False nếu critical, yêu cầu xác nhận rõ ràng
 
 # ========== SCAM REPORT ==========
 class ScamReportCreate(BaseModel):
