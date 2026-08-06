@@ -21,8 +21,8 @@ class User(Base, TimestampMixin):
     )
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)  # <-- THÊM DÒNG NÀY
 
-    # Chỉ lưu hash, không bao giờ lưu plaintext.
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
 
     role: Mapped[UserRole] = mapped_column(
@@ -31,8 +31,6 @@ class User(Base, TimestampMixin):
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-    # Số dư ví mô phỏng (đơn vị VND). Dữ liệu demo, không phải tiền thật.
     balance: Mapped[int] = mapped_column(default=50_000_000, nullable=False)
 
     def __repr__(self) -> str:

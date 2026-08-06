@@ -6,60 +6,59 @@ import uuid
 
 class ExcelImporter:
     """
-    Import dữ liệu scam từ file Excel vào blacklist.
-    File Excel có các cột: Người bị tố cáo, Tên tài khoản, Số tiền, SDT, STK, Ngân hàng, Lượt xem
+    Import du lieu scam tu file Excel vao blacklist.
+    File Excel co cac cot: Nguoi bi to cao, Ten tai khoan, So tien, SDT, STK, Ngan hang, Luot xem
     """
-    
-    REQUIRED_COLUMNS = ["Người bị tố cáo", "Tên tài khoản", "Số tiền", "SDT", "STK", "Ngân hàng", "Lượt xem"]
-    
+
+    REQUIRED_COLUMNS = ["Nguoi bi to cao", "Ten tai khoan", "So tien", "SDT", "STK", "Ngan hang", "Luot xem"]
+
     @classmethod
     def validate_file(cls, file_path: str) -> bool:
-        """Kiểm tra file Excel có đúng cấu trúc không"""
+        """Kiem tra file Excel co dung cau truc khong"""
         try:
             df = pd.read_excel(file_path)
-            # Bỏ qua dòng header trùng nếu có
+            # Bo qua dong header trung neu co
             df = df[df['STK'] != 'STK'].copy() if 'STK' in df.columns else df
             missing = [col for col in cls.REQUIRED_COLUMNS if col not in df.columns]
             if missing:
-                raise ValueError(f"Thiếu cột: {missing}. Các cột phải có: {cls.REQUIRED_COLUMNS}")
+                raise ValueError(f"Thieu cot: {missing}. Cac cot phai co: {cls.REQUIRED_COLUMNS}")
             return True
         except Exception as e:
-            raise ValueError(f"Lỗi đọc file Excel: {str(e)}")
-    
+            raise ValueError(f"Loi doc file Excel: {str(e)}")
+
     @classmethod
     def _clean_dataframe(cls, df: pd.DataFrame) -> pd.DataFrame:
-        """Làm sạch DataFrame trước khi import"""
-        # Bỏ dòng header trùng (nếu dòng đầu cũng là header text)
+        """Lam sach DataFrame truoc khi import"""
+        # Bo dong header trung (neu dong dau cung la header text)
         df = df[df['STK'] != 'STK'].copy()
-        
-        # Làm sạch STK: bỏ khoảng trắng, giữ nguyên nội dung
+
+        # Lam sach STK: bo khoang trang, giu nguyen noi dung
         df['STK_clean'] = df['STK'].astype(str).str.strip().str.replace(' ', '')
-        
-        # Loại bỏ dòng không có STK hợp lệ
+
+        # Loai bo dong khong co STK hop le
         df = df[df['STK_clean'].notna() & (df['STK_clean'] != 'nan') & (df['STK_clean'] != '')]
-        
-        # Làm sạch tên: ưu tiên Người bị tố cáo, fallback Tên tài khoản
-        df['ten'] = df['Người bị tố cáo'].fillna(df['Tên tài khoản']).astype(str).str.strip()
+
+        # Lam sach ten: uu tien Nguoi bi to cao, fallback Ten tai khoan
+        df['ten'] = df['Nguoi bi to cao'].fillna(df['Ten tai khoan']).astype(str).str.strip()
         df['ten'] = df['ten'].replace('nan', '').replace('None', '')
-        
-        # Làm sạch ngân hàng
-        df['ngan_hang'] = df['Ngân hàng'].astype(str).str.strip().replace('nan', 'Không rõ')
-        
-        # Làm sạch SDT
+
+        # ✅ Lam sach ngan hang — se dua vao cot bank RIENG
+        df['ngan_hang'] = df['Ngan hang'].astype(str).str.strip().replace('nan', 'Khong ro')
+
+        # Lam sach SDT
         def clean_phone(x):
             if pd.isna(x):
                 return ''
             try:
-                # Bỏ .0 nếu là float
                 s = str(int(float(x)))
                 return s
             except:
                 s = str(x).strip().replace('.0', '')
                 return s if s != 'nan' else ''
-        
+
         df['sdt'] = df['SDT'].apply(clean_phone)
-        
-        # Làm sạch số tiền (bỏ dấu phẩy phân cách hàng nghìn)
+
+        # Lam sach so tien (bo dau phay phan cach hang nghin)
         def clean_amount(val):
             if pd.isna(val):
                 return None
@@ -68,43 +67,46 @@ class ExcelImporter:
                 return float(s)
             except:
                 return None
-        
-        df['so_tien'] = df['Số tiền'].apply(clean_amount)
-        
-        # Làm sạch lượt xem
+
+        df['so_tien'] = df['So tien'].apply(clean_amount)
+
+        # Lam sach luot xem
         def clean_views(val):
             if pd.isna(val):
                 return None
-            s = str(val).replace(' lượt xem', '').replace(',', '').strip()
+            s = str(val).replace(' luot xem', '').replace(',', '').strip()
             try:
                 return int(float(s))
             except:
                 return None
-        
-        df['luot_xem'] = df['Lượt xem'].apply(clean_views)
-        
+
+        df['luot_xem'] = df['Luot xem'].apply(clean_views)
+
         return df
-    
+
     @classmethod
     def import_to_blacklist(
-        cls, 
-        db: Session, 
+        cls,
+        db: Session,
         file_path: str,
         source: str = "excel_scam_report",
         base_risk_score: float = 0.90
     ) -> Dict:
         """
-        Import dữ liệu từ Excel vào bảng blacklist.
-        Mỗi STK = 1 entity account. Mỗi SDT (nếu có) = 1 entity phone.
+        Import du lieu tu Excel vao bang blacklist.
+        Moi STK = 1 entity account. Moi SDT (neu co) = 1 entity phone.
+
+        ✅ Dieu kien KIEN QUYET: STK + Ngan hang
+        Ten co the thay doi, KHONG dung de match.
         """
         cls.validate_file(file_path)
         df = cls._clean_dataframe(pd.read_excel(file_path))
-        
+
         imported_accounts = 0
         imported_phones = 0
         skipped = 0
         errors = []
-        
+
         for idx, row in df.iterrows():
             try:
                 stk = row['STK_clean']
@@ -113,40 +115,44 @@ class ExcelImporter:
                 sdt = row['sdt']
                 so_tien = row['so_tien']
                 luot_xem = row['luot_xem']
-                
+
                 # --- Import STK (account) ---
-                # Kiểm tra trùng lặp STK
+                # ✅ Kiem tra trung lap: STK + Ngan hang (dieu kien KIEN QUYET)
                 existing_acc = db.query(Blacklist).filter(
                     Blacklist.entity_value == stk,
+                    Blacklist.bank == ngan_hang,  # ✅ Check ca bank
                     Blacklist.entity_type == "account",
                     Blacklist.is_active == True
                 ).first()
-                
+
                 if not existing_acc:
-                    # Tính risk score dựa trên lượt xem (càng nhiều lượt xem = càng nhiều người tố cáo = rủi ro cao hơn)
+                    # Tinh risk score dua tren luot xem
                     risk_score = base_risk_score
                     if luot_xem and luot_xem > 1000:
                         risk_score = min(0.99, base_risk_score + 0.05)
                     elif luot_xem and luot_xem > 100:
                         risk_score = min(0.98, base_risk_score + 0.03)
-                    
+
+                    # ✅ Evidence CHI chua: ten, so_tien_bi_lua, sdt, luot_xem
+                    # ❌ KHONG chua ngan_hang (da ra cot bank rieng)
                     evidence = {
                         "ten": ten,
-                        "ngan_hang": ngan_hang,
                         "so_tien_bi_lua": so_tien,
                         "sdt": sdt if sdt else None,
                         "luot_xem": luot_xem,
                         "imported_from": file_path,
                         "row_index": int(idx)
                     }
-                    
-                    # Lọc bỏ None values để JSON gọn hơn
+
+                    # Loc bo None values de JSON gon hon
                     evidence = {k: v for k, v in evidence.items() if v is not None}
-                    
+
+                    # ✅ Them cot bank rieng
                     blacklist_entry = Blacklist(
                         id=uuid.uuid4(),
                         entity_type="account",
                         entity_value=stk,
+                        bank=ngan_hang,  # ✅ Cot rieng
                         source=source,
                         risk_score=risk_score,
                         evidence=evidence,
@@ -154,28 +160,29 @@ class ExcelImporter:
                     )
                     db.add(blacklist_entry)
                     imported_accounts += 1
-                
-                # --- Import SDT (phone) nếu có ---
+                else:
+                    skipped += 1
+
+                # --- Import SDT (phone) neu co ---
                 if sdt and len(sdt) >= 9:
                     existing_phone = db.query(Blacklist).filter(
                         Blacklist.entity_value == sdt,
                         Blacklist.entity_type == "phone",
                         Blacklist.is_active == True
                     ).first()
-                    
+
                     if not existing_phone:
                         phone_evidence = {
                             "ten": ten,
                             "sdt": sdt,
                             "stk_lien_quan": stk,
-                            "ngan_hang": ngan_hang,
                             "so_tien_bi_lua": so_tien,
                             "luot_xem": luot_xem,
                             "imported_from": file_path,
                             "row_index": int(idx)
                         }
                         phone_evidence = {k: v for k, v in phone_evidence.items() if v is not None}
-                        
+
                         phone_entry = Blacklist(
                             id=uuid.uuid4(),
                             entity_type="phone",
@@ -187,36 +194,38 @@ class ExcelImporter:
                         )
                         db.add(phone_entry)
                         imported_phones += 1
-                
+                    else:
+                        skipped += 1
+
             except Exception as e:
                 errors.append({"row": int(idx), "stk": str(stk), "error": str(e)})
                 skipped += 1
-        
+
         db.commit()
-        
+
         return {
             "total_rows_processed": len(df),
             "imported_accounts": imported_accounts,
             "imported_phones": imported_phones,
             "skipped": skipped,
-            "errors": errors[:20]  # Giới hạn 20 lỗi đầu
+            "errors": errors[:20]  # Gioi han 20 loi dau
         }
-    
+
     @classmethod
     def preview_data(cls, file_path: str, limit: int = 10) -> List[Dict]:
-        """Xem trước dữ liệu trong file Excel sau khi làm sạch"""
+        """Xem truoc du lieu trong file Excel sau khi lam sach"""
         cls.validate_file(file_path)
         df = cls._clean_dataframe(pd.read_excel(file_path))
         preview_df = df.head(limit)[['ten', 'STK_clean', 'ngan_hang', 'sdt', 'so_tien', 'luot_xem']]
         preview_df.columns = ['ten', 'stk', 'ngan_hang', 'sdt', 'so_tien', 'luot_xem']
         return preview_df.to_dict("records")
-    
+
     @classmethod
     def get_statistics(cls, file_path: str) -> Dict:
-        """Thống kê dữ liệu trong file Excel"""
+        """Thong ke du lieu trong file Excel"""
         cls.validate_file(file_path)
         df = cls._clean_dataframe(pd.read_excel(file_path))
-        
+
         return {
             "total_records": len(df),
             "has_phone": (df['sdt'] != '').sum(),

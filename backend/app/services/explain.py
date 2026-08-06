@@ -1,61 +1,63 @@
-"""Sinh lời giải thích + khuyến nghị + câu hỏi xác minh.
+"""Sinh loi giai thich + khuyen nghi + cau hoi xac minh.
 
-Bản hiện tại là template deterministic, chỉ diễn đạt lại các tín hiệu đã kích
-hoạt — đúng nguyên tắc "giải thích dựa trên dữ liệu đối chiếu thực tế, không tự
-suy diễn". Ở sprint sau, LangGraph agent sẽ thay hàm explain() bằng LLM + RAG,
-nhưng vẫn nhận đúng list[RiskSignal] này làm input.
+Ban hien tai la template deterministic, chi dien dat lai cac tin hieu da kich
+hoat — dung nguyen tac "giai thich dua tren du lieu doi chieu thuc te, khong tu
+suy dien". O sprint sau, LangGraph agent se thay ham explain() bang LLM + RAG,
+nhung van nhan dung list[RiskSignal] nay lam input.
 """
 
+from app.models import Blacklist  # ✅ Dung dung model tu models.py
 from app.models.transaction import RiskLevel
 from app.schemas.risk import RiskSignal
+from sqlalchemy.orm import Session
 
 _LEVEL_INTRO = {
-    RiskLevel.LOW: "Giao dịch này không có dấu hiệu bất thường.",
-    RiskLevel.MEDIUM: "Giao dịch này có một số dấu hiệu cần bạn lưu ý.",
-    RiskLevel.HIGH: "Giao dịch này có nhiều dấu hiệu rủi ro cao của lừa đảo.",
+    RiskLevel.LOW: "Giao dich nay khong co dau hieu bat thuong.",
+    RiskLevel.MEDIUM: "Giao dich nay co mot so dau hieu can ban luu y.",
+    RiskLevel.HIGH: "Giao dich nay co nhieu dau hieu rui ro cao cua lua dao.",
 }
 
 _LEVEL_RECOMMENDATION = {
-    RiskLevel.LOW: "Bạn có thể tiếp tục giao dịch.",
+    RiskLevel.LOW: "Ban co the tiep tuc giao dich.",
     RiskLevel.MEDIUM: (
-        "Hãy xác minh lại người nhận qua một kênh liên lạc khác "
-        "(gọi điện trực tiếp) trước khi chuyển tiền."
+        "Hay xac minh lai nguoi nhan qua mot kenh lien lac khac "
+        "(goi dien truc tiep) truoc khi chuyen tien."
     ),
     RiskLevel.HIGH: (
-        "Chúng tôi khuyến nghị bạn TẠM DỪNG giao dịch và xác minh trực tiếp với "
-        "người nhận qua số điện thoại bạn đã biết. Quyết định cuối cùng vẫn "
-        "thuộc về bạn."
+        "Chung toi khuyen nghi ban TAM DUNG giao dich va xac minh truc tiep voi "
+        "nguoi nhan qua so dien thoai ban da biet. Quyet dinh cuoi cung van "
+        "thuoc ve ban."
     ),
 }
 
-# Câu hỏi xác minh cho luồng HITL khi rủi ro cao (yêu cầu 5.3: 2-3 câu).
+# Cau hoi xac minh cho luong HITL khi rui ro cao (yeu cau 5.3: 2-3 cau).
 _HIGH_RISK_QUESTIONS = [
-    "Bạn có gọi điện trực tiếp cho người nhận để xác nhận yêu cầu chuyển tiền này không?",
-    "Người nhận có yêu cầu bạn chuyển tiền gấp hoặc giữ bí mật với người khác không?",
-    "Bạn có chắc số tài khoản này là của đúng người bạn định chuyển tiền?",
+    "Ban co goi dien truc tiep cho nguoi nhan de xac nhan yeu cau chuyen tien nay khong?",
+    "Nguoi nhan co yeu cau ban chuyen tien gap hoac giu bi mat voi nguoi khac khong?",
+    "Ban co chac so tai khoan nay la cua dung nguoi ban dinh chuyen tien?",
 ]
 
 _MEDIUM_RISK_QUESTIONS = [
-    "Bạn đã từng giao dịch với người nhận này trước đây chưa?",
+    "Ban da tung giao dich voi nguoi nhan nay truoc day chua?",
 ]
 
 
 def explain(risk_level: RiskLevel, signals: list[RiskSignal]) -> str:
-    """Ghép lời giải thích từ các tín hiệu thực tế đã kích hoạt."""
+    """Ghep loi giai thich tu cac tin hieu thuc te da kich hoat."""
     lines = [_LEVEL_INTRO[risk_level]]
 
-    # Chỉ liệt kê tín hiệu làm tăng rủi ro; tín hiệu giảm nêu riêng.
+    # Chi liet ke tin hieu lam tang rui ro; tin hieu giam neu rieng.
     risk_increasing = [s for s in signals if s.weight > 0]
     risk_reducing = [s for s in signals if s.weight < 0]
 
     if risk_increasing:
-        lines.append("\nLý do cảnh báo:")
+        lines.append("\nLy do canh bao:")
         lines.extend(
             f"- {s.label}" + (f": {s.detail}" if s.detail else "") for s in risk_increasing
         )
 
     if risk_reducing:
-        lines.append("\nYếu tố làm giảm rủi ro:")
+        lines.append("\nYeu to lam giam rui ro:")
         lines.extend(
             f"- {s.label}" + (f": {s.detail}" if s.detail else "") for s in risk_reducing
         )
@@ -73,3 +75,40 @@ def verification_questions(risk_level: RiskLevel) -> list[str]:
     if risk_level is RiskLevel.MEDIUM:
         return list(_MEDIUM_RISK_QUESTIONS)
     return []
+
+
+# ✅ Ham moi: Kiem tra blacklist voi STK + Bank (dieu kien KIEN QUYET)
+def check_blacklist_signal(
+    db: Session,
+    payee_account: str,
+    payee_bank: str
+) -> RiskSignal | None:
+    """
+    Kiem tra STK + Ngan hang trong blacklist.
+    Ten trong evidence chi de hien thi, khong dung de match.
+
+    Tra ve RiskSignal neu tim thay, None neu khong.
+    """
+    if not payee_account or not payee_bank:
+        return None
+
+    entry = db.query(Blacklist).filter(
+        Blacklist.entity_value == payee_account.replace(' ', '').strip(),
+        Blacklist.bank == payee_bank.strip(),
+        Blacklist.is_active == True,
+        Blacklist.entity_type == "account"
+    ).first()
+
+    if entry is None:
+        return None
+
+    # Lay ten tu evidence de hien thi (co the thay doi, khong dung de match)
+    evidence = entry.evidence or {}
+    ten = evidence.get('ten', 'Khong ro')
+
+    return RiskSignal(
+        code="BLACKLISTED_PAYEE",
+        label="Nguoi nhan nam trong danh sach den",
+        weight=70,
+        detail=f"{ten} | {entry.bank} | Risk: {float(entry.risk_score)*100:.0f}%",
+    )

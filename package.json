@@ -7,5 +7,10 @@
     "react-router-dom": "^7.18.2",
     "tailwind-merge": "^3.6.0",
     "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.5.4",
+    "postcss": "^8.5.25",
+    "tailwindcss": "^4.3.3"
   }
 }

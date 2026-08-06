@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DECIMAL, Boolean, DateTime, ForeignKey, Text, JSON, ARRAY, UUID, Integer
+from sqlalchemy import Column, String, DECIMAL, Boolean, DateTime, ForeignKey, Text, JSON, ARRAY, UUID, Integer,Index
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, INET
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
@@ -30,17 +30,24 @@ class TrustedRecipient(Base):
     trusted_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     user = relationship("User", back_populates="trusted_recipients")
 
+
 class Blacklist(Base):
     __tablename__ = "blacklist"
     id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    entity_type = Column(String(20), nullable=False)
-    entity_value = Column(String(255), nullable=False, index=True)
+    entity_type = Column(String(20), nullable=False)  # "account" | "phone"
+    entity_value = Column(String(255), nullable=False, index=True)  # STK hoặc SDT
+    bank = Column(String(100), nullable=True, index=True)  # ✅ THÊM DÒNG NÀY
     source = Column(String(50), nullable=False)
-    risk_score = Column(DECIMAL(3,2), default=0.95)
-    evidence = Column(JSON)
+    risk_score = Column(DECIMAL(3, 2), default=0.95)
+    evidence = Column(JSON)  # Chỉ chứa: ten, so_tien_bi_lua, sdt, luot_xem
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    # ✅ THÊM INDEX cho query nhanh theo STK + Ngân hàng
+    __table_args__ = (
+        Index('idx_blacklist_account_bank', 'entity_value', 'bank'),
+    )
 
 class ScamPattern(Base):
     __tablename__ = "scam_patterns"
