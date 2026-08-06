@@ -5,20 +5,22 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
-#đã xem
+
     # App
     app_name: str = "AI20K Agent"
     app_env: Literal["development", "production", "test"] = "development"
     app_port: int = Field(default=8000, ge=1, le=65535)
     app_host: str = "0.0.0.0"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000"  # legacy alias
+    allowed_origins: str = "http://localhost:3000,http://localhost:8501"
 
     # LLM
     openai_api_key: str = ""
@@ -30,6 +32,11 @@ class Settings(BaseSettings):
 
     # Vector Store
     chroma_persist_dir: str = "./data/chroma"
+
+    # PDPA / Data protection
+    pii_encryption_key: str = ""  # Fernet key — sinh bằng Fernet.generate_key()
+    audit_log_retention_days: int = Field(default=90, ge=1)
+    data_retention_days: int = Field(default=365, ge=1)
 
 
 @lru_cache

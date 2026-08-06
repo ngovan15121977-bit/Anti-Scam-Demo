@@ -16,15 +16,15 @@ Examples:
   # Hoàng logs a Gemini web session
   python scripts/log_manual.py --tool gemini-web --prompt "Research risk scoring algorithms"
 
-  # Quick interactive mode
-  python scripts/log_manual.py
+# Quick interactive mode
+   python scripts/log_manual.py
 """
+import argparse
 import json
 import os
-import sys
 import subprocess
-import argparse
-from datetime import datetime, timezone, timedelta
+import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 VN_TZ = timezone(timedelta(hours=7))
@@ -76,16 +76,13 @@ def main():
     else:
         tool, model, prompt, result = interactive_mode()
 
-    ts = datetime.now(VN_TZ).isoformat()
-
     student = git("git config user.email")
     if not student:
         student = os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
         print(f"[log] ⚠️  git email not set! Using fallback: {student}", file=sys.stderr)
-        print(f"[log] Run: git config user.email \"your@vinuni.edu.vn\"", file=sys.stderr)
+        print("[log] Run: git config user.email \"your@vinuni.edu.vn\"", file=sys.stderr)
 
     entry = {
-        "ts": ts,
         "tool": tool,
         "event": "ManualLog",
         "entry_id": f"manual-{datetime.now(VN_TZ).strftime('%Y%m%d-%H%M%S')}",

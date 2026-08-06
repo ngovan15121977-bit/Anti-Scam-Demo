@@ -12,6 +12,7 @@ def should_continue(state: AgentState) -> str:
 
 
 def build_graph() -> StateGraph:
+    """Compile LangGraph agent. Gọi 1 lần duy nhất qua lifespan."""
     graph = StateGraph(AgentState)
 
     # Add nodes
@@ -26,4 +27,4 @@ def build_graph() -> StateGraph:
     return graph.compile()
 
 
-agent = build_graph()
+# KHÔNG khởi tạo agent ở đây — dùng app.state.agent qua lifespan trong main.py

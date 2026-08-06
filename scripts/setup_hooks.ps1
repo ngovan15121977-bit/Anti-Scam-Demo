@@ -3,9 +3,13 @@
 
 $ErrorActionPreference = 'Stop'
 
-$HookFile = '.git/hooks/pre-push'
+$HooksDir = '.githooks'
+$HookFile = Join-Path $HooksDir 'pre-push'
 
-# Git on Windows runs hooks via Git Bash, so the hook body must be bash.
+if (-not (Test-Path $HooksDir)) {
+    New-Item -ItemType Directory -Path $HooksDir | Out-Null
+}
+
 $HookBody = @'
 #!/usr/bin/env bash
 # Pre-push: sweep recent Antigravity / Gemini prompts, then submit AI logs.
@@ -14,10 +18,16 @@ bash scripts/_pyrun.sh scripts/submit_log.py || true
 exit 0
 '@
 
-Set-Content -Path $HookFile -Value $HookBody -Encoding UTF8 -NoNewline
-Write-Host "[ai-log] Git pre-push hook installed."
+[System.IO.File]::WriteAllText(
+    $HookFile,
+    $HookBody,
+    (New-Object System.Text.UTF8Encoding($false))
+)
+
+git config core.hooksPath $HooksDir
 
 if (-not (Test-Path .ai-log)) { New-Item -ItemType Directory -Path .ai-log | Out-Null }
 if (-not (Test-Path .ai-log/.gitkeep)) { New-Item -ItemType File -Path .ai-log/.gitkeep | Out-Null }
 
+Write-Host "[ai-log] Git hooks path set to $HooksDir."
 Write-Host "[ai-log] Setup complete. Configure AI_LOG_SERVER in your .env file."

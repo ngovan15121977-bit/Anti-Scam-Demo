@@ -51,7 +51,7 @@ cp .env.example .env
 ### Bước 3: Cài AI Logging Hooks
 
 ```bash
-# Linux / macOS / Git Bash,đã xem nhé
+# Linux / macOS / Git Bash
 bash scripts/setup_hooks.sh
 
 # Windows PowerShell
