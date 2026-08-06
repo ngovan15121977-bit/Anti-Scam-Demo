@@ -1,51 +1,68 @@
-"""Hash mật khẩu (bcrypt) và phát hành / xác thực JWT."""
-
-from datetime import datetime, timedelta, timezone
-from typing import Any
-
+from datetime import datetime, timedelta
+from typing import Optional
 import bcrypt
-import jwt
+from jose import JWTError, jwt
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.orm import Session
+from ..database import get_db
+from ..models import User
 
-from app.config import get_settings
+SECRET_KEY = "your-secret-key-change-in-production"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-settings = get_settings()
-
-# bcrypt chỉ dùng 72 byte đầu của mật khẩu; cắt trước để tránh lỗi ở bcrypt 4.x.
-_BCRYPT_MAX_BYTES = 72
-
-
-def _truncate(password: str) -> bytes:
-    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
-
-
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(_truncate(password), bcrypt.gensalt()).decode("utf-8")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
-def verify_password(password: str, hashed: str) -> bool:
-    try:
-        return bcrypt.checkpw(_truncate(password), hashed.encode("utf-8"))
-    except ValueError:
-        # Hash không đúng định dạng bcrypt — coi như xác thực thất bại.
-        return False
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    # bcrypt giới hạn 72 bytes
+    password_bytes = plain_password.encode("utf-8")[:72]
+    hashed_bytes = hashed_password.encode("utf-8")
+    return bcrypt.checkpw(password_bytes, hashed_bytes)
 
 
-def create_access_token(subject: str, role: str) -> str:
-    """Phát hành access token. `subject` là user id dạng string."""
-    now = datetime.now(timezone.utc)
-    payload: dict[str, Any] = {
-        "sub": subject,
-        "role": role,
-        "iat": now,
-        "exp": now + timedelta(minutes=settings.access_token_expire_minutes),
-    }
-    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+def get_password_hash(password: str) -> str:
+    # bcrypt giới hạn 72 bytes
+    password_bytes = password.encode("utf-8")[:72]
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password_bytes, salt).decode("utf-8")
 
 
-def decode_access_token(token: str) -> dict[str, Any]:
-    """Giải mã token. Ném jwt.PyJWTError nếu token sai hoặc đã hết hạn."""
-    return jwt.decode(
-        token,
-        settings.jwt_secret_key,
-        algorithms=[settings.jwt_algorithm],
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+async def get_current_user(
+        token: str = Depends(oauth2_scheme),
+        db: Session = Depends(get_db)
+) -> User:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Không thể xác thực thông tin đăng nhập",
+        headers={"WWW-Authenticate": "Bearer"},
     )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None or not user.is_active:
+        raise credentials_exception
+    return user
+
+
+async def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Yêu cầu quyền admin"
+        )
+    return current_user
