@@ -27,6 +27,7 @@ export const useAuthStore = create<AuthState>()(
       isLoading: false,
 
       setAuth: (token, user) => {
+        localStorage.setItem("token", token);
         set({
           token,
           user,
@@ -39,9 +40,10 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true });
         try {
           const res = await authApi.login({ email, password });
-          const { token, user } = res.data;
+          const { access_token, user } = res.data;
+          localStorage.setItem("token", access_token);
           set({
-            token,
+            token: access_token,
             user,
             isAuthenticated: true,
             isAdmin: user.role === "admin",
@@ -57,9 +59,10 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true });
         try {
           const res = await authApi.register(data);
-          const { token, user } = res.data;
+          const { access_token, user } = res.data;
+          localStorage.setItem("token", access_token);
           set({
-            token,
+            token: access_token,
             user,
             isAuthenticated: true,
             isAdmin: user.role === "admin",
@@ -73,6 +76,8 @@ export const useAuthStore = create<AuthState>()(
 
       logout: async () => {
         await authApi.logout();
+        localStorage.removeItem("token");
+        localStorage.removeItem("auth-storage");
         set({
           user: null,
           token: null,
@@ -92,6 +97,8 @@ export const useAuthStore = create<AuthState>()(
             isAdmin: user.role === "admin",
           });
         } catch {
+          localStorage.removeItem("token");
+          localStorage.removeItem("auth-storage");
           set({
             user: null,
             token: null,

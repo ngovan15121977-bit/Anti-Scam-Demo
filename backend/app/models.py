@@ -36,6 +36,7 @@ class Blacklist(Base):
     id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     entity_type = Column(String(20), nullable=False)  # "account" | "phone"
     entity_value = Column(String(255), nullable=False, index=True)  # STK hoặc SDT
+    bank = Column(String(100), nullable=True, index=True)  # ✅ THÊM
     bank = Column(String(100), nullable=True, index=True)  # ✅ THÊM DÒNG NÀY
     source = Column(String(50), nullable=False)
     risk_score = Column(DECIMAL(3, 2), default=0.95)

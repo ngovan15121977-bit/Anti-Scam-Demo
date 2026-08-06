@@ -12,6 +12,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
+import { transactionsApi } from "@/api/transactions";
 import AIRiskModal, { type RiskAssessment } from "@/components/ai/AIRiskModal";
 
 interface TransferForm {
@@ -42,67 +43,88 @@ export default function TransferPage() {
     note: "",
   });
   const [riskData, setRiskData] = useState<RiskAssessment | null>(null);
+  const [txId, setTxId] = useState<string>("");
 
-  const transferMutation = useMutation({
+  // ✅ SỬA: Dùng transactionsApi.analyze thay vì fetch trực tiếp
+  const analyzeMutation = useMutation({
     mutationFn: async (data: TransferForm) => {
-      const res = await fetch("/api/v1/transactions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...data,
-          amount: parseFloat(data.amount),
-        }),
+      const bank = banks.find(b => b.code === data.bank_code);
+      const res = await transactionsApi.analyze({
+        recipient_account: data.recipient_account,
+        recipient_bank: bank?.name || data.bank_code,
+        recipient_name: data.recipient_name,// Gửi "MB Bank" thay vì "MBB"
+        amount: parseFloat(data.amount),
+        description: data.note,
       });
-      if (!res.ok) throw new Error("Transfer failed");
-      return res.json();
+      return res;
+    },
+    onSuccess: (data) => {
+      // Lưu transaction ID
+      if (data.id) setTxId(data.id);
+
+      // Nếu risk cao, hiện modal
+      if (data.risk_analysis?.risk_level === "high" || data.risk_analysis?.risk_level === "critical") {
+        setRiskData(data.risk_analysis);
+        setStep("ai-check");
+      } else {
+        // Risk thấp, chuyển luôn
+        setStep("success");
+      }
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.detail || "Có lỗi xảy ra khi phân tích rủi ro");
     },
   });
 
-  const riskCheckMutation = useMutation({
-    mutationFn: async (data: TransferForm) => {
-      const res = await fetch("/api/v1/risk/assess", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          payee_account: data.recipient_account,
-          payee_name: data.recipient_name,
-          bank_code: data.bank_code,
-          amount: parseFloat(data.amount),
-          note: data.note,
-        }),
-      });
-      if (!res.ok) throw new Error("Risk check failed");
-      return res.json() as RiskAssessment;
+  // ✅ SỬA: Dùng transactionsApi.decide + transactionsApi.transfer
+  const transferMutation = useMutation({
+    mutationFn: async (decision: "confirmed" | "cancelled") => {
+      if (!txId) throw new Error("Không có mã giao dịch");
+
+      // Bước 1: Gửi quyết định
+      await transactionsApi.decide(txId, decision);
+
+      // Bước 2: Nếu confirmed, thực hiện chuyển tiền
+      if (decision === "confirmed") {
+        const bank = banks.find(b => b.code === form.bank_code);
+        await transactionsApi.transfer({
+          toAccount: form.recipient_account,
+          amount: parseFloat(form.amount),
+          description: form.note,
+          pin: "123456", // TODO: Thêm input PIN
+        });
+      }
+
+      return { success: true };
     },
-    onSuccess: (data) => {
-      setRiskData(data);
-      setStep("ai-check");
+    onSuccess: () => {
+      setStep("success");
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.detail || "Có lỗi xảy ra khi chuyển tiền");
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.recipient_account || !form.recipient_name || !form.amount) return;
+    if (!form.recipient_account || !form.recipient_name || !form.amount || !form.bank_code) return;
     setStep("review");
   };
 
   const handleRiskCheck = () => {
-    riskCheckMutation.mutate(form);
+    analyzeMutation.mutate(form);
   };
 
   const handleProceed = () => {
-    transferMutation.mutate(form, {
-      onSuccess: () => setStep("success"),
-    });
+    transferMutation.mutate("confirmed");
   };
 
   const handleCancel = () => {
-    if (step === "ai-check") {
-      setStep("review");
-      setRiskData(null);
-    } else {
-      navigate("/dashboard");
+    if (txId) {
+      transferMutation.mutate("cancelled");
     }
+    setStep("review");
+    setRiskData(null);
   };
 
   const formatMoney = (amount: string) => {
@@ -214,7 +236,7 @@ export default function TransferPage() {
           {/* Submit */}
           <button
             onClick={handleSubmit}
-            disabled={!form.recipient_account || !form.recipient_name || !form.amount}
+            disabled={!form.recipient_account || !form.recipient_name || !form.amount || !form.bank_code}
             className="w-full py-4 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold rounded-2xl shadow-lg shadow-rose-200 hover:shadow-xl active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             <Send className="w-5 h-5" />
@@ -249,7 +271,7 @@ export default function TransferPage() {
             <div className="flex justify-between items-center">
               <span className="text-gray-500">Ngân hàng</span>
               <span className="font-semibold text-gray-800">
-                {banks.find(b => b.code === form.bank_code)?.name || form.bank_code || "Không chọn"}
+                {banks.find(b => b.code === form.bank_code)?.name || form.bank_code}
               </span>
             </div>
             <hr className="border-gray-100" />
@@ -267,10 +289,10 @@ export default function TransferPage() {
 
           <button
             onClick={handleRiskCheck}
-            disabled={riskCheckMutation.isPending}
+            disabled={analyzeMutation.isPending}
             className="w-full py-4 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold rounded-2xl shadow-lg shadow-rose-200 hover:shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
           >
-            {riskCheckMutation.isPending ? (
+            {analyzeMutation.isPending ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
                 AI đang kiểm tra...
@@ -325,6 +347,7 @@ export default function TransferPage() {
                 setStep("form");
                 setForm({ recipient_account: "", recipient_name: "", bank_code: "", amount: "", note: "" });
                 setRiskData(null);
+                setTxId("");
               }}
               className="w-full py-3 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold rounded-xl hover:shadow-lg transition-all"
             >

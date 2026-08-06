@@ -2,7 +2,6 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, lazy, Suspense } from "react";
 import { useAuthStore } from "@/stores/authStore";
-import { authApi } from "@/api/auth";
 
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
@@ -15,15 +14,20 @@ const TransferPage = lazy(() => import("@/pages/TransferPage"));
 const HistoryPage = lazy(() => import("@/pages/HistoryPage"));
 const AdminPage = lazy(() => import("@/pages/AdminPage"));
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
+
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 });
 
 function AuthInitializer({ children }: { children: React.ReactNode }) {
-  const { token, setAuth, logout } = useAuthStore();
+  const { token, fetchMe } = useAuthStore();
+
   useEffect(() => {
-    if (token) authApi.me().then((u) => setAuth(token, u)).catch(() => logout());
+    if (token) {
+      fetchMe();
+    }
   }, []);
+
   return <>{children}</>;
 }
 
@@ -38,14 +42,10 @@ function App() {
             </div>
           }>
             <Routes>
-              {/* Landing page - FULL WIDTH */}
               <Route path="/" element={<HomePage />} />
-
-              {/* Auth pages */}
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
 
-              {/* App pages - MOBILE LAYOUT with max-w-md */}
               <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/transfer" element={<TransferPage />} />
