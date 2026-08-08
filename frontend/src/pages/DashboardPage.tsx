@@ -151,7 +151,7 @@ export default function HomePage() {
                       <User className="w-4 h-4 text-white" />
                     </div>
                     <span className="max-w-[120px] truncate">
-                      {user.fullName || user.name || user.email || "Tài khoản"}
+                      {user.full_name || user.email || "Tài khoản"}
                     </span>
                   </button>
                   <button
@@ -205,7 +205,7 @@ export default function HomePage() {
                   </div>
                   <div>
                     <p className="font-semibold text-slate-800">
-                      {user.fullName || user.name || "Người dùng"}
+                      {user.full_name || "Người dùng"}
                     </p>
                     <p className="text-xs text-slate-500">{user.email}</p>
                   </div>

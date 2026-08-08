@@ -1,22 +1,11 @@
-import os
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+"""Compatibility exports for legacy imports.
 
-# Sửa từ fintechguard → fin19_db
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:070405@localhost:5432/fin19_db"  # <-- sửa ở đây
-)
+All database configuration lives in :mod:`app.config` and :mod:`app.db.session`.
+Keeping this module prevents older files from silently opening a second engine or
+using credentials embedded in source code.
+"""
 
-engine = create_engine(DATABASE_URL, echo=True)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+from app.db.base import Base
+from app.db.session import SessionLocal, engine, get_db
 
-Base = declarative_base()
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+__all__ = ["Base", "SessionLocal", "engine", "get_db"]

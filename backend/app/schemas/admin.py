@@ -1,58 +1,46 @@
 import uuid
 from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-# ---------------- Blacklist ----------------
-
-
 class BlacklistCreate(BaseModel):
-    account_number: str = Field(..., min_length=4, max_length=64)
-    account_name: str | None = Field(default=None, max_length=255)
-    bank_code: str | None = Field(default=None, max_length=32)
-    reason: str = Field(..., min_length=1, max_length=1000)
-    source: str | None = Field(default=None, max_length=128)
-    report_count: int = Field(default=1, ge=1)
+    entity_type: Literal["account", "phone", "email", "url"]
+    entity_value: str = Field(..., min_length=1, max_length=255)
+    bank: str | None = Field(default=None, max_length=100)
+    source: str = Field(..., min_length=1, max_length=255)
+    risk_score: float = Field(default=0.95, ge=0, le=1)
+    evidence: dict[str, Any] | None = None
 
 
-class BlacklistOut(BaseModel):
+class BlacklistOut(BlacklistCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    account_number: str
-    account_name: str | None
-    bank_code: str | None
-    reason: str
-    source: str | None
-    report_count: int
+    is_active: bool
     created_at: datetime
+    updated_at: datetime
 
 
-# ---------------- Kịch bản lừa đảo ----------------
+class ScamPatternCreate(BaseModel):
+    pattern_name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(..., min_length=1, max_length=10_000)
+    keywords: list[str] = Field(default_factory=list, max_length=50)
+    risk_weight: float = Field(default=0.5, ge=0, le=1)
+    source_id: uuid.UUID | None = None
 
 
-class ScamScenarioCreate(BaseModel):
-    title: str = Field(..., min_length=1, max_length=255)
-    content: str = Field(..., min_length=1, max_length=10_000)
-    category: str = Field(..., min_length=1, max_length=64)
-    source: str | None = Field(default=None, max_length=255)
-
-
-class ScamScenarioOut(BaseModel):
-    """Không expose cột `embedding` — vector 1536 chiều vô ích với client."""
-
+class ScamPatternOut(ScamPatternCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    title: str
-    content: str
-    category: str
-    source: str | None
+    vector_document_id: uuid.UUID | None
+    embedding_model: str | None
+    embedding_updated_at: datetime | None
+    is_active: bool
     created_at: datetime
-
-
-# ---------------- Thống kê ----------------
+    updated_at: datetime
 
 
 class StatsOut(BaseModel):
@@ -60,8 +48,6 @@ class StatsOut(BaseModel):
     by_risk_level: dict[str, int]
     high_risk_count: int
     high_risk_cancelled: int
-
-    # None khi chưa có giao dịch rủi ro cao nào để tính tỷ lệ.
     recommendation_compliance_rate: float | None
     blacklist_size: int
-    scenario_count: int
+    pattern_count: int

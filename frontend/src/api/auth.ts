@@ -3,24 +3,18 @@ import axiosInstance from "./axios";
 export interface User {
   id: string;
   email: string;
-  phone?: string;
-  fullName: string;
-  name?: string;
-  avatar?: string;
+  phone?: string | null;
+  full_name: string;
   role: "user" | "admin";
+  is_active: boolean;
   balance: number;
-  isVerified: boolean;
-  createdAt: string;
+  created_at: string;
 }
 
-export interface AuthResponse {
-  success: boolean;
-  message: string;
-  data: {
-    access_token: string;
-    token_type: string;
-    user: User;
-  };
+export interface TokenResponse {
+  access_token: string;
+  token_type: "bearer";
+  user: User;
 }
 
 export interface LoginRequest {
@@ -29,64 +23,29 @@ export interface LoginRequest {
 }
 
 export interface RegisterRequest {
-  fullName: string;
+  full_name: string;
   email: string;
   phone?: string;
   password: string;
 }
 
-export interface ChangePasswordRequest {
-  currentPassword: string;
-  newPassword: string;
-}
-
-export interface UpdateProfileRequest {
-  fullName?: string;
-  phone?: string;
-  avatar?: string;
-}
-
 export const authApi = {
-  login: async (data: LoginRequest): Promise<AuthResponse> => {
-    const res = await axiosInstance.post<AuthResponse>("/v1/auth/login", data);
-    return res.data;
+  login: async (data: LoginRequest): Promise<TokenResponse> => {
+    const response = await axiosInstance.post<TokenResponse>("/v1/auth/login", data);
+    return response.data;
   },
 
-  register: async (data: RegisterRequest): Promise<AuthResponse> => {
-    const res = await axiosInstance.post<AuthResponse>("/v1/auth/register", data);
-    return res.data;
+  register: async (data: RegisterRequest): Promise<TokenResponse> => {
+    const response = await axiosInstance.post<TokenResponse>("/v1/auth/register", data);
+    return response.data;
   },
 
   me: async (): Promise<User> => {
-    const res = await axiosInstance.get<{ user: User }>("/v1/auth/me");
-    return res.data.user;
-  },
-
-  changePassword: async (data: ChangePasswordRequest) => {
-    const res = await axiosInstance.post("/v1/auth/change-password", data);
-    return res.data;
-  },
-
-  updateProfile: async (data: UpdateProfileRequest): Promise<User> => {
-    const res = await axiosInstance.put<{ user: User }>("/v1/auth/profile", data);
-    return res.data.user;
-  },
-
-  forgotPassword: async (email: string) => {
-    const res = await axiosInstance.post("/v1/auth/forgot-password", { email });
-    return res.data;
-  },
-
-  resetPassword: async (token: string, newPassword: string) => {
-    const res = await axiosInstance.post("/v1/auth/reset-password", { token, newPassword });
-    return res.data;
+    const response = await axiosInstance.get<User>("/v1/auth/me");
+    return response.data;
   },
 
   logout: async () => {
-    try {
-      await axiosInstance.post("/v1/auth/logout");
-    } catch {
-      // Silent fail
-    }
+    localStorage.removeItem("token");
   },
 };

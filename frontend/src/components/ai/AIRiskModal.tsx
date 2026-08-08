@@ -1,147 +1,130 @@
-import { X, ShieldAlert, ShieldCheck, ShieldX, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Loader2, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
+import type { AssessResponse } from "@/api/transactions";
+
+export type RiskAssessment = AssessResponse;
 
 interface AIRiskModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  riskScore: number;
-  riskReason: string;
-  transactionId: string;
-  onContinue: () => void; // User vẫn muốn tiếp tục (gửi lại với force=true)
-  onCancel: () => void;   // User hủy giao dịch
+  riskData: RiskAssessment;
+  onProceed: () => void;
+  onCancel: () => void;
+  isLoading: boolean;
+}
+
+function remainingSeconds(displayedAt: string, countdownSeconds: number): number {
+  const deadline = new Date(displayedAt).getTime() + countdownSeconds * 1000;
+  return Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
 }
 
 export default function AIRiskModal({
-  isOpen,
-  onClose,
-  riskScore,
-  riskReason,
-  transactionId,
-  onContinue,
+  riskData,
+  onProceed,
   onCancel,
+  isLoading,
 }: AIRiskModalProps) {
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const warning = riskData.warning;
+  const [verified, setVerified] = useState(false);
+  const [remaining, setRemaining] = useState(() =>
+    warning ? remainingSeconds(warning.displayed_at, warning.countdown_seconds) : 0,
+  );
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!warning) return undefined;
 
-  const isHighRisk = riskScore >= 0.8;
-  const isMediumRisk = riskScore >= 0.5 && riskScore < 0.8;
+    const updateCountdown = () => {
+      setRemaining(remainingSeconds(warning.displayed_at, warning.countdown_seconds));
+    };
+    updateCountdown();
+    const timer = window.setInterval(updateCountdown, 250);
+    return () => window.clearInterval(timer);
+  }, [warning]);
 
-  const getRiskColor = () => {
-    if (isHighRisk) return "text-red-600 bg-red-50 border-red-200";
-    if (isMediumRisk) return "text-amber-600 bg-amber-50 border-amber-200";
-    return "text-rose-600 bg-rose-50 border-rose-200";
-  };
-
-  const getRiskIcon = () => {
-    if (isHighRisk) return <ShieldX className="w-12 h-12 text-red-500" />;
-    if (isMediumRisk) return <ShieldAlert className="w-12 h-12 text-amber-500" />;
-    return <ShieldCheck className="w-12 h-12 text-rose-500" />;
-  };
-
-  const handleContinue = async () => {
-    setIsSubmitting(true);
-    try {
-      await onContinue();
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  const isHighRisk = riskData.risk_level === "high";
+  const canProceed = remaining === 0 && verified && !isLoading;
+  const riskPercentage = Math.round(riskData.risk_score * 100);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-        {/* Header */}
-        <div className={`p-6 text-center border-b ${getRiskColor()}`}>
-          <div className="flex justify-center mb-3">{getRiskIcon()}</div>
-          <h3 className="text-xl font-bold text-slate-900">
-            {isHighRisk ? "🚨 Giao dịch bị chặn!" : "⚠️ Cảnh báo rủi ro"}
-          </h3>
-          <p className="text-sm mt-1 opacity-80">
-            AI Anti-Scam đã phát hiện dấu hiệu bất thường
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
+        <div className={`p-6 text-center ${isHighRisk ? "bg-red-50" : "bg-amber-50"}`}>
+          <div className="mb-3 flex justify-center">
+            {isHighRisk ? (
+              <ShieldX className="h-12 w-12 text-red-600" />
+            ) : (
+              <ShieldAlert className="h-12 w-12 text-amber-600" />
+            )}
+          </div>
+          <h2 className="text-xl font-bold text-slate-900">
+            {warning?.title ?? "Cảnh báo rủi ro"}
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Hệ thống cảnh báo, còn quyết định cuối cùng vẫn thuộc về bạn.
           </p>
         </div>
 
-        {/* Body */}
-        <div className="p-6 space-y-4">
-          {/* Risk Score Bar */}
+        <div className="space-y-4 p-6">
           <div>
-            <div className="flex justify-between text-sm mb-1">
+            <div className="mb-1 flex justify-between text-sm">
               <span className="text-slate-600">Mức độ rủi ro</span>
-              <span className={`font-bold ${
-                isHighRisk ? "text-red-600" : isMediumRisk ? "text-amber-600" : "text-rose-600"
-              }`}>
-                {Math.round(riskScore * 100)}%
+              <span className={isHighRisk ? "font-bold text-red-600" : "font-bold text-amber-600"}>
+                {riskPercentage}%
               </span>
             </div>
-            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
               <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  isHighRisk ? "bg-red-500 w-[90%]" : isMediumRisk ? "bg-amber-500 w-[65%]" : "bg-rose-400 w-[40%]"
-                }`}
+                className={isHighRisk ? "h-full bg-red-500" : "h-full bg-amber-500"}
+                style={{ width: `${Math.max(8, riskPercentage)}%` }}
               />
             </div>
           </div>
 
-          {/* Risk Reason */}
-          <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
               Lý do cảnh báo
             </p>
-            <p className="text-sm text-slate-700 leading-relaxed">{riskReason}</p>
+            <p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">
+              {warning?.transparency_reason ?? riskData.explanation}
+            </p>
           </div>
 
-          {/* Transaction ID */}
-          <p className="text-xs text-slate-400 text-center">
-            Mã giao dịch: <span className="font-mono">{transactionId}</span>
-          </p>
+          <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm text-rose-800">
+            {warning?.message ?? riskData.recommendation}
+          </div>
 
-          {isHighRisk && (
-            <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
-              <p className="text-sm text-red-700 font-medium">
-                Giao dịch này đã bị tạm dừng và gửi đến admin để xem xét.
-              </p>
-              <p className="text-xs text-red-500 mt-1">
-                Bạn không thể tự tiếp tục giao dịch này.
-              </p>
+          {remaining > 0 ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-center">
+              <p className="font-semibold text-amber-800">Vui lòng cân nhắc trong {remaining} giây</p>
+              <p className="mt-1 text-xs text-amber-700">Nút tiếp tục sẽ được mở khi countdown kết thúc.</p>
             </div>
+          ) : (
+            <label className="flex cursor-pointer gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+              <input
+                type="checkbox"
+                checked={verified}
+                onChange={(event) => setVerified(event.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-emerald-600"
+              />
+              <span>Tôi đã kiểm tra lại thông tin người nhận qua kênh độc lập.</span>
+            </label>
           )}
         </div>
 
-        {/* Footer Actions */}
-        <div className="p-4 border-t border-slate-100 flex gap-3">
+        <div className="flex gap-3 border-t border-slate-100 p-4">
           <button
             onClick={onCancel}
-            className="flex-1 px-4 py-2.5 text-slate-600 font-medium rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"
+            disabled={isLoading}
+            className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
           >
             Hủy giao dịch
           </button>
-
-          {!isHighRisk && (
-            <button
-              onClick={handleContinue}
-              disabled={isSubmitting}
-              className="flex-1 px-4 py-2.5 bg-rose-600 text-white font-medium rounded-xl hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Đang xử lý...
-                </>
-              ) : (
-                "Vẫn tiếp tục"
-              )}
-            </button>
-          )}
-
-          {isHighRisk && (
-            <button
-              onClick={onClose}
-              className="flex-1 px-4 py-2.5 bg-slate-800 text-white font-medium rounded-xl hover:bg-slate-900 transition-colors"
-            >
-              Đã hiểu
-            </button>
-          )}
+          <button
+            onClick={onProceed}
+            disabled={!canProceed}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 font-medium text-white transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+            Vẫn tiếp tục
+          </button>
         </div>
       </div>
     </div>

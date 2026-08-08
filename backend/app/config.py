@@ -1,15 +1,20 @@
 """Cấu hình tập trung, đọc từ biến môi trường / file .env."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(".env", "../.env"),
+        # Resolve from this checkout, not from whichever directory starts Uvicorn.
+        env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -26,9 +31,10 @@ class Settings(BaseSettings):
 
     # ---- Database ----
     database_url: str = "postgresql+psycopg2://antiscam:antiscam@localhost:5432/antiscam"
+    database_schema: str = Field(default="public", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-    # Tạo bảng tự động khi startup. Dùng cho dev; production nên dùng Alembic.
-    db_auto_create: bool = True
+    # Schema được quản lý bằng Alembic / file SQL, không tự tạo khi app khởi động.
+    db_auto_create: bool = False
 
     # ---- Auth ----
     # Bắt buộc override ở production, xem validate_production_secrets().

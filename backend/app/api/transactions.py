@@ -1,128 +1,363 @@
-"""Luồng chuyển tiền mô phỏng: đánh giá rủi ro -> người dùng quyết định."""
+"""Transaction flow: assess -> warning -> human decision -> final status."""
 
+from __future__ import annotations
+
+import time
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.db.session import get_db
-from app.models.transaction import Transaction, UserDecision
-from app.models.trusted_payee import TrustedPayee
+from app.models.risk_assessment import (
+    RiskLevel,
+    RiskSignal,
+    TransactionRiskAssessment,
+    TransactionWarning,
+    WarningDecision,
+    WarningFeedback,
+)
+from app.models.transaction import Transaction, TransactionEnvironment, TransactionStatus
+from app.models.trusted_recipient import TrustedRecipient
 from app.models.user import User
 from app.schemas.risk import (
     AssessRequest,
     AssessResponse,
     DecisionRequest,
+    DecisionResponse,
+    RiskSignalOut,
     TransactionOut,
+    TrustedRecipientCreate,
+    WarningFeedbackCreate,
+    WarningOut,
 )
-from app.services import explain as explain_service
+from app.services.audit import add_audit_log
 from app.services import risk_rules
+from app.services.bank_normalization import normalize_bank_name
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 
-@router.post("/assess", response_model=AssessResponse)
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _warning_content(level: str, explanation: str, recommendation: str) -> tuple[str, str]:
+    if level == RiskLevel.HIGH:
+        return "Cảnh báo rủi ro cao", recommendation
+    return "Cần xác minh thêm", recommendation
+
+
+def _normalize_request(payload: AssessRequest) -> AssessRequest:
+    return payload.model_copy(
+        update={"bank_code": normalize_bank_name(payload.bank_code)}
+    )
+
+
+def _response_from_assessment(
+    transaction: Transaction,
+    assessment: TransactionRiskAssessment,
+    signals: list[RiskSignal],
+    warning: TransactionWarning | None,
+) -> AssessResponse:
+    return AssessResponse(
+        transaction_id=transaction.id,
+        assessment_id=assessment.id,
+        risk_score=float(assessment.risk_score),
+        risk_level=assessment.risk_level,
+        signals=[
+            RiskSignalOut(
+                signal_type=signal.signal_type,
+                severity=signal.severity,
+                score=float(signal.score) if signal.score is not None else None,
+                explanation=signal.explanation,
+            )
+            for signal in signals
+        ],
+        explanation=assessment.explanation,
+        recommendation=(
+            warning.message
+            if warning is not None
+            else risk_rules.recommendation(assessment.risk_level)
+        ),
+        should_warn=assessment.should_warn,
+        warning=(
+            WarningOut(
+                id=warning.id,
+                warning_level=warning.warning_level,
+                title=warning.title,
+                message=warning.message,
+                transparency_reason=warning.transparency_reason,
+                displayed_at=warning.displayed_at,
+                countdown_seconds=warning.countdown_seconds,
+            )
+            if warning is not None
+            else None
+        ),
+    )
+
+
+def _persist_assessment(
+    db: Session, transaction: Transaction, request: AssessRequest, current_user: User
+) -> AssessResponse:
+    started = time.perf_counter()
+    transaction.transaction_status = TransactionStatus.RISK_CHECKING
+    db.add(transaction)
+    db.flush()
+
+    candidates = risk_rules.collect_signals(db, current_user.id, request)
+    score, level = risk_rules.score_from_signals(candidates)
+    explanation = risk_rules.build_explanation(level, candidates)
+    should_warn = level in {RiskLevel.MEDIUM, RiskLevel.HIGH}
+
+    assessment = TransactionRiskAssessment(
+        transaction_id=transaction.id,
+        risk_score=score,
+        risk_level=level,
+        should_warn=should_warn,
+        rules_version=risk_rules.RULES_VERSION,
+        blacklist_match_found=any(
+            signal.signal_type == "blacklist_exact_match" for signal in candidates
+        ),
+        explanation=explanation,
+        raw_result={
+            "engine": "deterministic_rules",
+            "signal_types": [signal.signal_type for signal in candidates],
+        },
+        latency_ms=round((time.perf_counter() - started) * 1000),
+    )
+    db.add(assessment)
+    db.flush()
+
+    persisted_signals: list[RiskSignal] = []
+    for candidate in candidates:
+        signal = RiskSignal(
+            assessment_id=assessment.id,
+            signal_type=candidate.signal_type,
+            severity=candidate.severity,
+            score=candidate.score,
+            explanation=candidate.explanation,
+            matched_blacklist_id=candidate.matched_blacklist_id,
+            matched_pattern_id=candidate.matched_pattern_id,
+            evidence=candidate.evidence,
+        )
+        db.add(signal)
+        persisted_signals.append(signal)
+
+    warning: TransactionWarning | None = None
+    if should_warn:
+        title, message = _warning_content(
+            level, explanation, risk_rules.recommendation(level)
+        )
+        warning = TransactionWarning(
+            transaction_id=transaction.id,
+            assessment_id=assessment.id,
+            warning_level=level,
+            title=title,
+            message=message,
+            transparency_reason=explanation,
+            displayed_at=_utcnow(),
+            countdown_seconds=30,
+        )
+        db.add(warning)
+
+    transaction.transaction_status = TransactionStatus.AWAITING_DECISION
+    add_audit_log(
+        db,
+        action="transaction.assessed",
+        actor_id=current_user.id,
+        resource_type="transaction",
+        resource_id=transaction.id,
+        metadata={
+            "assessment_id": str(assessment.id),
+            "risk_level": level,
+            "risk_score": score,
+            "should_warn": should_warn,
+        },
+    )
+    if warning is not None:
+        add_audit_log(
+            db,
+            action="transaction.warning_created",
+            actor_id=current_user.id,
+            resource_type="transaction_warning",
+            resource_id=warning.id,
+            metadata={"transaction_id": str(transaction.id), "warning_level": level},
+        )
+
+    db.commit()
+    db.refresh(assessment)
+    if warning is not None:
+        db.refresh(warning)
+    for signal in persisted_signals:
+        db.refresh(signal)
+    return _response_from_assessment(transaction, assessment, persisted_signals, warning)
+
+
+@router.post("/assess", response_model=AssessResponse, status_code=status.HTTP_201_CREATED)
 def assess(
     payload: AssessRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AssessResponse:
-    """Chấm điểm rủi ro và trả cảnh báo kèm giải thích.
-
-    KHÔNG chuyển tiền và KHÔNG chặn giao dịch — chỉ ghi nhận đánh giá ở trạng
-    thái PENDING. Tiền chỉ chuyển khi user gọi /decision với PROCEEDED.
-    """
-    signals = risk_rules.collect_signals(db, current_user.id, payload)
-    score, level = risk_rules.score_from_signals(signals)
-
-    explanation = explain_service.explain(level, signals)
-    recommendation = explain_service.recommend(level)
-    questions = explain_service.verification_questions(level)
-
-    txn = Transaction(
+    """Create a sandbox transaction and store its first risk assessment."""
+    payload = _normalize_request(payload)
+    transaction = Transaction(
         user_id=current_user.id,
-        payee_account=payload.payee_account,
-        payee_name=payload.payee_name,
-        bank_code=payload.bank_code,
+        payee_account=payload.payee_account.replace(" ", "").strip(),
+        payee_name=payload.payee_name.strip(),
+        bank_code=payload.bank_code.strip() if payload.bank_code else None,
         amount=payload.amount,
-        note=payload.note,
-        risk_score=score,
-        risk_level=level,
-        risk_signals=[s.model_dump() for s in signals],
-        explanation=explanation,
-        recommendation=recommendation,
-        user_decision=UserDecision.PENDING,
+        note=payload.note.strip() if payload.note else None,
+        currency=payload.currency.upper(),
+        environment=TransactionEnvironment.SANDBOX,
     )
-    db.add(txn)
-    db.commit()
-    db.refresh(txn)
-
-    return AssessResponse(
-        transaction_id=txn.id,
-        risk_score=score,
-        risk_level=level,
-        signals=signals,
-        explanation=explanation,
-        recommendation=recommendation,
-        verification_questions=questions,
-    )
+    return _persist_assessment(db, transaction, payload, current_user)
 
 
-@router.post("/{transaction_id}/decision", response_model=AssessResponse)
-def submit_decision(
+@router.post("/{transaction_id}/reassess", response_model=AssessResponse)
+def reassess(
     transaction_id: uuid.UUID,
-    payload: DecisionRequest,
+    payload: AssessRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AssessResponse:
-    """Ghi nhận quyết định cuối cùng của người dùng (HITL) và thực hiện chuyển tiền."""
-    txn = db.scalar(
+    """Append a new assessment when rules/model inputs need to be re-evaluated."""
+    payload = _normalize_request(payload)
+    transaction = db.scalar(
         select(Transaction).where(
             Transaction.id == transaction_id,
             Transaction.user_id == current_user.id,
         )
     )
-    if txn is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch"
-        )
-    if txn.user_decision is not UserDecision.PENDING:
+    if transaction is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch")
+    if transaction.transaction_status not in {
+        TransactionStatus.DRAFT,
+        TransactionStatus.AWAITING_DECISION,
+    }:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Giao dịch này đã được quyết định trước đó",
+            detail="Chỉ có thể đánh giá lại giao dịch đang chờ quyết định",
         )
-    if payload.decision is UserDecision.PENDING:
+
+    transaction.payee_account = payload.payee_account.replace(" ", "").strip()
+    transaction.payee_name = payload.payee_name.strip()
+    transaction.bank_code = payload.bank_code.strip() if payload.bank_code else None
+    transaction.amount = payload.amount
+    transaction.note = payload.note.strip() if payload.note else None
+    transaction.currency = payload.currency.upper()
+    return _persist_assessment(db, transaction, payload, current_user)
+
+
+@router.post("/{transaction_id}/decision", response_model=DecisionResponse)
+def submit_decision(
+    transaction_id: uuid.UUID,
+    payload: DecisionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DecisionResponse:
+    """Record the human decision; the server enforces warning countdowns."""
+    transaction = db.scalar(
+        select(Transaction)
+        .where(Transaction.id == transaction_id, Transaction.user_id == current_user.id)
+        .with_for_update()
+    )
+    if transaction is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch")
+    if transaction.transaction_status != TransactionStatus.AWAITING_DECISION:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Quyết định phải là 'proceeded' hoặc 'cancelled'",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Giao dịch này đã được xử lý hoặc không còn chờ quyết định",
         )
 
-    if payload.decision is UserDecision.PROCEEDED:
-        if current_user.balance < txn.amount:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Số dư không đủ"
+    warning = db.scalar(
+        select(TransactionWarning)
+        .where(TransactionWarning.transaction_id == transaction.id)
+        .order_by(desc(TransactionWarning.displayed_at))
+        .limit(1)
+    )
+    now = _utcnow()
+
+    if warning is not None:
+        if payload.decision == WarningDecision.PROCEEDED:
+            available_at = warning.displayed_at + timedelta(seconds=warning.countdown_seconds)
+            if now < available_at:
+                remaining = max(1, int((available_at - now).total_seconds()))
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Vui lòng chờ hết thời gian cảnh báo ({remaining} giây)",
+                )
+            if payload.verification_confirmed is not True:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Bạn cần xác nhận đã kiểm tra lại thông tin trước khi tiếp tục",
+                )
+        warning.user_decision = payload.decision
+        warning.verification_confirmed = payload.verification_confirmed
+        warning.verification_method = payload.verification_method
+        warning.decided_at = now
+
+    if payload.decision == WarningDecision.CANCELLED:
+        transaction.transaction_status = TransactionStatus.CANCELLED
+        transaction.cancelled_at = now
+        action = "transaction.cancelled"
+    else:
+        locked_user = db.scalar(
+            select(User).where(User.id == current_user.id).with_for_update()
+        )
+        if locked_user is None or locked_user.balance < transaction.amount:
+            transaction.transaction_status = TransactionStatus.FAILED
+            add_audit_log(
+                db,
+                action="transaction.failed_insufficient_balance",
+                actor_id=current_user.id,
+                resource_type="transaction",
+                resource_id=transaction.id,
+                metadata={"amount": transaction.amount},
             )
-        current_user.balance -= txn.amount
+            db.commit()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Số dư không đủ")
+        transaction.transaction_status = TransactionStatus.PROCESSING
+        locked_user.balance -= transaction.amount
+        transaction.transaction_status = TransactionStatus.COMPLETED
+        transaction.completed_at = now
+        action = "transaction.proceeded"
 
-    # Lưu toàn bộ hội thoại xác minh để phục vụ accountability.
-    questions = explain_service.verification_questions(txn.risk_level)
-    txn.verification_log = [
-        {"role": "agent", "content": q, "answer": a}
-        for q, a in zip(questions, payload.verification_answers)
-    ]
-    txn.user_decision = payload.decision
+    if warning is not None:
+        # Lưu dấu vết HITL riêng, không đưa câu trả lời vào audit log/front-end logs.
+        from app.models.intervention_log import InterventionLog
+
+        db.add(
+            InterventionLog(
+                transaction_id=transaction.id,
+                warning_id=warning.id,
+                node_name="user_decision",
+                user_response="\n".join(payload.verification_answers) or None,
+                suggested_actions=risk_rules.verification_questions(warning.warning_level),
+            )
+        )
+
+    add_audit_log(
+        db,
+        action=action,
+        actor_id=current_user.id,
+        resource_type="transaction",
+        resource_id=transaction.id,
+        metadata={
+            "warning_id": str(warning.id) if warning is not None else None,
+            "decision": payload.decision,
+        },
+    )
     db.commit()
-    db.refresh(txn)
-
-    return AssessResponse(
-        transaction_id=txn.id,
-        risk_score=txn.risk_score,
-        risk_level=txn.risk_level,
-        signals=[],
-        explanation=txn.explanation or "",
-        recommendation=txn.recommendation or "",
+    return DecisionResponse(
+        transaction_id=transaction.id,
+        transaction_status=transaction.transaction_status,
+        warning_id=warning.id if warning is not None else None,
+        decided_at=now,
     )
 
 
@@ -132,39 +367,83 @@ def history(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[Transaction]:
-    """Lịch sử giao dịch của chính user đang đăng nhập."""
     rows = db.scalars(
         select(Transaction)
         .where(Transaction.user_id == current_user.id)
-        .order_by(Transaction.created_at.desc())
-        .limit(min(limit, 100))
+        .order_by(desc(Transaction.created_at))
+        .limit(min(max(limit, 1), 100))
     ).all()
     return list(rows)
 
 
-@router.post("/trusted-payees", status_code=status.HTTP_201_CREATED)
-def mark_trusted(
-    payee_account: str,
-    payee_name: str | None = None,
+@router.post("/trusted-recipients", status_code=status.HTTP_201_CREATED)
+def mark_trusted_recipient(
+    payload: TrustedRecipientCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
-    """Đánh dấu người nhận là an toàn để giảm cảnh báo lần sau (yêu cầu 5.4)."""
+    account_number = payload.account_number.replace(" ", "").strip()
+    bank_code = normalize_bank_name(payload.bank_code)
     existing = db.scalar(
-        select(TrustedPayee).where(
-            TrustedPayee.user_id == current_user.id,
-            TrustedPayee.payee_account == payee_account,
+        select(TrustedRecipient).where(
+            TrustedRecipient.user_id == current_user.id,
+            TrustedRecipient.account_number == account_number,
+            TrustedRecipient.bank_code == bank_code,
         )
     )
     if existing is not None:
-        return {"status": "already_trusted", "payee_account": payee_account}
+        return {"status": "already_trusted", "recipient_id": str(existing.id)}
 
-    db.add(
-        TrustedPayee(
-            user_id=current_user.id,
-            payee_account=payee_account,
-            payee_name=payee_name,
-        )
+    recipient = TrustedRecipient(
+        user_id=current_user.id,
+        account_number=account_number,
+        recipient_name=payload.recipient_name.strip(),
+        bank_code=bank_code,
+        trusted_at=_utcnow(),
+    )
+    db.add(recipient)
+    add_audit_log(
+        db,
+        action="trusted_recipient.created",
+        actor_id=current_user.id,
+        resource_type="trusted_recipient",
+        resource_id=recipient.id,
     )
     db.commit()
-    return {"status": "trusted", "payee_account": payee_account}
+    return {"status": "trusted", "recipient_id": str(recipient.id)}
+
+
+@router.post("/warnings/{warning_id}/feedback", status_code=status.HTTP_201_CREATED)
+def create_warning_feedback(
+    warning_id: uuid.UUID,
+    payload: WarningFeedbackCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, str]:
+    warning = db.scalar(
+        select(TransactionWarning)
+        .join(Transaction)
+        .where(TransactionWarning.id == warning_id, Transaction.user_id == current_user.id)
+    )
+    if warning is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy cảnh báo")
+    if warning.feedback is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cảnh báo đã có phản hồi")
+
+    feedback = WarningFeedback(
+        warning_id=warning.id,
+        user_id=current_user.id,
+        feedback_type=payload.feedback_type,
+        comment=payload.comment,
+    )
+    db.add(feedback)
+    add_audit_log(
+        db,
+        action="transaction_warning.feedback_created",
+        actor_id=current_user.id,
+        resource_type="transaction_warning",
+        resource_id=warning.id,
+        metadata={"feedback_type": payload.feedback_type},
+    )
+    db.commit()
+    return {"status": "created", "feedback_id": str(feedback.id)}

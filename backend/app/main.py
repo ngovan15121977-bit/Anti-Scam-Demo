@@ -1,26 +1,27 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .database import engine
-from .routers import health, auth, transactions, blacklist
 
-# KHÔNG dùng create_all nữa — schema đã tạo bằng SQL file rồi
-# Base.metadata.create_all(bind=engine)
+from app.api import admin, auth, health, transactions
+from app.config import get_settings
 
-app = FastAPI(title="FintechGuard API", version="1.0.0")
+settings = get_settings()
+settings.validate_production_secrets()
 
+app = FastAPI(title="FintechGuard API", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(health.router)
-app.include_router(auth.router)
-app.include_router(transactions.router)
-app.include_router(blacklist.router)
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(transactions.router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")
+
 
 @app.get("/")
-async def root():
-    return {"message": "FintechGuard API is running"}
+async def root() -> dict[str, str]:
+    return {"message": "FintechGuard API is running", "docs": "/docs"}

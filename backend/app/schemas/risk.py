@@ -1,68 +1,92 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.transaction import RiskLevel, UserDecision
+RiskLevel = Literal["safe", "low", "medium", "high"]
+SignalSeverity = Literal["info", "low", "medium", "high"]
+WarningDecision = Literal["proceeded", "cancelled"]
 
 
 class AssessRequest(BaseModel):
-    """Yêu cầu đánh giá rủi ro trước khi người dùng xác nhận chuyển tiền."""
+    """Input cho một lệnh chuyển tiền trước khi user ra quyết định."""
 
     payee_account: str = Field(..., min_length=4, max_length=64)
     payee_name: str = Field(..., min_length=1, max_length=255)
-    bank_code: str | None = Field(default=None, max_length=32)
+    bank_code: str | None = Field(default=None, max_length=100)
     amount: int = Field(..., gt=0, le=10_000_000_000)
-
-    # Nội dung chuyển khoản là input không tin cậy — phải sanitize trước khi
-    # đưa vào prompt LLM để chống prompt injection (NFR mục 6).
     note: str | None = Field(default=None, max_length=500)
+    currency: str = Field(default="VND", min_length=3, max_length=3)
 
 
-class RiskSignal(BaseModel):
-    """Một tín hiệu rủi ro đã kích hoạt. Là cơ sở để giải thích, không hộp đen."""
+class RiskSignalOut(BaseModel):
+    signal_type: str
+    severity: SignalSeverity
+    score: float | None = None
+    explanation: str
 
-    code: str
-    label: str
-    weight: int
-    detail: str | None = None
+
+class WarningOut(BaseModel):
+    id: uuid.UUID
+    warning_level: Literal["medium", "high"]
+    title: str
+    message: str
+    transparency_reason: str
+    displayed_at: datetime
+    countdown_seconds: int
 
 
 class AssessResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     transaction_id: uuid.UUID
-    risk_score: int = Field(..., ge=0, le=100)
+    assessment_id: uuid.UUID
+    risk_score: float = Field(..., ge=0, le=1)
     risk_level: RiskLevel
-    signals: list[RiskSignal] = []
-    explanation: str = ""
-    recommendation: str = ""
-
-    # Câu hỏi xác minh cho luồng HITL khi rủi ro cao (2-3 câu).
-    verification_questions: list[str] = []
-
-    # Luôn True: agent không bao giờ tự chặn giao dịch, người dùng quyết định.
+    signals: list[RiskSignalOut] = []
+    explanation: str
+    recommendation: str
+    should_warn: bool
+    warning: WarningOut | None = None
     requires_user_decision: bool = True
 
 
 class DecisionRequest(BaseModel):
-    """Ghi lại quyết định cuối cùng của người dùng — bắt buộc cho audit HITL."""
+    decision: WarningDecision
+    verification_confirmed: bool | None = None
+    verification_method: str | None = Field(default=None, max_length=50)
+    verification_answers: list[str] = Field(default_factory=list, max_length=3)
 
-    decision: UserDecision
-    verification_answers: list[str] = []
+
+class DecisionResponse(BaseModel):
+    transaction_id: uuid.UUID
+    transaction_status: Literal["completed", "cancelled", "failed"]
+    warning_id: uuid.UUID | None = None
+    decided_at: datetime
 
 
 class TransactionOut(BaseModel):
-    """Một dòng trong lịch sử giao dịch."""
-
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     payee_account: str
     payee_name: str
+    bank_code: str | None
     amount: int
-    note: str | None
-    risk_score: int
-    risk_level: RiskLevel
-    user_decision: UserDecision
+    currency: str
+    transaction_status: str
     created_at: datetime
+    completed_at: datetime | None
+    cancelled_at: datetime | None
+
+
+class TrustedRecipientCreate(BaseModel):
+    account_number: str = Field(..., min_length=4, max_length=64)
+    recipient_name: str = Field(..., min_length=1, max_length=255)
+    bank_code: str | None = Field(default=None, max_length=100)
+
+
+class WarningFeedbackCreate(BaseModel):
+    feedback_type: Literal[
+        "helpful", "false_positive", "confirmed_scam", "not_helpful", "unsure"
+    ]
+    comment: str | None = Field(default=None, max_length=2000)

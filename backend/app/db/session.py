@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -19,7 +19,29 @@ engine = create_engine(
     echo=settings.log_level == "DEBUG",
 )
 
+
+if settings.database_url.startswith("postgresql"):
+    @event.listens_for(engine, "connect")
+    def set_application_schema(dbapi_connection, _connection_record) -> None:
+        """Set search_path after connect; Neon poolers reject startup options."""
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute(
+                f"SET search_path TO {settings.database_schema}, public"
+            )
+        finally:
+            cursor.close()
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+if settings.database_url.startswith("postgresql"):
+    @event.listens_for(Session, "after_begin")
+    def set_transaction_schema(_session, _transaction, connection) -> None:
+        """Apply the schema to every transaction, including post-commit refreshes."""
+        connection.exec_driver_sql(
+            f"SET LOCAL search_path TO {settings.database_schema}, public"
+        )
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -32,15 +54,12 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
-    """Bật extension pgvector rồi tạo bảng.
+    """Create tables only for isolated tests.
 
-    Chỉ dùng cho dev/demo. Production dùng `alembic upgrade head`.
+    Local and production databases must use ``alembic upgrade head``. Vector
+    storage is provider-specific and is not created as a side effect here.
     """
-    with engine.begin() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-
-    # Import để mọi model được đăng ký vào Base.metadata trước khi create_all.
     import app.models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
-    logger.info("Database đã sẵn sàng (pgvector + tables)")
+    logger.info("Database tables created for an isolated test")

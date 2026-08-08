@@ -1,152 +1,99 @@
 import axiosInstance from "./axios";
 
-export type TransactionType = "transfer" | "deposit" | "withdraw" | "payment" | "refund";
-export type TransactionStatus = "pending" | "completed" | "failed" | "cancelled" | "flagged";
+export type RiskLevel = "safe" | "low" | "medium" | "high";
+export type SignalSeverity = "info" | "low" | "medium" | "high";
+export type TransactionStatus = "completed" | "cancelled" | "failed";
+
+export interface RiskSignal {
+  signal_type: string;
+  severity: SignalSeverity;
+  score?: number | null;
+  explanation: string;
+}
+
+export interface TransactionWarning {
+  id: string;
+  warning_level: "medium" | "high";
+  title: string;
+  message: string;
+  transparency_reason: string;
+  displayed_at: string;
+  countdown_seconds: number;
+}
+
+export interface AssessRequest {
+  payee_account: string;
+  payee_name: string;
+  bank_code?: string;
+  amount: number;
+  note?: string;
+  currency?: string;
+}
+
+export interface AssessResponse {
+  transaction_id: string;
+  assessment_id: string;
+  risk_score: number;
+  risk_level: RiskLevel;
+  signals: RiskSignal[];
+  explanation: string;
+  recommendation: string;
+  should_warn: boolean;
+  warning?: TransactionWarning | null;
+  requires_user_decision: boolean;
+}
+
+export interface DecisionResponse {
+  transaction_id: string;
+  transaction_status: TransactionStatus;
+  warning_id?: string | null;
+  decided_at: string;
+}
 
 export interface Transaction {
   id: string;
-  type: TransactionType;
-  status: TransactionStatus;
+  payee_account: string;
+  payee_name: string;
+  bank_code?: string | null;
   amount: number;
-  fee?: number;
   currency: string;
-  fromUserId: string;
-  fromUserName?: string;
-  toUserId?: string;
-  toUserName?: string;
-  toAccount?: string;
-  description?: string;
-  metadata?: Record<string, unknown>;
-  riskScore?: number;
-  riskReason?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TransferRequest {
-  toAccount: string;
-  amount: number;
-  description?: string;
-  pin: string;
-}
-
-export interface TransferResponse {
-  success: boolean;
-  message: string;
-  data: {
-    transaction: Transaction;
-    newBalance: number;
-  };
-}
-
-export interface TransactionHistoryParams {
-  page?: number;
-  limit?: number;
-  type?: TransactionType;
-  status?: TransactionStatus;
-  startDate?: string;
-  endDate?: string;
-  search?: string;
-}
-
-export interface TransactionHistoryResponse {
-  success: boolean;
-  data: {
-    transactions: Transaction[];
-    pagination: {
-      page: number;
-      limit: number;
-      total: number;
-      totalPages: number;
-    };
-  };
-}
-
-export interface BalanceResponse {
-  success: boolean;
-  data: {
-    balance: number;
-    currency: string;
-    heldBalance: number;
-  };
-}
-
-export interface AnalyzeRequest {
-  recipient_account: string;
-  recipient_bank: string;
-  amount: number;
-  recipient_name?: string;
-  description?: string;
-}
-
-export interface AnalyzeResponse {
-  id: string;
-  risk_analysis: {
-    final_risk_score: number;
-    risk_level: string;
-    warning_reason: string;
-    matched_blacklist: Array<{
-      entity: string;
-      bank: string;
-      risk: number;
-    }>;
-  };
+  transaction_status: string;
+  created_at: string;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
 }
 
 export const transactionsApi = {
-  // ✅ Phân tích rủi ro trước khi chuyển tiền
-  analyze: async (data: AnalyzeRequest): Promise<AnalyzeResponse> => {
-    const res = await axiosInstance.post<AnalyzeResponse>("/v1/transactions/analyze", data);
-    return res.data;
+  assess: async (data: AssessRequest): Promise<AssessResponse> => {
+    const response = await axiosInstance.post<AssessResponse>("/v1/transactions/assess", data);
+    return response.data;
   },
 
-  // ✅ Người dùng quyết định sau khi xem cảnh báo
-  decide: async (txId: string, decision: "confirmed" | "cancelled") => {
-    const res = await axiosInstance.post(`/v1/transactions/${txId}/decide`, { decision });
-    return res.data;
+  decide: async (
+    transactionId: string,
+    decision: "proceeded" | "cancelled",
+    options?: {
+      verificationConfirmed?: boolean;
+      verificationMethod?: string;
+      verificationAnswers?: string[];
+    },
+  ): Promise<DecisionResponse> => {
+    const response = await axiosInstance.post<DecisionResponse>(
+      `/v1/transactions/${transactionId}/decision`,
+      {
+        decision,
+        verification_confirmed: options?.verificationConfirmed,
+        verification_method: options?.verificationMethod,
+        verification_answers: options?.verificationAnswers ?? [],
+      },
+    );
+    return response.data;
   },
 
-  transfer: async (data: TransferRequest): Promise<TransferResponse> => {
-    const res = await axiosInstance.post<TransferResponse>("/v1/transactions/transfer", data);
-    return res.data;
-  },
-
-  getBalance: async (): Promise<BalanceResponse> => {
-    const res = await axiosInstance.get<BalanceResponse>("/v1/transactions/balance");
-    return res.data;
-  },
-
-  getHistory: async (params?: TransactionHistoryParams): Promise<TransactionHistoryResponse> => {
-    const res = await axiosInstance.get<TransactionHistoryResponse>("/v1/transactions/history", {
-      params,
+  getHistory: async (limit = 20): Promise<Transaction[]> => {
+    const response = await axiosInstance.get<Transaction[]>("/v1/transactions/history", {
+      params: { limit },
     });
-    return res.data;
-  },
-
-  getDetail: async (id: string): Promise<{ success: boolean; data: Transaction }> => {
-    const res = await axiosInstance.get(`/v1/transactions/${id}`);
-    return res.data;
-  },
-
-  deposit: async (data: { amount: number; method: string; bankCode?: string }) => {
-    const res = await axiosInstance.post("/v1/transactions/deposit", data);
-    return res.data;
-  },
-
-  withdraw: async (data: { amount: number; bankAccount: string; bankCode: string; pin: string }) => {
-    const res = await axiosInstance.post("/v1/transactions/withdraw", data);
-    return res.data;
-  },
-
-  cancel: async (id: string) => {
-    const res = await axiosInstance.post(`/v1/transactions/${id}/cancel`);
-    return res.data;
-  },
-
-  verifyRecipient: async (account: string) => {
-    const res = await axiosInstance.get(`/v1/transactions/verify-recipient`, {
-      params: { account },
-    });
-    return res.data;
+    return response.data;
   },
 };

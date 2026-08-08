@@ -1,41 +1,56 @@
 from __future__ import annotations
 
-import enum
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.risk_assessment import TransactionRiskAssessment, TransactionWarning
     from app.models.user import User
 
 
-class RiskLevel(str, enum.Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-
-
-class UserDecision(str, enum.Enum):
-    """Quyết định cuối cùng luôn thuộc về người dùng (HITL bắt buộc)."""
-
-    PENDING = "pending"
-    PROCEEDED = "proceeded"
+class TransactionStatus:
+    DRAFT = "draft"
+    RISK_CHECKING = "risk_checking"
+    AWAITING_DECISION = "awaiting_decision"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
     CANCELLED = "cancelled"
 
 
-class Transaction(Base, TimestampMixin):
-    """Một giao dịch chuyển tiền mô phỏng cùng kết quả đánh giá rủi ro.
+class TransactionEnvironment:
+    SANDBOX = "sandbox"
+    PRODUCTION = "production"
 
-    Bảng này đồng thời là audit log phục vụ accountability: lưu lại điểm rủi ro,
-    lý do cảnh báo, hội thoại xác minh và quyết định cuối của người dùng.
+
+class Transaction(Base, TimestampMixin):
+    """Lệnh chuyển tiền mô phỏng.
+
+    Kết quả đánh giá không nằm trực tiếp ở đây. Mỗi lần chấm sẽ tạo một
+    ``TransactionRiskAssessment`` riêng để bảo toàn lịch sử rule/model.
     """
 
     __tablename__ = "transactions"
+    __table_args__ = (
+        CheckConstraint(
+            "transaction_status IN ("
+            "'draft', 'risk_checking', 'awaiting_decision', 'processing', "
+            "'completed', 'failed', 'cancelled')",
+            name="ck_transactions_status",
+        ),
+        CheckConstraint(
+            "environment IN ('sandbox', 'production')",
+            name="ck_transactions_environment",
+        ),
+        CheckConstraint("char_length(currency) = 3", name="ck_transactions_currency"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -43,41 +58,28 @@ class Transaction(Base, TimestampMixin):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
-
-    # ---- Thông tin giao dịch ----
     payee_account: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     payee_name: Mapped[str] = mapped_column(String(255), nullable=False)
     bank_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    amount: Mapped[int] = mapped_column(Integer, nullable=False)  # VND
+    amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    # ---- Kết quả đánh giá ----
-    risk_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 0-100
-    risk_level: Mapped[RiskLevel] = mapped_column(
-        Enum(RiskLevel, name="risk_level", values_callable=lambda e: [m.value for m in e]),
-        default=RiskLevel.LOW,
-        nullable=False,
+    transaction_status: Mapped[str] = mapped_column(
+        String(30), default=TransactionStatus.DRAFT, nullable=False, index=True
     )
-
-    # Các tín hiệu rule/ML đã kích hoạt — nguồn để LLM giải thích, tránh hộp đen.
-    risk_signals: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
-    recommendation: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    # Log hội thoại xác minh HITL: [{"role": "agent"|"user", "content": ...}]
-    verification_log: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-
-    user_decision: Mapped[UserDecision] = mapped_column(
-        Enum(
-            UserDecision,
-            name="user_decision",
-            values_callable=lambda e: [m.value for m in e],
-        ),
-        default=UserDecision.PENDING,
-        nullable=False,
+    environment: Mapped[str] = mapped_column(
+        String(20), default=TransactionEnvironment.SANDBOX, nullable=False
     )
+    currency: Mapped[str] = mapped_column(String(3), default="VND", nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    user: Mapped["User"] = relationship("User", lazy="joined")
+    user: Mapped["User"] = relationship(back_populates="transactions")
+    assessments: Mapped[list["TransactionRiskAssessment"]] = relationship(
+        back_populates="transaction", cascade="all, delete-orphan"
+    )
+    warnings: Mapped[list["TransactionWarning"]] = relationship(
+        back_populates="transaction", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
-        return f"<Transaction {self.amount} -> {self.payee_account} risk={self.risk_level.value}>"
+        return f"<Transaction {self.amount} -> {self.payee_account} status={self.transaction_status}>"

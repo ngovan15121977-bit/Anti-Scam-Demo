@@ -1,25 +1,27 @@
-"""Rule-based risk engine.
+"""Deterministic risk rules used before any ML or LangGraph enrichment.
 
-Đây là tầng nền (baseline) và đồng thời là fallback khi LLM/vector DB lỗi —
-theo NFR "độ tin cậy" trong PRD. Tầng ML + RAG + LLM sẽ bọc bên ngoài tầng này
-ở các sprint sau, nhưng không thay thế nó.
+The functions return structured candidates. The API persists those candidates to
+``risk_signals`` so a later model/rule version never overwrites past evidence.
 """
 
-import re
-import uuid
+from __future__ import annotations
+
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.blacklist import BlacklistEntry
-from app.models.transaction import RiskLevel, Transaction
-from app.models.trusted_payee import TrustedPayee
-from app.schemas.risk import AssessRequest, RiskSignal
+from app.models.blacklist import Blacklist
+from app.models.risk_assessment import RiskLevel
+from app.models.scam_pattern import ScamPattern
+from app.models.transaction import Transaction, TransactionStatus
+from app.models.trusted_recipient import TrustedRecipient
+from app.schemas.risk import AssessRequest
+from app.services.bank_normalization import normalize_bank_name
 
-# Ngưỡng số tiền lớn (VND) — nên hiệu chỉnh theo dữ liệu thật.
 LARGE_AMOUNT_VND = 20_000_000
+RULES_VERSION = "rules-2026-08-07"
 
-# Từ khóa thao túng tâm lý thường gặp trong nội dung chuyển khoản.
 URGENCY_KEYWORDS = (
     "gap",
     "gấp",
@@ -41,127 +43,220 @@ URGENCY_KEYWORDS = (
     "lợi nhuận cao",
 )
 
-_URL_PATTERN = re.compile(r"https?://|www\.|\.(?:xyz|top|tk|click|link)\b", re.IGNORECASE)
-
-MEDIUM_THRESHOLD = 30
-HIGH_THRESHOLD = 60
+SUSPICIOUS_URL_MARKERS = ("http://", "https://", "www.", ".xyz", ".top", ".click")
 
 
-def _blacklist_signal(db: Session, payee_account: str) -> RiskSignal | None:
-    entry = db.scalar(
-        select(BlacklistEntry).where(BlacklistEntry.account_number == payee_account)
+@dataclass(frozen=True)
+class RiskSignalCandidate:
+    signal_type: str
+    severity: str
+    score: float
+    explanation: str
+    matched_blacklist_id: object | None = None
+    matched_pattern_id: object | None = None
+    evidence: dict | None = None
+
+
+def _mask_account(account: str) -> str:
+    compact = account.replace(" ", "").strip()
+    return f"***{compact[-4:]}" if len(compact) > 4 else "[masked]"
+
+
+def _blacklist_signal(db: Session, request: AssessRequest) -> RiskSignalCandidate | None:
+    """Only an exact account + bank match creates a blacklist signal."""
+    if not request.bank_code:
+        return None
+
+    account = request.payee_account.replace(" ", "").strip()
+    expected_bank = normalize_bank_name(request.bank_code)
+    entries = db.scalars(
+        select(Blacklist).where(
+            Blacklist.is_active.is_(True),
+            Blacklist.entity_type == "account",
+            Blacklist.entity_value == account,
+        )
+    ).all()
+    entry = next(
+        (candidate for candidate in entries if normalize_bank_name(candidate.bank) == expected_bank),
+        None,
     )
     if entry is None:
         return None
-    return RiskSignal(
-        code="BLACKLISTED_PAYEE",
-        label="Người nhận nằm trong danh sách đen",
-        weight=70,
-        detail=f"{entry.reason} (đã bị báo cáo {entry.report_count} lần)",
+
+    score = max(0.75, min(1.0, float(entry.risk_score)))
+    return RiskSignalCandidate(
+        signal_type="blacklist_exact_match",
+        severity="high",
+        score=score,
+        explanation=(
+            f"Tài khoản {_mask_account(account)} khớp chính xác với dữ liệu cần "
+            "thận trọng của nguồn đối chiếu."
+        ),
+        matched_blacklist_id=entry.id,
+        evidence={"source": entry.source, "match": "account_and_bank"},
     )
 
 
-def _trusted_signal(db: Session, user_id: uuid.UUID, payee_account: str) -> RiskSignal | None:
-    trusted = db.scalar(
-        select(TrustedPayee).where(
-            TrustedPayee.user_id == user_id,
-            TrustedPayee.payee_account == payee_account,
-        )
+def _trusted_recipient_signal(
+    db: Session, user_id: object, request: AssessRequest
+) -> RiskSignalCandidate | None:
+    query = select(TrustedRecipient).where(
+        TrustedRecipient.user_id == user_id,
+        TrustedRecipient.account_number == request.payee_account.replace(" ", "").strip(),
     )
-    if trusted is None:
+    if request.bank_code:
+        query = query.where(TrustedRecipient.bank_code == request.bank_code)
+    recipient = db.scalar(query)
+    if recipient is None:
         return None
-    # Weight âm: giảm cảnh báo cho người nhận user đã xác nhận an toàn (5.4).
-    return RiskSignal(
-        code="TRUSTED_PAYEE",
-        label="Người nhận đã được bạn đánh dấu an toàn",
-        weight=-25,
-        detail="Bạn đã từng chuyển tiền và xác nhận tin cậy người nhận này.",
+    return RiskSignalCandidate(
+        signal_type="trusted_recipient",
+        severity="info",
+        score=-0.25,
+        explanation="Người nhận đã được bạn đánh dấu là tin cậy.",
     )
 
 
-def _new_payee_signal(db: Session, user_id: uuid.UUID, payee_account: str) -> RiskSignal | None:
-    seen = db.scalar(
-        select(Transaction.id)
-        .where(
-            Transaction.user_id == user_id,
-            Transaction.payee_account == payee_account,
-        )
-        .limit(1)
+def _new_payee_signal(db: Session, user_id: object, request: AssessRequest) -> RiskSignalCandidate | None:
+    query = select(Transaction.id).where(
+        Transaction.user_id == user_id,
+        Transaction.payee_account == request.payee_account.replace(" ", "").strip(),
+        Transaction.transaction_status == TransactionStatus.COMPLETED,
     )
-    if seen is not None:
+    if request.bank_code:
+        query = query.where(Transaction.bank_code == request.bank_code)
+    if db.scalar(query.limit(1)) is not None:
         return None
-    return RiskSignal(
-        code="NEW_PAYEE",
-        label="Lần đầu chuyển tiền cho người nhận này",
-        weight=20,
-        detail="Chưa có lịch sử giao dịch với số tài khoản này.",
+    return RiskSignalCandidate(
+        signal_type="new_payee",
+        severity="low",
+        score=0.20,
+        explanation="Đây là lần đầu bạn hoàn tất giao dịch với người nhận này.",
     )
 
 
-def _amount_signal(amount: int) -> RiskSignal | None:
+def _amount_signal(amount: int) -> RiskSignalCandidate | None:
     if amount < LARGE_AMOUNT_VND:
         return None
-    return RiskSignal(
-        code="LARGE_AMOUNT",
-        label="Số tiền lớn",
-        weight=20,
-        detail=f"Giao dịch {amount:,} VND vượt ngưỡng {LARGE_AMOUNT_VND:,} VND.",
+    return RiskSignalCandidate(
+        signal_type="unusual_amount",
+        severity="medium",
+        score=0.20,
+        explanation=(
+            f"Số tiền {amount:,.0f} VND vượt ngưỡng cảnh báo "
+            f"{LARGE_AMOUNT_VND:,.0f} VND."
+        ),
     )
 
 
-def _note_signals(note: str | None) -> list[RiskSignal]:
+def _note_signals(note: str | None) -> list[RiskSignalCandidate]:
     if not note:
         return []
 
-    signals: list[RiskSignal] = []
     lowered = note.lower()
-
-    matched = [kw for kw in URGENCY_KEYWORDS if kw in lowered]
+    signals: list[RiskSignalCandidate] = []
+    matched = sorted({keyword for keyword in URGENCY_KEYWORDS if keyword in lowered})
     if matched:
         signals.append(
-            RiskSignal(
-                code="URGENCY_KEYWORD",
-                label="Nội dung có dấu hiệu thao túng tâm lý",
-                weight=25,
-                detail=f"Phát hiện từ khóa: {', '.join(sorted(set(matched))[:5])}",
+            RiskSignalCandidate(
+                signal_type="suspicious_note",
+                severity="medium",
+                score=0.25,
+                explanation="Nội dung có từ khóa thường được dùng để tạo áp lực chuyển tiền gấp.",
+                evidence={"matched_keyword_count": len(matched)},
             )
         )
-
-    if _URL_PATTERN.search(note):
+    if any(marker in lowered for marker in SUSPICIOUS_URL_MARKERS):
         signals.append(
-            RiskSignal(
-                code="SUSPICIOUS_LINK",
-                label="Nội dung chứa đường link",
-                weight=20,
-                detail="Nội dung chuyển khoản hợp lệ thường không kèm link.",
+            RiskSignalCandidate(
+                signal_type="suspicious_link",
+                severity="medium",
+                score=0.20,
+                explanation="Nội dung chuyển khoản có chứa đường dẫn cần được xác minh thêm.",
             )
         )
-
     return signals
 
 
-def collect_signals(db: Session, user_id: uuid.UUID, req: AssessRequest) -> list[RiskSignal]:
-    """Chạy toàn bộ rule và trả về các tín hiệu đã kích hoạt."""
+def _pattern_signals(db: Session, note: str | None) -> list[RiskSignalCandidate]:
+    if not note:
+        return []
+    lowered = note.lower()
+    matches: list[RiskSignalCandidate] = []
+    patterns = db.scalars(select(ScamPattern).where(ScamPattern.is_active.is_(True))).all()
+    for pattern in patterns:
+        keywords = pattern.keywords or []
+        if not any(keyword.lower() in lowered for keyword in keywords):
+            continue
+        score = min(0.40, max(0.10, float(pattern.risk_weight)))
+        matches.append(
+            RiskSignalCandidate(
+                signal_type="scam_pattern_match",
+                severity="high" if score >= 0.30 else "medium",
+                score=score,
+                explanation=f"Nội dung khớp với mẫu lừa đảo: {pattern.pattern_name}.",
+                matched_pattern_id=pattern.id,
+                evidence={"pattern_name": pattern.pattern_name},
+            )
+        )
+    return matches[:3]
+
+
+def collect_signals(
+    db: Session, user_id: object, request: AssessRequest
+) -> list[RiskSignalCandidate]:
     candidates = [
-        _blacklist_signal(db, req.payee_account),
-        _trusted_signal(db, user_id, req.payee_account),
-        _new_payee_signal(db, user_id, req.payee_account),
-        _amount_signal(req.amount),
+        _blacklist_signal(db, request),
+        _trusted_recipient_signal(db, user_id, request),
+        _new_payee_signal(db, user_id, request),
+        _amount_signal(request.amount),
     ]
-    signals = [s for s in candidates if s is not None]
-    signals.extend(_note_signals(req.note))
+    signals = [candidate for candidate in candidates if candidate is not None]
+    signals.extend(_note_signals(request.note))
+    signals.extend(_pattern_signals(db, request.note))
     return signals
 
 
-def score_from_signals(signals: list[RiskSignal]) -> tuple[int, RiskLevel]:
-    """Cộng weight rồi kẹp về khoảng 0-100 và quy ra 3 mức rủi ro."""
-    raw = sum(s.weight for s in signals)
-    score = max(0, min(100, raw))
+def score_from_signals(signals: list[RiskSignalCandidate]) -> tuple[float, str]:
+    score = round(max(0.0, min(1.0, sum(signal.score for signal in signals))), 4)
+    if score == 0:
+        return score, RiskLevel.SAFE
+    if score < 0.30:
+        return score, RiskLevel.LOW
+    if score < 0.60:
+        return score, RiskLevel.MEDIUM
+    return score, RiskLevel.HIGH
 
-    if score >= HIGH_THRESHOLD:
-        level = RiskLevel.HIGH
-    elif score >= MEDIUM_THRESHOLD:
-        level = RiskLevel.MEDIUM
-    else:
-        level = RiskLevel.LOW
-    return score, level
+
+def build_explanation(level: str, signals: list[RiskSignalCandidate]) -> str:
+    risk_signals = [signal for signal in signals if signal.score > 0]
+    safeguards = [signal for signal in signals if signal.score < 0]
+    if not risk_signals:
+        return "Không phát hiện dấu hiệu rủi ro đáng kể từ các rule hiện có."
+
+    lines = ["Các dấu hiệu được hệ thống đối chiếu:"]
+    lines.extend(f"- {signal.explanation}" for signal in risk_signals)
+    if safeguards:
+        lines.append("Yếu tố làm giảm cảnh báo:")
+        lines.extend(f"- {signal.explanation}" for signal in safeguards)
+    return "\n".join(lines)
+
+
+def recommendation(level: str) -> str:
+    if level == RiskLevel.HIGH:
+        return "Khuyến nghị tạm dừng và xác minh người nhận qua một kênh liên lạc độc lập."
+    if level == RiskLevel.MEDIUM:
+        return "Hãy kiểm tra lại người nhận trước khi tiếp tục giao dịch."
+    return "Bạn vẫn là người quyết định cuối cùng cho giao dịch này."
+
+
+def verification_questions(level: str) -> list[str]:
+    if level == RiskLevel.HIGH:
+        return [
+            "Bạn đã gọi trực tiếp cho người nhận để xác nhận yêu cầu này chưa?",
+            "Bạn có bị yêu cầu chuyển gấp hoặc giữ bí mật không?",
+            "Bạn đã đối chiếu lại số tài khoản và ngân hàng chưa?",
+        ]
+    if level == RiskLevel.MEDIUM:
+        return ["Bạn đã xác minh lại thông tin người nhận qua kênh độc lập chưa?"]
+    return []

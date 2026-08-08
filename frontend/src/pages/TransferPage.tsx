@@ -45,63 +45,61 @@ export default function TransferPage() {
   const [riskData, setRiskData] = useState<RiskAssessment | null>(null);
   const [txId, setTxId] = useState<string>("");
 
-  // ✅ SỬA: Dùng transactionsApi.analyze thay vì fetch trực tiếp
-  const analyzeMutation = useMutation({
-    mutationFn: async (data: TransferForm) => {
-      const bank = banks.find(b => b.code === data.bank_code);
-      const res = await transactionsApi.analyze({
-        recipient_account: data.recipient_account,
-        recipient_bank: bank?.name || data.bank_code,
-        recipient_name: data.recipient_name,// Gửi "MB Bank" thay vì "MBB"
-        amount: parseFloat(data.amount),
-        description: data.note,
-      });
-      return res;
-    },
+  const decisionMutation = useMutation({
+    mutationFn: async ({
+      transactionId,
+      decision,
+      verified = false,
+    }: {
+      transactionId: string;
+      decision: "proceeded" | "cancelled";
+      verified?: boolean;
+    }) =>
+      transactionsApi.decide(transactionId, decision, {
+        verificationConfirmed: verified,
+        verificationMethod: verified ? "user_confirmed_independent_check" : undefined,
+      }),
     onSuccess: (data) => {
-      // Lưu transaction ID
-      if (data.id) setTxId(data.id);
-
-      // Nếu risk cao, hiện modal
-      if (data.risk_analysis?.risk_level === "high" || data.risk_analysis?.risk_level === "critical") {
-        setRiskData(data.risk_analysis);
-        setStep("ai-check");
-      } else {
-        // Risk thấp, chuyển luôn
+      if (data.transaction_status === "completed") {
         setStep("success");
+      } else if (data.transaction_status === "cancelled") {
+        setStep("review");
+        setRiskData(null);
       }
     },
     onError: (err: any) => {
-      alert(err.response?.data?.detail || "Có lỗi xảy ra khi phân tích rủi ro");
+      alert(err.response?.data?.detail || "Không thể ghi nhận quyết định giao dịch");
     },
   });
 
-  // ✅ SỬA: Dùng transactionsApi.decide + transactionsApi.transfer
-  const transferMutation = useMutation({
-    mutationFn: async (decision: "confirmed" | "cancelled") => {
-      if (!txId) throw new Error("Không có mã giao dịch");
-
-      // Bước 1: Gửi quyết định
-      await transactionsApi.decide(txId, decision);
-
-      // Bước 2: Nếu confirmed, thực hiện chuyển tiền
-      if (decision === "confirmed") {
-        const bank = banks.find(b => b.code === form.bank_code);
-        await transactionsApi.transfer({
-          toAccount: form.recipient_account,
-          amount: parseFloat(form.amount),
-          description: form.note,
-          pin: "123456", // TODO: Thêm input PIN
-        });
-      }
-
-      return { success: true };
+  const analyzeMutation = useMutation({
+    mutationFn: async (data: TransferForm) => {
+      const bank = banks.find((item) => item.code === data.bank_code);
+      return transactionsApi.assess({
+        payee_account: data.recipient_account,
+        payee_name: data.recipient_name,
+        // Blacklist import đang lưu theo tên ngân hàng; giữ cùng định danh để match chính xác.
+        bank_code: bank?.name || data.bank_code,
+        amount: Math.round(Number(data.amount)),
+        note: data.note || undefined,
+        currency: "VND",
+      });
     },
-    onSuccess: () => {
-      setStep("success");
+    onSuccess: (data) => {
+      setTxId(data.transaction_id);
+      if (data.should_warn && data.warning) {
+        setRiskData(data);
+        setStep("ai-check");
+        return;
+      }
+      // Rủi ro safe/low vẫn được ghi một quyết định rõ ràng ở backend.
+      decisionMutation.mutate({
+        transactionId: data.transaction_id,
+        decision: "proceeded",
+      });
     },
     onError: (err: any) => {
-      alert(err.response?.data?.detail || "Có lỗi xảy ra khi chuyển tiền");
+      alert(err.response?.data?.detail || "Có lỗi xảy ra khi phân tích rủi ro");
     },
   });
 
@@ -116,15 +114,17 @@ export default function TransferPage() {
   };
 
   const handleProceed = () => {
-    transferMutation.mutate("confirmed");
+    if (!txId) return;
+    decisionMutation.mutate({
+      transactionId: txId,
+      decision: "proceeded",
+      verified: true,
+    });
   };
 
   const handleCancel = () => {
-    if (txId) {
-      transferMutation.mutate("cancelled");
-    }
-    setStep("review");
-    setRiskData(null);
+    if (!txId) return;
+    decisionMutation.mutate({ transactionId: txId, decision: "cancelled" });
   };
 
   const formatMoney = (amount: string) => {
@@ -317,7 +317,7 @@ export default function TransferPage() {
           riskData={riskData}
           onProceed={handleProceed}
           onCancel={handleCancel}
-          isLoading={transferMutation.isPending}
+          isLoading={decisionMutation.isPending}
         />
       </div>
     );

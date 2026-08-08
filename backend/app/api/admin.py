@@ -1,7 +1,4 @@
-"""Dashboard admin: quản lý blacklist, kịch bản scam, xem thống kê.
-
-Mọi route ở đây yêu cầu vai trò admin (require_admin ở cấp router).
-"""
+"""Minimal admin APIs backed by the same fraud-intelligence schema."""
 
 import uuid
 
@@ -11,144 +8,134 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import require_admin
 from app.db.session import get_db
-from app.models.blacklist import BlacklistEntry
-from app.models.scam_scenario import ScamScenario
-from app.models.transaction import RiskLevel, Transaction, UserDecision
-from app.schemas.admin import (
-    BlacklistCreate,
-    BlacklistOut,
-    ScamScenarioCreate,
-    ScamScenarioOut,
-    StatsOut,
-)
+from app.models.blacklist import Blacklist
+from app.models.risk_assessment import RiskLevel, TransactionRiskAssessment, TransactionWarning, WarningDecision
+from app.models.scam_pattern import ScamPattern
+from app.models.transaction import Transaction
+from app.schemas.admin import BlacklistCreate, BlacklistOut, ScamPatternCreate, ScamPatternOut, StatsOut
+from app.services.audit import add_audit_log
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
 
-# ---------------- Blacklist ----------------
-
-
 @router.get("/blacklist", response_model=list[BlacklistOut])
-def list_blacklist(db: Session = Depends(get_db)) -> list[BlacklistEntry]:
-    rows = db.scalars(
-        select(BlacklistEntry).order_by(BlacklistEntry.created_at.desc())
-    ).all()
-    return list(rows)
+def list_blacklist(db: Session = Depends(get_db)) -> list[Blacklist]:
+    return list(db.scalars(select(Blacklist).order_by(Blacklist.created_at.desc())).all())
 
 
-@router.post(
-    "/blacklist", response_model=BlacklistOut, status_code=status.HTTP_201_CREATED
-)
+@router.post("/blacklist", response_model=BlacklistOut, status_code=status.HTTP_201_CREATED)
 def add_blacklist(
-    payload: BlacklistCreate, db: Session = Depends(get_db)
-) -> BlacklistEntry:
+    payload: BlacklistCreate,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+) -> Blacklist:
     existing = db.scalar(
-        select(BlacklistEntry).where(
-            BlacklistEntry.account_number == payload.account_number
+        select(Blacklist).where(
+            Blacklist.entity_type == payload.entity_type,
+            Blacklist.entity_value == payload.entity_value,
+            Blacklist.bank == payload.bank,
+            Blacklist.is_active.is_(True),
         )
     )
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Số tài khoản đã có trong blacklist",
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Bản ghi blacklist đã tồn tại")
 
-    entry = BlacklistEntry(**payload.model_dump())
+    entry = Blacklist(**payload.model_dump())
     db.add(entry)
+    db.flush()
+    add_audit_log(
+        db,
+        action="blacklist.created",
+        actor_id=admin.id,
+        resource_type="blacklist",
+        resource_id=entry.id,
+        metadata={"entity_type": entry.entity_type, "source": entry.source},
+    )
     db.commit()
     db.refresh(entry)
     return entry
 
 
 @router.delete("/blacklist/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_blacklist(entry_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
-    entry = db.get(BlacklistEntry, entry_id)
+def deactivate_blacklist(
+    entry_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+) -> None:
+    entry = db.get(Blacklist, entry_id)
     if entry is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy bản ghi"
-        )
-    db.delete(entry)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy bản ghi")
+    entry.is_active = False
+    add_audit_log(
+        db,
+        action="blacklist.deactivated",
+        actor_id=admin.id,
+        resource_type="blacklist",
+        resource_id=entry.id,
+    )
     db.commit()
 
 
-# ---------------- Kịch bản lừa đảo ----------------
+@router.get("/scam-patterns", response_model=list[ScamPatternOut])
+def list_scam_patterns(db: Session = Depends(get_db)) -> list[ScamPattern]:
+    return list(db.scalars(select(ScamPattern).order_by(ScamPattern.created_at.desc())).all())
 
 
-@router.get("/scenarios", response_model=list[ScamScenarioOut])
-def list_scenarios(db: Session = Depends(get_db)) -> list[ScamScenario]:
-    rows = db.scalars(select(ScamScenario).order_by(ScamScenario.created_at.desc())).all()
-    return list(rows)
-
-
-@router.post(
-    "/scenarios", response_model=ScamScenarioOut, status_code=status.HTTP_201_CREATED
-)
-def add_scenario(
-    payload: ScamScenarioCreate, db: Session = Depends(get_db)
-) -> ScamScenario:
-    """Thêm kịch bản mới. Hệ thống nhận diện ngay, không cần deploy lại (AC #4).
-
-    TODO(sprint-2): gọi embedding service để sinh `embedding` tại đây. Hiện để
-    NULL — hàm tìm kiếm RAG sẽ bỏ qua row chưa có embedding.
-    """
-    scenario = ScamScenario(**payload.model_dump())
-    db.add(scenario)
+@router.post("/scam-patterns", response_model=ScamPatternOut, status_code=status.HTTP_201_CREATED)
+def add_scam_pattern(
+    payload: ScamPatternCreate,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+) -> ScamPattern:
+    existing = db.scalar(select(ScamPattern).where(ScamPattern.pattern_name == payload.pattern_name))
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Tên pattern đã tồn tại")
+    pattern = ScamPattern(**payload.model_dump())
+    db.add(pattern)
+    db.flush()
+    add_audit_log(
+        db,
+        action="scam_pattern.created",
+        actor_id=admin.id,
+        resource_type="scam_pattern",
+        resource_id=pattern.id,
+        metadata={"pattern_name": pattern.pattern_name},
+    )
     db.commit()
-    db.refresh(scenario)
-    return scenario
-
-
-@router.delete("/scenarios/{scenario_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_scenario(scenario_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
-    scenario = db.get(ScamScenario, scenario_id)
-    if scenario is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy kịch bản"
-        )
-    db.delete(scenario)
-    db.commit()
-
-
-# ---------------- Thống kê ----------------
+    db.refresh(pattern)
+    return pattern
 
 
 @router.get("/stats", response_model=StatsOut)
 def stats(db: Session = Depends(get_db)) -> StatsOut:
-    """Số cảnh báo theo mức độ + tỷ lệ người dùng tuân theo khuyến nghị (5.5)."""
     by_level_rows = db.execute(
-        select(Transaction.risk_level, func.count()).group_by(Transaction.risk_level)
+        select(TransactionRiskAssessment.risk_level, func.count())
+        .group_by(TransactionRiskAssessment.risk_level)
     ).all()
-    by_level = {level.value: count for level, count in by_level_rows}
-
-    total = sum(by_level.values())
-
-    # "Tuân theo khuyến nghị" = giao dịch rủi ro cao và người dùng đã hủy.
-    high_risk = db.scalar(
-        select(func.count())
-        .select_from(Transaction)
-        .where(Transaction.risk_level == RiskLevel.HIGH)
-    )
+    by_level = {level: count for level, count in by_level_rows}
+    high_risk = by_level.get(RiskLevel.HIGH, 0)
     high_risk_cancelled = db.scalar(
         select(func.count())
-        .select_from(Transaction)
+        .select_from(TransactionWarning)
+        .join(TransactionRiskAssessment)
         .where(
-            Transaction.risk_level == RiskLevel.HIGH,
-            Transaction.user_decision == UserDecision.CANCELLED,
+            TransactionRiskAssessment.risk_level == RiskLevel.HIGH,
+            TransactionWarning.user_decision == WarningDecision.CANCELLED,
         )
-    )
-
-    compliance = round(high_risk_cancelled / high_risk, 4) if high_risk else None
-
+    ) or 0
     return StatsOut(
-        total_transactions=total,
+        total_transactions=db.scalar(select(func.count()).select_from(Transaction)) or 0,
         by_risk_level={
-            "low": by_level.get("low", 0),
-            "medium": by_level.get("medium", 0),
-            "high": by_level.get("high", 0),
+            RiskLevel.SAFE: by_level.get(RiskLevel.SAFE, 0),
+            RiskLevel.LOW: by_level.get(RiskLevel.LOW, 0),
+            RiskLevel.MEDIUM: by_level.get(RiskLevel.MEDIUM, 0),
+            RiskLevel.HIGH: high_risk,
         },
-        high_risk_count=high_risk or 0,
-        high_risk_cancelled=high_risk_cancelled or 0,
-        recommendation_compliance_rate=compliance,
-        blacklist_size=db.scalar(select(func.count()).select_from(BlacklistEntry)) or 0,
-        scenario_count=db.scalar(select(func.count()).select_from(ScamScenario)) or 0,
+        high_risk_count=high_risk,
+        high_risk_cancelled=high_risk_cancelled,
+        recommendation_compliance_rate=(
+            round(high_risk_cancelled / high_risk, 4) if high_risk else None
+        ),
+        blacklist_size=db.scalar(select(func.count()).select_from(Blacklist)) or 0,
+        pattern_count=db.scalar(select(func.count()).select_from(ScamPattern)) or 0,
     )

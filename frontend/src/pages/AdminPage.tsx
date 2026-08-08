@@ -14,7 +14,6 @@ import {
   TrendingUp,
   TrendingDown,
   Clock,
-  ChevronRight,
   Filter,
   Download,
   MoreVertical,

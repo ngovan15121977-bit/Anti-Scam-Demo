@@ -1,4 +1,5 @@
-from app.db.base import Base
-from app.db.session import get_db, init_db
+"""Database package exports that do not create a connection at import time."""
 
-__all__ = ["Base", "get_db", "init_db"]
+from app.db.base import Base
+
+__all__ = ["Base"]

@@ -1,30 +1,32 @@
-"""Alembic env.py — kết nối với SQLAlchemy models và DATABASE_URL từ .env."""
+"""Alembic configuration for the active ``backend/app`` application."""
 
-import os
+import sys
 from logging.config import fileConfig
-
-from sqlalchemy import engine_from_config, pool
+from pathlib import Path
 
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
-# -- Alembic config
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# -- Import models để autogenerate nhận diện được
-from src.services.db import Base  # noqa: E402
+project_root = Path(__file__).resolve().parents[1]
+backend_dir = project_root / "backend"
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
+from app.config import get_settings  # noqa: E402
+from app.db.base import Base  # noqa: E402
+import app.models  # noqa: E402, F401 - registers every active ORM model
 
 target_metadata = Base.metadata
 
-# -- Lấy DATABASE_URL từ env (sync driver cho alembic)
+
 def get_url() -> str:
-    url = os.getenv("DATABASE_URL", "sqlite:///./data/app.db")
-    # Alembic cần sync driver (không cần aiosqlite/asyncpg)
-    url = url.replace("sqlite+aiosqlite:///", "sqlite:///")
-    url = url.replace("postgresql+asyncpg://", "postgresql://")
-    return url
+    """Use DATABASE_URL from .env, preserving the synchronous psycopg2 driver."""
+    return get_settings().database_url
 
 
 config.set_main_option("sqlalchemy.url", get_url())
@@ -37,6 +39,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        compare_server_default=True,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -53,6 +56,7 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
+            compare_server_default=True,
         )
         with context.begin_transaction():
             context.run_migrations()
