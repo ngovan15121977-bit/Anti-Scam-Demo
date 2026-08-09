@@ -36,11 +36,16 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthInitializer>
-          <Suspense fallback={
-            <div className="min-h-screen flex items-center justify-center bg-gray-50">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-rose-500" />
-            </div>
-          }>
+          <Suspense
+            fallback={
+              <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="animate-spin rounded-full h-10 w-10 border-[3px] border-rose-200 border-t-rose-500" />
+                  <p className="text-sm font-medium text-gray-400">Đang tải...</p>
+                </div>
+              </div>
+            }
+          >
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/login" element={<LoginPage />} />
