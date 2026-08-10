@@ -1,30 +1,19 @@
 # Chạy Backend và PostgreSQL
 
-Backend dùng schema Alembic tại thư mục gốc. Không chạy đồng thời một file SQL
-tạo cùng các bảng với `alembic upgrade head`.
-
-1. Tạo database local (chạy trong PowerShell, dùng user PostgreSQL của bạn):
-
-```powershell
-psql -U postgres -d postgres -c "CREATE USER antiscam WITH PASSWORD 'antiscam';"
-psql -U postgres -d postgres -c "CREATE DATABASE antiscam OWNER antiscam;"
-```
-
-2. Đặt trong file `.env` ở root project:
+1. Đặt trong file `.env` ở root project:
 
 ```dotenv
 DATABASE_URL=postgresql+psycopg2://antiscam:antiscam@localhost:5432/antiscam
 JWT_SECRET_KEY=replace-with-a-long-random-value
 ```
 
-3. Cài dependency và tạo schema, từ thư mục gốc project:
+2. Cài dependency và tạo schema, từ thư mục gốc project:
 
 ```powershell
 python -m pip install -r backend\requirements.txt
-alembic upgrade head
 ```
 
-4. Chạy API:
+3. Chạy API:
 
 ```powershell
 cd backend
