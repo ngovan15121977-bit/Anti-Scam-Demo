@@ -23,11 +23,19 @@ export interface TransactionWarning {
 
 export interface AssessRequest {
   payee_account: string;
-  payee_name: string;
   bank_code?: string;
+  recipient_lookup_token: string;
   amount: number;
   note?: string;
   currency?: string;
+}
+
+export interface RecipientLookupResponse {
+  account_number: string;
+  bank_code: string;
+  account_name: string;
+  source: "directory" | "blacklist" | "trusted_recipient";
+  verification_token: string;
 }
 
 export interface AssessResponse {
@@ -64,6 +72,17 @@ export interface Transaction {
 }
 
 export const transactionsApi = {
+  lookupRecipient: async (data: {
+    account_number: string;
+    bank_code: string;
+  }): Promise<RecipientLookupResponse> => {
+    const response = await axiosInstance.post<RecipientLookupResponse>(
+      "/v1/recipients/resolve",
+      data,
+    );
+    return response.data;
+  },
+
   assess: async (data: AssessRequest): Promise<AssessResponse> => {
     const response = await axiosInstance.post<AssessResponse>("/v1/transactions/assess", data);
     return response.data;

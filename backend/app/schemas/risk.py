@@ -13,8 +13,10 @@ class AssessRequest(BaseModel):
     """Input cho một lệnh chuyển tiền trước khi user ra quyết định."""
 
     payee_account: str = Field(..., min_length=4, max_length=64)
-    payee_name: str = Field(..., min_length=1, max_length=255)
+    # Server fills this from the signed lookup token, never from manual input.
+    payee_name: str = Field(default="", max_length=255)
     bank_code: str | None = Field(default=None, max_length=100)
+    recipient_lookup_token: str = Field(..., min_length=1, max_length=4096)
     amount: int = Field(..., gt=0, le=10_000_000_000)
     note: str | None = Field(default=None, max_length=500)
     currency: str = Field(default="VND", min_length=3, max_length=3)

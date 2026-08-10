@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -26,18 +26,59 @@ import AIRiskModal, { type RiskAssessment } from "@/components/ai/AIRiskModal";
 interface TransferForm {
   recipient_account: string;
   recipient_name: string;
+  recipient_lookup_token: string;
   bank_code: string;
   amount: string;
   note: string;
 }
 
+type RecipientLookupState =
+  | { status: "idle"; message?: string }
+  | { status: "loading" }
+  | { status: "success" }
+  | { status: "error"; message: string };
+
 const banks = [
-  { code: "VCB", name: "Vietcombank" },
-  { code: "TCB", name: "Techcombank" },
-  { code: "MBB", name: "MB Bank" },
+  { code: "ABB", name: "ABBank" },
   { code: "ACB", name: "ACB" },
+  { code: "AGRIBANK", name: "Agribank" },
+  { code: "BAB", name: "Bac A Bank" },
   { code: "VPB", name: "VPBank" },
   { code: "BIDV", name: "BIDV" },
+  { code: "BVB", name: "BaoViet Bank" },
+  { code: "CAKE", name: "Cake by VPBank" },
+  { code: "CIMB", name: "CIMB Vietnam" },
+  { code: "CTG", name: "VietinBank" },
+  { code: "EIB", name: "Eximbank" },
+  { code: "GPB", name: "GPBank" },
+  { code: "HDB", name: "HDBank" },
+  { code: "HSBC", name: "HSBC Vietnam" },
+  { code: "IVB", name: "Indovina Bank" },
+  { code: "KBANK", name: "Kasikornbank" },
+  { code: "KLB", name: "KienlongBank" },
+  { code: "LPB", name: "LPBank" },
+  { code: "MBB", name: "MB Bank" },
+  { code: "MSB", name: "MSB" },
+  { code: "NAB", name: "Nam A Bank" },
+  { code: "OCB", name: "OCB" },
+  { code: "PGB", name: "PGBank" },
+  { code: "PVCB", name: "PVcomBank" },
+  { code: "SCB", name: "SCB" },
+  { code: "SCVN", name: "Standard Chartered Vietnam" },
+  { code: "SEAB", name: "SeABank" },
+  { code: "SGB", name: "Saigonbank" },
+  { code: "SHB", name: "SHB" },
+  { code: "SHINHAN", name: "Shinhan Bank" },
+  { code: "STB", name: "Sacombank" },
+  { code: "TCB", name: "Techcombank" },
+  { code: "TIMO", name: "Timo" },
+  { code: "TPB", name: "TPBank" },
+  { code: "UBANK", name: "Ubank by VPBank" },
+  { code: "UOB", name: "UOB Vietnam" },
+  { code: "VAB", name: "Viet A Bank" },
+  { code: "VCB", name: "Vietcombank" },
+  { code: "VIB", name: "VIB" },
+  { code: "WOORI", name: "Woori Bank Vietnam" },
 ];
 
 const tips = [
@@ -49,9 +90,17 @@ const tips = [
 export default function TransferPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState<"form" | "review" | "ai-check" | "success">("form");
-  const [form, setForm] = useState<TransferForm>({ recipient_account: "", recipient_name: "", bank_code: "", amount: "", note: "" });
+  const [form, setForm] = useState<TransferForm>({ recipient_account: "", recipient_name: "", recipient_lookup_token: "", bank_code: "", amount: "", note: "" });
   const [riskData, setRiskData] = useState<RiskAssessment | null>(null);
   const [txId, setTxId] = useState<string>("");
+  const [recipientLookupState, setRecipientLookupState] = useState<RecipientLookupState>({ status: "idle" });
+  const [isBankPickerOpen, setBankPickerOpen] = useState(false);
+  const [bankSearch, setBankSearch] = useState("");
+  const selectedBank = banks.find((bank) => bank.code === form.bank_code);
+  const normalizedBankSearch = bankSearch.trim().toLocaleLowerCase("vi-VN");
+  const filteredBanks = banks.filter((bank) => (
+    `${bank.name} ${bank.code}`.toLocaleLowerCase("vi-VN").includes(normalizedBankSearch)
+  ));
 
   const decisionMutation = useMutation({
     mutationFn: async ({ transactionId, decision, verified = false }: { transactionId: string; decision: "proceeded" | "cancelled"; verified?: boolean }) =>
@@ -64,10 +113,14 @@ export default function TransferPage() {
   });
 
   const analyzeMutation = useMutation({
-    mutationFn: async (data: TransferForm) => {
-      const bank = banks.find((item) => item.code === data.bank_code);
-      return transactionsApi.assess({ payee_account: data.recipient_account, payee_name: data.recipient_name, bank_code: bank?.name || data.bank_code, amount: Math.round(Number(data.amount)), note: data.note || undefined, currency: "VND" });
-    },
+    mutationFn: async (data: TransferForm) => transactionsApi.assess({
+      payee_account: data.recipient_account,
+      bank_code: data.bank_code,
+      recipient_lookup_token: data.recipient_lookup_token,
+      amount: Math.round(Number(data.amount)),
+      note: data.note || undefined,
+      currency: "VND",
+    }),
     onSuccess: (data) => {
       setTxId(data.transaction_id);
       if (data.should_warn && data.warning) { setRiskData(data); setStep("ai-check"); return; }
@@ -76,12 +129,81 @@ export default function TransferPage() {
     onError: (err: any) => alert(err.response?.data?.detail || "Có lỗi xảy ra khi phân tích rủi ro"),
   });
 
-  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); if (!form.recipient_account || !form.recipient_name || !form.amount || !form.bank_code) return; setStep("review"); };
+  useEffect(() => {
+    const accountNumber = form.recipient_account.replace(/\s/g, "");
+    if (!form.bank_code || !accountNumber) {
+      setRecipientLookupState({ status: "idle" });
+      return;
+    }
+    if (!/^\d{6,19}$/.test(accountNumber)) {
+      setRecipientLookupState({ status: "idle", message: "Số tài khoản cần từ 6 đến 19 chữ số" });
+      return;
+    }
+
+    let cancelled = false;
+    setRecipientLookupState({ status: "loading" });
+    const timeoutId = window.setTimeout(() => {
+      void transactionsApi.lookupRecipient({ account_number: accountNumber, bank_code: form.bank_code })
+        .then((result) => {
+          if (cancelled) return;
+          setForm((current) => (
+            current.recipient_account.replace(/\s/g, "") === accountNumber && current.bank_code === form.bank_code
+              ? { ...current, recipient_name: result.account_name, recipient_lookup_token: result.verification_token }
+              : current
+          ));
+          setRecipientLookupState({ status: "success" });
+        })
+        .catch((error: any) => {
+          if (cancelled) return;
+          setRecipientLookupState({
+            status: "error",
+            message: error.response?.data?.detail || "Không thể tra cứu tên tài khoản. Vui lòng thử lại.",
+          });
+        });
+    }, 500);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [form.recipient_account, form.bank_code]);
+
+  const handleAccountChange = (recipient_account: string) => {
+    setForm((current) => ({
+      ...current,
+      recipient_account: recipient_account.replace(/\D/g, "").slice(0, 19),
+      recipient_name: "",
+      recipient_lookup_token: "",
+    }));
+  };
+
+  const handleBankChange = (bank_code: string) => {
+    setForm((current) => ({ ...current, bank_code, recipient_name: "", recipient_lookup_token: "" }));
+    setBankSearch(banks.find((bank) => bank.code === bank_code)?.name ?? "");
+    setBankPickerOpen(false);
+  };
+
+  const handleBankSearchChange = (value: string) => {
+    setBankSearch(value);
+    setBankPickerOpen(true);
+    if (form.bank_code) {
+      setForm((current) => ({ ...current, bank_code: "", recipient_name: "", recipient_lookup_token: "" }));
+    }
+  };
+
+  const handleBankFocus = () => {
+    setBankPickerOpen(true);
+    if (form.bank_code) {
+      setBankSearch("");
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); if (!isFormValid) return; setStep("review"); };
   const handleRiskCheck = () => analyzeMutation.mutate(form);
   const handleProceed = () => { if (!txId) return; decisionMutation.mutate({ transactionId: txId, decision: "proceeded", verified: true }); };
   const handleCancel = () => { if (!txId) return; decisionMutation.mutate({ transactionId: txId, decision: "cancelled" }); };
   const formatMoney = (amount: string) => { const num = parseFloat(amount); if (isNaN(num)) return "0 đ"; return new Intl.NumberFormat("vi-VN").format(num) + " đ"; };
-  const isFormValid = form.recipient_account && form.recipient_name && form.amount && form.bank_code;
+  const isFormValid = Boolean(form.recipient_account && form.recipient_name && form.recipient_lookup_token && form.amount && form.bank_code);
 
   if (step === "form") {
     return (
@@ -130,7 +252,7 @@ export default function TransferPage() {
 
               {/* Main Form */}
               <div className="lg:col-span-7 xl:col-span-7 space-y-5">
-                <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-gray-100 relative overflow-hidden">
+                <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-gray-100 relative overflow-visible">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-rose-50 rounded-full -translate-y-1/2 translate-x-1/2" />
                   <div className="relative">
                     <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Thông tin người nhận</h2>
@@ -139,25 +261,67 @@ export default function TransferPage() {
                         <label className="text-sm font-medium text-gray-700 mb-1.5 block">Số tài khoản</label>
                         <div className="relative">
                           <CreditCard className="absolute left-3.5 top-3 w-5 h-5 text-gray-400" />
-                          <input type="text" placeholder="Nhập số tài khoản" className="w-full pl-11 pr-4 py-2.5 bg-gray-50 rounded-xl border-0 text-gray-800 focus:ring-2 focus:ring-rose-500 outline-none transition-shadow" value={form.recipient_account} onChange={(e) => setForm({ ...form, recipient_account: e.target.value })} />
+                          <input type="text" inputMode="numeric" placeholder="Nhập số tài khoản" className="w-full pl-11 pr-4 py-2.5 bg-gray-50 rounded-xl border-0 text-gray-800 focus:ring-2 focus:ring-rose-500 outline-none transition-shadow" value={form.recipient_account} onChange={(e) => handleAccountChange(e.target.value)} />
                         </div>
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-gray-700 mb-1.5 block">Tên người nhận</label>
-                        <div className="relative">
+                        <label className="text-sm font-medium text-gray-700 mb-1.5 block">Tên chủ tài khoản</label>
+                        <div className="relative min-h-11 flex items-center pl-11 pr-10 py-2.5 bg-gray-50 rounded-xl text-gray-800">
                           <User className="absolute left-3.5 top-3 w-5 h-5 text-gray-400" />
-                          <input type="text" placeholder="Nhập tên người nhận" className="w-full pl-11 pr-4 py-2.5 bg-gray-50 rounded-xl border-0 text-gray-800 focus:ring-2 focus:ring-rose-500 outline-none transition-shadow" value={form.recipient_name} onChange={(e) => setForm({ ...form, recipient_name: e.target.value })} />
+                          {recipientLookupState.status === "loading" ? (
+                            <span className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="w-4 h-4 animate-spin" />Đang tra cứu dữ liệu nội bộ...</span>
+                          ) : form.recipient_name ? (
+                            <span className="font-semibold text-sm">{form.recipient_name}</span>
+                          ) : (
+                            <span className="text-sm text-gray-400">Tên tài khoản</span>
+                          )}
+                          {recipientLookupState.status === "success" && <CheckCircle2 className="absolute right-3.5 w-5 h-5 text-emerald-500" />}
                         </div>
+                        {recipientLookupState.status === "error" && <p className="mt-1.5 text-xs text-rose-600">{recipientLookupState.message}</p>}
+                        {recipientLookupState.status === "idle" && recipientLookupState.message && <p className="mt-1.5 text-xs text-gray-500">{recipientLookupState.message}</p>}
                       </div>
                       <div>
                         <label className="text-sm font-medium text-gray-700 mb-1.5 block">Ngân hàng</label>
                         <div className="relative">
                           <Building2 className="absolute left-3.5 top-3 w-5 h-5 text-gray-400" />
-                          <select className="w-full pl-11 pr-10 py-2.5 bg-gray-50 rounded-xl border-0 text-gray-800 focus:ring-2 focus:ring-rose-500 outline-none appearance-none transition-shadow" value={form.bank_code} onChange={(e) => setForm({ ...form, bank_code: e.target.value })}>
-                            <option value="">Chọn ngân hàng</option>
-                            {banks.map((bank) => (<option key={bank.code} value={bank.code}>{bank.name}</option>))}
-                          </select>
+                          <input
+                            type="text"
+                            role="combobox"
+                            aria-autocomplete="list"
+                            aria-controls="recipient-bank-options"
+                            aria-expanded={isBankPickerOpen}
+                            placeholder="Nhập tên hoặc mã ngân hàng"
+                            className="w-full pl-11 pr-10 py-2.5 bg-gray-50 rounded-xl border-0 text-gray-800 focus:ring-2 focus:ring-rose-500 outline-none transition-shadow"
+                            value={isBankPickerOpen || !form.bank_code ? bankSearch : selectedBank?.name ?? ""}
+                            onFocus={handleBankFocus}
+                            onBlur={() => setBankPickerOpen(false)}
+                            onChange={(e) => handleBankSearchChange(e.target.value)}
+                          />
                           <ChevronRight className="absolute right-3.5 top-3 w-5 h-5 text-gray-400 rotate-90 pointer-events-none" />
+                          {isBankPickerOpen && (
+                            <div id="recipient-bank-options" role="listbox" className="absolute left-0 top-full z-30 mt-2 max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl">
+                              {filteredBanks.length === 0 ? (
+                                <p className="px-3 py-2 text-sm text-gray-500">Không tìm thấy ngân hàng phù hợp.</p>
+                              ) : (
+                                filteredBanks.map((bank) => (
+                                  <button
+                                    key={bank.code}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={bank.code === form.bank_code}
+                                    onMouseDown={(event) => {
+                                      event.preventDefault();
+                                      handleBankChange(bank.code);
+                                    }}
+                                    className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-rose-50"
+                                  >
+                                    <span className="font-medium text-gray-800">{bank.name}</span>
+                                    <span className="text-xs font-semibold text-gray-400">{bank.code}</span>
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -287,7 +451,7 @@ export default function TransferPage() {
           <p className="text-gray-500 mb-6">{formatMoney(form.amount)} đã được chuyển đến {form.recipient_name}</p>
           <div className="space-y-3">
             <button onClick={() => navigate("/history")} className="w-full py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-all active:scale-[0.98]">Xem lịch sử</button>
-            <button onClick={() => { setStep("form"); setForm({ recipient_account: "", recipient_name: "", bank_code: "", amount: "", note: "" }); setRiskData(null); setTxId(""); }} className="w-full py-3 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold rounded-xl hover:shadow-lg transition-all active:scale-[0.98]">Chuyển tiền khác</button>
+            <button onClick={() => { setStep("form"); setForm({ recipient_account: "", recipient_name: "", recipient_lookup_token: "", bank_code: "", amount: "", note: "" }); setBankSearch(""); setBankPickerOpen(false); setRecipientLookupState({ status: "idle" }); setRiskData(null); setTxId(""); }} className="w-full py-3 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold rounded-xl hover:shadow-lg transition-all active:scale-[0.98]">Chuyển tiền khác</button>
           </div>
         </div>
       </div>

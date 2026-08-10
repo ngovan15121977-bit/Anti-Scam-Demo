@@ -6,6 +6,7 @@ from app.models.blacklist import Blacklist
 from app.models.compliance import DataRetentionPolicy, UserConsent
 from app.models.intervention_log import InterventionLog
 from app.models.model_registry import IntelligenceSource, ModelVersion
+from app.models.recipient_directory import RecipientDirectory
 from app.models.risk_assessment import (
     RiskLevel,
     RiskSignal,
@@ -30,6 +31,7 @@ __all__ = [
     "ModelVersion",
     "RiskLevel",
     "RiskSignal",
+    "RecipientDirectory",
     "ScamPattern",
     "ScamReport",
     "Transaction",

@@ -7,10 +7,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from jose import JWTError
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
+from app.core.security import decode_recipient_lookup_token
 from app.db.session import get_db
 from app.models.risk_assessment import (
     RiskLevel,
@@ -54,6 +56,33 @@ def _warning_content(level: str, explanation: str, recommendation: str) -> tuple
 def _normalize_request(payload: AssessRequest) -> AssessRequest:
     return payload.model_copy(
         update={"bank_code": normalize_bank_name(payload.bank_code)}
+    )
+
+
+def _verified_recipient_request(payload: AssessRequest, current_user: User) -> AssessRequest:
+    """Use only the name that was returned by a recent recipient lookup."""
+    payload = _normalize_request(payload)
+    account_number = payload.payee_account.replace(" ", "").strip()
+    if not payload.bank_code:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Ngân hàng không hợp lệ")
+
+    try:
+        verified = decode_recipient_lookup_token(
+            payload.recipient_lookup_token, user_id=str(current_user.id)
+        )
+    except (JWTError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Thông tin người nhận chưa được xác thực hoặc đã hết hạn. Vui lòng tra cứu lại.",
+        ) from None
+
+    if verified["account_number"] != account_number or verified["bank_code"] != payload.bank_code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Thông tin người nhận đã thay đổi. Vui lòng tra cứu lại.",
+        )
+    return payload.model_copy(
+        update={"payee_account": account_number, "payee_name": verified["account_name"]}
     )
 
 
@@ -204,7 +233,7 @@ def assess(
     current_user: User = Depends(get_current_user),
 ) -> AssessResponse:
     """Create a sandbox transaction and store its first risk assessment."""
-    payload = _normalize_request(payload)
+    payload = _verified_recipient_request(payload, current_user)
     transaction = Transaction(
         user_id=current_user.id,
         payee_account=payload.payee_account.replace(" ", "").strip(),
@@ -226,7 +255,7 @@ def reassess(
     current_user: User = Depends(get_current_user),
 ) -> AssessResponse:
     """Append a new assessment when rules/model inputs need to be re-evaluated."""
-    payload = _normalize_request(payload)
+    payload = _verified_recipient_request(payload, current_user)
     transaction = db.scalar(
         select(Transaction).where(
             Transaction.id == transaction_id,

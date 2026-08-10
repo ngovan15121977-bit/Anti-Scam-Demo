@@ -22,11 +22,12 @@ from app.db.base import Base  # noqa: E402
 import app.models  # noqa: E402, F401 - registers every active ORM model
 
 target_metadata = Base.metadata
+settings = get_settings()
 
 
 def get_url() -> str:
     """Use DATABASE_URL from .env, preserving the synchronous psycopg2 driver."""
-    return get_settings().database_url
+    return settings.database_url
 
 
 config.set_main_option("sqlalchemy.url", get_url())
@@ -52,6 +53,12 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
+        # App requests use DATABASE_SCHEMA; migrations must create tables in
+        # the same schema instead of PostgreSQL's default public schema.
+        quoted_schema = connection.dialect.identifier_preparer.quote(
+            settings.database_schema
+        )
+        connection.exec_driver_sql(f"SET search_path TO {quoted_schema}, public")
         context.configure(
             connection=connection,
             target_metadata=target_metadata,

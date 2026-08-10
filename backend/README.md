@@ -33,6 +33,25 @@ python -m uvicorn app.main:app --reload --port 8000
 
 Swagger: `http://localhost:8000/docs`.
 
+## Tự động tra cứu tên người nhận
+
+Form chuyển tiền gọi `POST /api/v1/recipients/resolve` sau khi người dùng chọn
+ngân hàng và nhập đủ số tài khoản. Backend chỉ tra cứu trong PostgreSQL theo
+thứ tự `recipient_directory`, `blacklist`, rồi `trusted_recipients` của chính
+user; không gọi API ngân hàng bên ngoài.
+
+Để thêm tài khoản cho demo, sau khi chạy `alembic upgrade head`, dùng SQL:
+
+```sql
+INSERT INTO recipient_directory (account_number, bank_code, account_name, source)
+VALUES ('123456789', 'VCB', 'NGUYEN VAN A', 'demo')
+ON CONFLICT (account_number, bank_code)
+DO UPDATE SET account_name = EXCLUDED.account_name, source = EXCLUDED.source;
+```
+
+Nếu không có bản ghi khớp chính xác cả số tài khoản và ngân hàng, API trả `404`
+và không cho tạo giao dịch chưa có tên trong dữ liệu nội bộ.
+
 ## Import SQL hoặc Excel
 
 - File `.sql` chỉ chứa dữ liệu `INSERT`: chạy **sau** Alembic:

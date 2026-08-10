@@ -94,6 +94,18 @@ CREATE TABLE IF NOT EXISTS trusted_recipients (
     UNIQUE (user_id, account_number, bank_code)
 );
 
+CREATE TABLE IF NOT EXISTS recipient_directory (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    account_number VARCHAR(64) NOT NULL,
+    bank_code VARCHAR(32) NOT NULL,
+    account_name VARCHAR(255) NOT NULL,
+    source VARCHAR(100) NOT NULL DEFAULT 'internal',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (account_number, bank_code)
+);
+
 CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

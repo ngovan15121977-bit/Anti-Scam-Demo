@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     embedding_dim: int = Field(default=1536, ge=1)
 
+    # ---- Recipient lookup ----
+    # Token proves that a recipient name came from the internal directory.
+    recipient_lookup_token_expire_seconds: int = Field(default=300, ge=30, le=900)
+
     @computed_field
     @property
     def cors_origin_list(self) -> list[str]:

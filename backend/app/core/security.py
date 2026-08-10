@@ -49,5 +49,38 @@ def decode_access_token(token: str) -> dict[str, Any]:
         raise
 
 
+def create_recipient_lookup_token(
+    *, user_id: str, account_number: str, bank_code: str, account_name: str
+) -> str:
+    """Create a short-lived proof that a recipient name came from internal lookup."""
+    settings = get_settings()
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        seconds=settings.recipient_lookup_token_expire_seconds
+    )
+    return jwt.encode(
+        {
+            "sub": user_id,
+            "purpose": "recipient_lookup",
+            "account_number": account_number,
+            "bank_code": bank_code,
+            "account_name": account_name,
+            "exp": expires_at,
+        },
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+
+
+def decode_recipient_lookup_token(token: str, *, user_id: str) -> dict[str, str]:
+    """Validate lookup proof and ensure it belongs to the current user."""
+    payload = decode_access_token(token)
+    required_fields = ("account_number", "bank_code", "account_name")
+    if payload.get("purpose") != "recipient_lookup" or payload.get("sub") != user_id:
+        raise ValueError("Lookup token does not belong to this user")
+    if any(not isinstance(payload.get(field), str) or not payload[field] for field in required_fields):
+        raise ValueError("Lookup token is missing recipient data")
+    return {field: payload[field] for field in required_fields}
+
+
 # Backward-compatible aliases for files that have not been mounted by app.main.
 get_password_hash = hash_password
