@@ -9,8 +9,6 @@ import {
   Users,
   TrendingUp,
   CheckCircle2,
-  Menu,
-  X,
   Sparkles,
   Heart,
   Gamepad2,
@@ -26,10 +24,7 @@ import {
   Wallet,
   Ticket,
   Bus,
-  LogOut,
-  User,
 } from "lucide-react";
-import { useState } from "react";
 import { useAuthStore } from "@/stores/authStore";
 
 const services = [
@@ -48,7 +43,7 @@ const services = [
 
 const tags = [
   { icon: Sparkles, label: "Trợ Thủ Tài Chính" },
-  { icon: Car, label: "Trả cứu phạt nguội" },
+  { icon: Car, label: "Tra cứu phạt nguội" },
   { icon: PieChart, label: "Quản Lý Chi Tiêu" },
   { icon: Landmark, label: "Trung Tâm Tài Chính" },
   { icon: Users, label: "Quỹ Nhóm" },
@@ -107,141 +102,12 @@ const stats = [
 
 export default function HomePage() {
   const navigate = useNavigate();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { user, logout } = useAuthStore();
-
-  const handleLogout = () => {
-    logout();
-    navigate("/");
-    window.location.reload();
-  };
+  const { user } = useAuthStore();
 
   return (
     <div className="min-h-screen bg-white w-full">
-      {/* Navigation */}
-      <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-100 w-full">
-        <div className="w-full px-6 lg:px-12 xl:px-20">
-          <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate("/")}>
-              <div className="w-9 h-9 bg-gradient-to-br from-rose-500 to-pink-600 rounded-xl flex items-center justify-center">
-                <Shield className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-2xl font-bold bg-gradient-to-r from-rose-600 to-pink-600 bg-clip-text text-transparent">
-                Timi
-              </span>
-            </div>
-
-            {/* Desktop Nav */}
-            <div className="hidden md:flex items-center gap-8">
-              <a href="#features" className="text-slate-600 hover:text-rose-600 font-medium transition-colors">Dịch vụ</a>
-              <a href="#security" className="text-slate-600 hover:text-rose-600 font-medium transition-colors">Bảo mật</a>
-              <a href="#about" className="text-slate-600 hover:text-rose-600 font-medium transition-colors">Về Timi</a>
-            </div>
-
-            {/* Auth Buttons - Desktop */}
-            <div className="hidden md:flex items-center gap-3">
-              {user ? (
-                <>
-                  <button
-                    onClick={() => navigate("/dashboard")}
-                    className="flex items-center gap-2 px-4 py-2 text-slate-700 font-semibold hover:bg-rose-50 rounded-full transition-colors"
-                  >
-                    <div className="w-8 h-8 bg-gradient-to-br from-rose-500 to-pink-600 rounded-full flex items-center justify-center">
-                      <User className="w-4 h-4 text-white" />
-                    </div>
-                    <span className="max-w-[120px] truncate">
-                      {user.full_name || user.email || "Tài khoản"}
-                    </span>
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
-                    title="Đăng xuất"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() => navigate("/login")}
-                    className="px-5 py-2 text-rose-600 font-semibold hover:bg-rose-50 rounded-full transition-colors"
-                  >
-                    Đăng nhập
-                  </button>
-                  <button
-                    onClick={() => navigate("/register")}
-                    className="px-5 py-2 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-semibold rounded-full shadow-lg shadow-rose-200 hover:shadow-xl hover:scale-105 transition-all"
-                  >
-                    Đăng ký ngay
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* Mobile menu button */}
-            <button
-              className="md:hidden p-2 text-slate-600"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            >
-              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-            </button>
-          </div>
-        </div>
-
-        {/* Mobile Menu */}
-        {mobileMenuOpen && (
-          <div className="md:hidden bg-white border-t border-slate-100 px-6 py-4 space-y-3">
-            <a href="#features" className="block py-2 text-slate-600 font-medium">Dịch vụ</a>
-            <a href="#security" className="block py-2 text-slate-600 font-medium">Bảo mật</a>
-            <a href="#about" className="block py-2 text-slate-600 font-medium">Về Timi</a>
-            <hr className="border-slate-100" />
-            {user ? (
-              <>
-                <div className="flex items-center gap-3 py-2">
-                  <div className="w-10 h-10 bg-gradient-to-br from-rose-500 to-pink-600 rounded-full flex items-center justify-center">
-                    <User className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-slate-800">
-                      {user.full_name || "Người dùng"}
-                    </p>
-                    <p className="text-xs text-slate-500">{user.email}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => { navigate("/dashboard"); setMobileMenuOpen(false); }}
-                  className="block w-full text-left py-2 text-rose-600 font-semibold"
-                >
-                  Vào ví Timi
-                </button>
-                <button
-                  onClick={() => { handleLogout(); setMobileMenuOpen(false); }}
-                  className="block w-full text-left py-2 text-red-500 font-semibold"
-                >
-                  Đăng xuất
-                </button>
-              </>
-            ) : (
-              <>
-                <button onClick={() => navigate("/login")} className="block w-full text-left py-2 text-rose-600 font-semibold">
-                  Đăng nhập
-                </button>
-                <button
-                  onClick={() => navigate("/register")}
-                  className="w-full py-2.5 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-semibold rounded-full"
-                >
-                  Đăng ký ngay
-                </button>
-              </>
-            )}
-          </div>
-        )}
-      </nav>
-
-      {/* ===== TIỆN ÍCH VÀ DỊCH VỤ - Giống ảnh MoMo ===== */}
-      <section className="pt-10 pb-6 bg-white w-full">
+      {/* ===== TIỆN ÍCH VÀ DỊCH VỤ ===== */}
+      <section className="pt-6 pb-6 bg-white w-full">
         <div className="w-full px-6 lg:px-12 xl:px-20">
           <div className="text-center mb-8">
             <h2 className="text-3xl font-bold text-rose-600 mb-3">Tiện ích và dịch vụ</h2>
@@ -250,7 +116,7 @@ export default function HomePage() {
             </p>
           </div>
 
-          {/* Services Grid - scroll ngang trên mobile */}
+          {/* Services Grid */}
           <div className="relative">
             <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide justify-start lg:justify-center snap-x">
               {services.map((service) => {
@@ -292,7 +158,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ===== AI BANNER - Giống ảnh ===== */}
+      {/* ===== AI BANNER ===== */}
       <section className="py-8 bg-gradient-to-br from-pink-50 to-rose-50 w-full">
         <div className="w-full px-6 lg:px-12 xl:px-20">
           <div className="bg-white rounded-3xl overflow-hidden shadow-lg border border-pink-100">
