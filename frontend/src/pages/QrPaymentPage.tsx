@@ -16,14 +16,14 @@ import {
 } from "lucide-react";
 
 import {
-  createDemoPaymentQr,
-  parseDemoPaymentQr,
+  createPaymentQr,
+  parsePaymentQr,
   paymentBanks,
   type PaymentQrData,
 } from "@/lib/paymentQr";
 import { transactionsApi } from "@/api/transactions";
 
-const CAMERA_READER_ID = "timi-demo-qr-camera";
+const CAMERA_READER_ID = "timi-qr-camera";
 
 type Mode = "scan" | "create";
 type ScannerState = "idle" | "starting" | "scanning";
@@ -144,19 +144,19 @@ export default function QrPaymentPage() {
   };
 
   const handleDecodedText = useCallback((decodedText: string) => {
-    const payment = parseDemoPaymentQr(decodedText);
+    const payment = parsePaymentQr(decodedText);
     if (!payment) {
       // The scanner did decode a QR. It is intentionally not used as transfer
-      // data because only the app's demo payload has a defined, validated shape.
-      setScanError("Đã đọc được mã QR, nhưng đây không phải QR demo của Timi. Hãy quét mã được tạo từ mục “Tạo QR”.");
+      // data because only the app's  payload has a defined, validated shape.
+      setScanError("Đã đọc được mã QR, nhưng đây không phải QR của Timi. Hãy quét mã được tạo từ mục “Tạo QR”.");
       return false;
     }
     setScanError("");
     setScannerState("idle");
     void stopScanner();
-    // A successful demo QR goes straight to the transfer form. The transfer
+    // A successful  QR goes straight to the transfer form. The transfer
     // page deliberately performs a fresh recipient lookup before it can send.
-    navigate("/transfer", { state: { demoQrPayment: payment } });
+    navigate("/transfer", { state: { QrPayment: payment } });
     return true;
   }, [navigate, stopScanner]);
 
@@ -241,7 +241,7 @@ export default function QrPaymentPage() {
     event.preventDefault();
     setCreateError("");
     if (recipientLookupState.status !== "success") {
-      setCreateError("Cần xác minh số tài khoản và ngân hàng trước khi tạo QR demo.");
+      setCreateError("Cần xác minh số tài khoản và ngân hàng trước khi tạo QR.");
       return;
     }
     const amount = form.amount.trim() ? Number(form.amount) : undefined;
@@ -252,7 +252,7 @@ export default function QrPaymentPage() {
       ...(form.note.trim() ? { note: form.note.trim() } : {}),
       accountName: recipientLookupState.accountName,
     };
-    const payload = createDemoPaymentQr(payment);
+    const payload = createPaymentQr(payment);
     if (!payload) {
       setCreateError("Kiểm tra lại ngân hàng, số tài khoản (6–19 chữ số), số tiền và nội dung.");
       return;
@@ -278,7 +278,7 @@ export default function QrPaymentPage() {
     if (!generatedQr) return;
     const link = document.createElement("a");
     link.href = generatedQr.image;
-    link.download = "timi-qr-thanh-toan-demo.png";
+    link.download = "timi-qr-thanh-toan-.png";
     link.click();
   };
 
@@ -291,7 +291,7 @@ export default function QrPaymentPage() {
           <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
         <div>
-          <h1 className="text-lg font-bold text-gray-800">QR thanh toán demo</h1>
+          <h1 className="text-lg font-bold text-gray-800">QR thanh toán </h1>
           <p className="text-xs text-gray-500">Quét hoặc tạo mã cho luồng mô phỏng của Timi</p>
         </div>
       </header>
@@ -299,7 +299,7 @@ export default function QrPaymentPage() {
       <main className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 flex gap-3 text-amber-800">
           <ShieldCheck className="h-5 w-5 shrink-0 mt-0.5" />
-          <p className="text-sm leading-relaxed"><strong>Chỉ dùng để demo.</strong> Mã QR này không kết nối ngân hàng và không thể thực hiện thanh toán ngoài đời thực.</p>
+          <p className="text-sm leading-relaxed"><strong>Chỉ dùng để .</strong> Mã QR này không kết nối ngân hàng và không thể thực hiện thanh toán ngoài đời thực.</p>
         </div>
 
         <div className="grid lg:grid-cols-[0.9fr_1.1fr] gap-6">
@@ -316,7 +316,7 @@ export default function QrPaymentPage() {
             {mode === "scan" ? (
               <div>
                 <h2 className="text-xl font-bold text-gray-900">Quét QR bằng camera</h2>
-                <p className="mt-1 text-sm text-gray-500">Hướng camera vào QR demo được tạo từ Timi.</p>
+                <p className="mt-1 text-sm text-gray-500">Hướng camera vào QR được tạo từ Timi.</p>
                 <div className="relative mt-5 overflow-hidden rounded-2xl bg-gray-950 aspect-square grid place-items-center">
                   <div id={CAMERA_READER_ID} className="w-full [&_video]:w-full [&_video]:h-full [&_video]:object-cover" />
                   {scannerState !== "scanning" && (
@@ -351,7 +351,7 @@ export default function QrPaymentPage() {
             ) : (
               <form onSubmit={handleCreate} className="space-y-4">
                 <div>
-                  <h2 className="text-xl font-bold text-gray-900">Tạo QR nhận tiền demo</h2>
+                  <h2 className="text-xl font-bold text-gray-900">Tạo QR nhận tiền </h2>
                   <p className="mt-1 text-sm text-gray-500">Chọn thông tin sẽ được điền khi người khác quét mã.</p>
                 </div>
                 <label className="block text-sm font-semibold text-gray-700">Ngân hàng
@@ -392,7 +392,7 @@ export default function QrPaymentPage() {
                 {createError && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{createError}</p>}
                 <button disabled={isCreating || recipientLookupState.status !== "success"} className="w-full py-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold hover:shadow-lg disabled:opacity-60 flex items-center justify-center gap-2">
                   {isCreating ? <Loader2 className="w-5 h-5 animate-spin" /> : <QrCode className="w-5 h-5" />}
-                  {isCreating ? "Đang tạo QR..." : "Tạo QR demo"}
+                  {isCreating ? "Đang tạo QR..." : "Tạo QR"}
                 </button>
               </form>
             )}
@@ -401,8 +401,8 @@ export default function QrPaymentPage() {
           <section className="bg-white rounded-3xl p-5 sm:p-7 border border-gray-100 shadow-sm flex flex-col">
             {mode === "create" && generatedQr ? (
               <div className="h-full flex flex-col items-center text-center">
-                <div className="flex items-center gap-2 text-emerald-600 self-start"><CheckCircle2 className="w-6 h-6" /><span className="font-bold">QR demo đã sẵn sàng</span></div>
-                <img src={generatedQr.image} alt="Mã QR thanh toán demo Timi" className="mt-5 w-full max-w-[340px] rounded-2xl border border-gray-100" />
+                <div className="flex items-center gap-2 text-emerald-600 self-start"><CheckCircle2 className="w-6 h-6" /><span className="font-bold">QR đã sẵn sàng</span></div>
+                <img src={generatedQr.image} alt="Mã QR thanh toán  Timi" className="mt-5 w-full max-w-[340px] rounded-2xl border border-gray-100" />
                 <PaymentSummary payment={generatedQr.payment} compact />
                 <button type="button" onClick={downloadQr} className="mt-auto pt-6 w-full py-3 rounded-xl bg-gray-100 text-gray-700 font-bold hover:bg-gray-200 flex items-center justify-center gap-2"><Download className="w-5 h-5" />Tải ảnh QR</button>
               </div>
@@ -410,8 +410,8 @@ export default function QrPaymentPage() {
               <div className="h-full min-h-[440px] grid place-items-center text-center px-6">
                 <div>
                   <div className="mx-auto grid place-items-center w-16 h-16 rounded-2xl bg-rose-50"><QrCode className="w-8 h-8 text-rose-500" /></div>
-                  <h2 className="mt-5 text-xl font-bold text-gray-900">{mode === "scan" ? "Sẵn sàng quét QR" : "QR demo sẽ hiển thị ở đây"}</h2>
-                  <p className="mt-2 text-sm leading-relaxed text-gray-500">{mode === "scan" ? "Mở camera, đưa QR demo vào khung và xác nhận lại thông tin trước khi chuyển tiền." : "Điền thông tin người nhận để tạo một mã dùng trong luồng demo Timi."}</p>
+                  <h2 className="mt-5 text-xl font-bold text-gray-900">{mode === "scan" ? "Sẵn sàng quét QR" : "QR sẽ hiển thị ở đây"}</h2>
+                  <p className="mt-2 text-sm leading-relaxed text-gray-500">{mode === "scan" ? "Mở camera, đưa QR vào khung và xác nhận lại thông tin trước khi chuyển tiền." : "Điền thông tin người nhận để tạo một mã dùng trong luồng  Timi."}</p>
                 </div>
               </div>
             )}

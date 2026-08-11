@@ -30,7 +30,7 @@ export const paymentBanks: BankDefinition[] = [
   { code: "VPB", name: "VPBank" },
 ];
 
-const PREFIX = "TIMI-DEMO-PAYMENT:1:";
+const PREFIX = "TIMI--PAYMENT:1:";
 const MAX_QR_LENGTH = 2048;
 
 type EncodedPayment = {
@@ -85,16 +85,16 @@ function normalizePayment(input: PaymentQrData): EncodedPayment | null {
   };
 }
 
-/** Creates a local, non-payment QR payload for the Timi demo flow. */
-export function createDemoPaymentQr(input: PaymentQrData): string | null {
+/** Creates a local, non-payment QR payload for the Timi  flow. */
+export function createPaymentQr(input: PaymentQrData): string | null {
   const payment = normalizePayment(input);
   if (!payment) return null;
   const payload = `${PREFIX}${toBase64Url(JSON.stringify(payment))}`;
   return payload.length <= MAX_QR_LENGTH ? payload : null;
 }
 
-/** Rejects every QR type other than the documented Timi demo payment payload. */
-export function parseDemoPaymentQr(rawValue: string): PaymentQrData | null {
+/** Rejects every QR type other than the documented Timi  payment payload. */
+export function parsePaymentQr(rawValue: string): PaymentQrData | null {
   const raw = rawValue.trim();
   if (!raw.startsWith(PREFIX) || raw.length > MAX_QR_LENGTH) return null;
 

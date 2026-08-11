@@ -15,7 +15,7 @@ export default function MainLayout() {
   const navItems = [
     { path: "/dashboard", label: "Trang chủ", icon: Home },
     { path: "/transfer", label: "Chuyển tiền", icon: Send },
-    { path: "/qr", label: "QR demo", icon: QrCode },
+    { path: "/qr", label: "QR", icon: QrCode },
     { path: "/history", label: "Lịch sử", icon: History },
     { path: "/me", label: "Tài khoản", icon: User },
   ];
