@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Send,
@@ -18,6 +18,7 @@ import {
   Lock,
   Star,
   Heart,
+  QrCode,
 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
@@ -88,6 +89,7 @@ const tips = [
 ];
 
 export default function TransferPage() {
+  const location = useLocation();
   const navigate = useNavigate();
   const [step, setStep] = useState<"form" | "review" | "ai-check" | "pin" | "success">("form");
   const [pin, setPin] = useState("");
@@ -102,6 +104,31 @@ export default function TransferPage() {
   const filteredBanks = banks.filter((bank) => (
     `${bank.name} ${bank.code}`.toLocaleLowerCase("vi-VN").includes(normalizedBankSearch)
   ));
+
+  useEffect(() => {
+    const payment = (location.state as { demoQrPayment?: Partial<{ accountNumber: string; bankCode: string; amount: number; note: string }> } | null)?.demoQrPayment;
+    if (!payment || typeof payment.accountNumber !== "string" || typeof payment.bankCode !== "string") return;
+
+    const bankCode = payment.bankCode;
+    const accountNumber = payment.accountNumber.replace(/\s+/g, "");
+    const isKnownBank = banks.some((bank) => bank.code === bankCode);
+    if (!/^\d{6,19}$/.test(accountNumber) || !isKnownBank) return;
+
+    setForm((current) => ({
+      ...current,
+      recipient_account: accountNumber,
+      bank_code: bankCode,
+      // A QR value is not trusted as a recipient identity. The existing lookup
+      // effect below will obtain a fresh name and signed verification token.
+      recipient_name: "",
+      recipient_lookup_token: "",
+      ...(Number.isSafeInteger(payment.amount) && payment.amount! > 0 ? { amount: String(payment.amount) } : {}),
+      ...(typeof payment.note === "string" && payment.note.length <= 500 ? { note: payment.note } : {}),
+    }));
+    setBankSearch(banks.find((bank) => bank.code === bankCode)?.name ?? "");
+    setRecipientLookupState({ status: "idle" });
+    navigate("/transfer", { replace: true, state: null });
+  }, [location.state, navigate]);
 
   const decisionMutation = useMutation({
     mutationFn: async ({ transactionId, decision, verified = false, pin: transactionPin }: { transactionId: string; decision: "proceeded" | "cancelled"; verified?: boolean; pin?: string }) =>
@@ -223,6 +250,9 @@ export default function TransferPage() {
           <div className="bg-white/80 backdrop-blur-md border-b border-gray-100 px-4 sm:px-6 lg:px-8 xl:px-12 py-4 flex items-center gap-3 sticky top-0 z-20">
             <button onClick={() => navigate("/dashboard")} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ArrowLeft className="w-5 h-5 text-gray-600" /></button>
             <h1 className="text-lg font-bold text-gray-800">Chuyển tiền</h1>
+            <button type="button" onClick={() => navigate("/qr?mode=create")} className="ml-auto inline-flex items-center gap-2 rounded-xl bg-rose-50 px-3 py-2 text-sm font-bold text-rose-600 hover:bg-rose-100">
+              <QrCode className="w-4 h-4" />QR demo
+            </button>
           </div>
 
           <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 py-6">
@@ -259,7 +289,12 @@ export default function TransferPage() {
                     <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Thông tin người nhận</h2>
                     <div className="space-y-4">
                       <div>
-                        <label className="text-sm font-medium text-gray-700 mb-1.5 block">Số tài khoản</label>
+                        <div className="mb-1.5 flex items-center justify-between gap-3">
+                          <label className="text-sm font-medium text-gray-700">Số tài khoản</label>
+                          <button type="button" onClick={() => navigate("/qr?mode=scan")} className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:text-rose-700">
+                            <QrCode className="w-4 h-4" />Quét QR
+                          </button>
+                        </div>
                         <div className="relative">
                           <CreditCard className="absolute left-3.5 top-3 w-5 h-5 text-gray-400" />
                           <input type="text" inputMode="numeric" placeholder="Nhập số tài khoản" className="w-full pl-11 pr-4 py-2.5 bg-gray-50 rounded-xl border-0 text-gray-800 focus:ring-2 focus:ring-rose-500 outline-none transition-shadow" value={form.recipient_account} onChange={(e) => handleAccountChange(e.target.value)} />
