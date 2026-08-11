@@ -1,110 +1,79 @@
-# Architecture Document
+# FintechGuard Architecture
 
-## System Overview
-
-[Tóm tắt 2-3 câu về kiến trúc hệ thống]
-
-## Architecture Diagram
+## Components and data flow
 
 ```mermaid
-graph TB
-    subgraph Frontend
-        UI[React/Next.js UI]
-    end
-
-    subgraph Backend[FastAPI Backend]
-        API[API Routes]
-        Agent[LangGraph Agent]
-        LLM[LLM Service]
-        Tools[Agent Tools]
-    end
-
-    subgraph Data[Data Layer]
-        DB[(Database)]
-        Vector[Vector Store]
-    end
-
-    UI -->|HTTP/REST| API
-    API --> Agent
-    Agent --> LLM
-    Agent --> Tools
-    Agent --> Vector
-    Tools --> DB
-    API --> DB
+flowchart TB
+    U[User] --> FE[React/Vite Frontend]
+    FE -->|REST + JWT| API[FastAPI API]
+    API --> TG[LangGraph transaction graph]
+    TG --> G[Input guard]
+    G --> E[Evidence collection]
+    E --> R[Rule Engine + ML risk score]
+    E --> V[(Neon PostgreSQL + pgvector)]
+    R --> X[Evidence-based explanation]
+    X -. optional real LLM .-> L[OpenAI]
+    API --> IG[LangGraph HITL intervention graph]
+    IG --> V
+    API --> P[PIN verification]
+    P --> V
+    API --> A[Audit log]
 ```
 
-## Components
-
-### 1. Frontend (React/Next.js)
-- **Purpose:** [mô tả]
-- **Key Features:** [danh sách]
-- **State Management:** [approach]
-
-### 2. Backend (FastAPI)
-- **Purpose:** [mô tả]
-- **API Design:** RESTful
-- **Authentication:** [JWT/None]
-
-### 3. AI Agent (LangGraph)
-- **Agent Type:** [ReAct / Plan-and-Execute / Custom]
-- **State:** [mô tả state schema]
-- **Nodes:** [danh sách nodes]
-- **Tools:** [danh sách tools]
-- **Flow:**
+## Main transaction flow
 
 ```mermaid
-graph LR
-    START --> A[Node A]
-    A --> B{Decision}
-    B -->|Yes| C[Node C]
-    B -->|No| D[Node D]
-    C --> E[END]
-    D --> E
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant A as FastAPI
+    participant G as LangGraph
+    participant D as Neon
+    participant L as OpenAI
+    U->>F: recipient + amount + note
+    F->>A: recipient lookup
+    A->>A: verify signed lookup token
+    F->>A: POST /transactions/assess
+    A->>G: assessment state
+    G->>D: blacklist/history/pattern evidence
+    G->>G: deterministic score
+    opt LLM_EXPLANATION_ENABLED=true
+      G->>L: evidence-only prompt
+      L-->>G: bounded explanation
+    end
+    G-->>A: risk + signals + warning
+    A-->>F: safe result or HITL warning
+    F->>A: answers + PIN + human decision
+    A->>D: assessment/intervention/audit
+    A-->>F: completed or cancelled
 ```
 
-### 4. Database
-- **Type:** [PostgreSQL / SQLite]
-- **Tables:** [danh sách]
-- **Migrations:** Alembic
+## Code map
 
-### 5. Vector Store
-- **Type:** [ChromaDB / FAISS / Pinecone]
-- **Embeddings:** [model]
-- **Purpose:** [RAG / similarity search]
+| Component | Location | Responsibility |
+|---|---|---|
+| Frontend transfer flow | `frontend/src/pages/TransferPage.tsx` | Input, warning, HITL, PIN |
+| Transaction graph | `src/agents/transaction_graph.py` | Guard, evidence, score, explanation |
+| HITL graph | `src/agents/intervention_graph.py` | Two-step verification |
+| API | `src/app/api/transactions.py` | Assess, decision, reports, audit |
+| Risk engine | `src/app/services/risk_rules.py` | Score and false-positive guard |
+| Persistence | `src/app/models/` | Assessment, signals, logs, blacklist, trusted recipients |
 
-## Data Flow
+## Safety boundaries
 
-1. User gửi request từ Frontend
-2. API route nhận và validate input
-3. Agent xử lý qua LangGraph pipeline
-4. LLM generate response
-5. Tools thực thi actions (nếu cần)
-6. Response trả về Frontend
+- Rule Engine/ML, not LLM, owns `risk_score` and `risk_level`.
+- LLM has no database or transfer tool and only receives bounded evidence.
+- Prompt injection is treated as untrusted transaction text.
+- MEDIUM/HIGH remains `AWAITING_DECISION` until human choice.
+- PIN is hashed; raw PIN is never stored in audit logs.
+- One alert does not automatically blacklist; promotion requires independent evidence.
 
-## Deployment Architecture
+## Deployment
 
 ```mermaid
-graph LR
-    subgraph Docker
-        FE[Frontend Container]
-        BE[Backend Container]
-        DB_C[Database Container]
-    end
-    FE --> BE --> DB_C
+flowchart LR
+    Browser --> FE[Frontend container / Nginx]
+    FE --> BE[Backend container / Uvicorn]
+    BE --> N[(Neon PostgreSQL)]
+    BE --> O[OpenAI API]
 ```
-
-## Security
-
-- API keys stored in `.env` (never commit)
-- Input validation via Pydantic
-- Rate limiting on API endpoints
-- CORS configured for frontend domain
-
-## Design Decisions
-
-| Decision | Choice | Reason |
-|----------|--------|--------|
-| Framework | FastAPI | Async, auto-docs, type-safe |
-| Agent | LangGraph | Flexible state management |
-| Database | [choice] | [reason] |
-| Frontend | Next.js | [reason] |

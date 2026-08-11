@@ -9,6 +9,7 @@ export interface RiskSignal {
   severity: SignalSeverity;
   score?: number | null;
   explanation: string;
+  evidence?: Record<string, unknown>;
 }
 
 export interface TransactionWarning {
@@ -49,6 +50,21 @@ export interface AssessResponse {
   should_warn: boolean;
   warning?: TransactionWarning | null;
   requires_user_decision: boolean;
+  intervention?: InterventionResponse | null;
+}
+
+export interface InterventionResponse {
+  transaction_id: string;
+  warning_id?: string | null;
+  step: number;
+  total_steps: number;
+  node_name: string;
+  message: string;
+  question?: string | null;
+  suggested_actions: string[];
+  risk_factors: string[];
+  decision_ready: boolean;
+  can_proceed: boolean;
 }
 
 export interface DecisionResponse {
@@ -95,6 +111,7 @@ export const transactionsApi = {
       verificationConfirmed?: boolean;
       verificationMethod?: string;
       verificationAnswers?: string[];
+      pin?: string;
     },
   ): Promise<DecisionResponse> => {
     const response = await axiosInstance.post<DecisionResponse>(
@@ -104,9 +121,30 @@ export const transactionsApi = {
         verification_confirmed: options?.verificationConfirmed,
         verification_method: options?.verificationMethod,
         verification_answers: options?.verificationAnswers ?? [],
+        pin: options?.pin,
       },
     );
     return response.data;
+  },
+
+  intervention: async (
+    transactionId: string,
+    action: "start" | "verify" | "continue" | "trust_recipient" | "cancel" | "proceed",
+    response?: string,
+  ): Promise<InterventionResponse> => {
+    const result = await axiosInstance.post<InterventionResponse>(
+      `/v1/transactions/${transactionId}/intervention`,
+      { action, response },
+    );
+    return result.data;
+  },
+
+  reportScam: async (
+    transactionId: string,
+    data: { report_type: "false_positive" | "new_scam" | "bypass"; description: string },
+  ) => {
+    const result = await axiosInstance.post(`/v1/transactions/${transactionId}/scam-report`, data);
+    return result.data;
   },
 
   getHistory: async (limit = 20): Promise<Transaction[]> => {

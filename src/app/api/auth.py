@@ -8,7 +8,8 @@ from src.app.core.deps import get_current_user
 from src.app.core.security import create_access_token, hash_password, verify_password
 from src.app.db.session import get_db
 from src.app.models.user import User, UserRole
-from src.app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
+from src.app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, TransactionPinRequest
+from src.app.services.audit import add_audit_log
 from src.app.schemas.user import UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -53,3 +54,22 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
 @router.get("/me", response_model=UserOut)
 def me(current_user: User = Depends(get_current_user)) -> UserOut:
     return UserOut.model_validate(current_user)
+
+
+@router.put("/transaction-pin")
+def set_transaction_pin(
+    payload: TransactionPinRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, bool]:
+    current_user.transaction_pin_hash = hash_password(payload.pin)
+    add_audit_log(db, action="auth.transaction_pin_updated", actor_id=current_user.id,
+                  resource_type="user", resource_id=current_user.id,
+                  metadata={"configured": True})
+    db.commit()
+    return {"configured": True}
+
+
+@router.get("/transaction-pin/status")
+def transaction_pin_status(current_user: User = Depends(get_current_user)) -> dict[str, bool]:
+    return {"configured": bool(current_user.transaction_pin_hash)}

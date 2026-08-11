@@ -45,6 +45,16 @@ export const authApi = {
     return response.data;
   },
 
+  setTransactionPin: async (pin: string): Promise<{ configured: boolean }> => {
+    const response = await axiosInstance.put<{ configured: boolean }>("/v1/auth/transaction-pin", { pin });
+    return response.data;
+  },
+
+  transactionPinStatus: async (): Promise<{ configured: boolean }> => {
+    const response = await axiosInstance.get<{ configured: boolean }>("/v1/auth/transaction-pin/status");
+    return response.data;
+  },
+
   logout: async () => {
     localStorage.removeItem("token");
   },

@@ -14,6 +14,7 @@ const TransferPage = lazy(() => import("@/pages/TransferPage"));
 const HistoryPage = lazy(() => import("@/pages/HistoryPage"));
 const AdminPage = lazy(() => import("@/pages/AdminPage"));
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
+const PinSetupPage = lazy(() => import("@/pages/PinSetupPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -56,6 +57,7 @@ function App() {
                 <Route path="/transfer" element={<TransferPage />} />
                 <Route path="/history" element={<HistoryPage />} />
                 <Route path="/me" element={<ProfilePage />} />
+                <Route path="/setup-pin" element={<PinSetupPage />} />
                 <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminPage /></ProtectedRoute>} />
               </Route>
 

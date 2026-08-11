@@ -11,8 +11,10 @@ from src.app.db.session import get_db
 from src.app.models.blacklist import Blacklist
 from src.app.models.risk_assessment import RiskLevel, TransactionRiskAssessment, TransactionWarning, WarningDecision
 from src.app.models.scam_pattern import ScamPattern
+from src.app.models.scam_report import ScamReport
 from src.app.models.transaction import Transaction
 from src.app.schemas.admin import BlacklistCreate, BlacklistOut, ScamPatternCreate, ScamPatternOut, StatsOut
+from src.app.schemas.scam import ScamReportOut, ScamReportReview
 from src.app.services.audit import add_audit_log
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -104,6 +106,31 @@ def add_scam_pattern(
     db.commit()
     db.refresh(pattern)
     return pattern
+
+
+@router.get("/scam-reports", response_model=list[ScamReportOut])
+def list_scam_reports(db: Session = Depends(get_db)) -> list[ScamReport]:
+    return list(db.scalars(select(ScamReport).order_by(ScamReport.created_at.desc())).all())
+
+
+@router.patch("/scam-reports/{report_id}", response_model=ScamReportOut)
+def review_scam_report(
+    report_id: uuid.UUID,
+    payload: ScamReportReview,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+) -> ScamReport:
+    report = db.get(ScamReport, report_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scam report not found")
+    report.status = payload.status
+    report.admin_note = payload.admin_note
+    add_audit_log(db, action="scam_report.reviewed", actor_id=admin.id,
+                  resource_type="scam_report", resource_id=report.id,
+                  metadata={"status": payload.status})
+    db.commit()
+    db.refresh(report)
+    return report
 
 
 @router.get("/stats", response_model=StatsOut)

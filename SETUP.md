@@ -39,7 +39,8 @@ DATABASE_URL=postgresql+psycopg2://user:password@host-pooler/neondb?sslmode=requ
 # URL direct/unpooled dùng cho Alembic migration
 DATABASE_URL_UNPOOLED=postgresql+psycopg2://user:password@host/neondb?sslmode=require
 
-DATABASE_SCHEMA=public
+# Phải trùng schema đang dùng trong Neon; project hiện tại dùng antiscam
+DATABASE_SCHEMA=antiscam
 CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 ```
 
@@ -72,6 +73,11 @@ Logs và dừng:
 docker compose -f docker-compose.dev.yml logs -f backend
 docker compose -f docker-compose.dev.yml logs -f frontend
 docker compose -f docker-compose.dev.yml down
+```
+
+chạy khi sửa ví dụ như cấu hình requiment...
+```powershell
+docker compose -f docker-compose.dev.yml up -d --build --force-recreate
 ```
 
 ## 4. Production bằng Docker Compose
@@ -139,6 +145,18 @@ Tạo migration mới:
 ```
 
 Với Neon, dùng `DATABASE_URL_UNPOOLED` cho migration và kiểm tra migration trên branch/test database trước production.
+
+Lưu ý: project hiện tại dùng schema `antiscam`, vì vậy trong Neon SQL Editor phải chọn đúng schema hoặc truy vấn đầy đủ:
+
+```sql
+SELECT table_schema, table_name, column_name
+FROM information_schema.columns
+WHERE table_schema = 'antiscam'
+  AND table_name = 'users'
+  AND column_name = 'transaction_pin_hash';
+```
+
+Không kiểm tra `public.users` nếu `DATABASE_SCHEMA=antiscam`. Với Neon, đặt thêm `DATABASE_URL_UNPOOLED` bằng connection string direct (hostname không có hậu tố `-pooler`) rồi rebuild backend để Alembic chạy đúng kênh migration.
 
 ## 7. Troubleshooting Docker
 

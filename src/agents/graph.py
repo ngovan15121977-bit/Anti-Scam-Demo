@@ -1,30 +1,12 @@
-from langgraph.graph import END, StateGraph
+"""Canonical LangGraph entrypoint.
 
-from src.agents.nodes.example_node import analyze_node, respond_node
-from src.agents.state import AgentState
+Production transaction and intervention graphs live in this package. The
+legacy ``build_graph`` export remains available for old template tests.
+"""
 
+from src.agents.intervention_graph import intervention_graph
+from src.agents.legacy_graph import build_graph
+from src.agents.transaction_graph import transaction_graph
 
-def should_continue(state: AgentState) -> str:
-    """Route based on whether an error occurred during analysis."""
-    if state.get("error"):
-        return END
-    return "respond"
+__all__ = ["build_graph", "intervention_graph", "transaction_graph"]
 
-
-def build_graph() -> StateGraph:
-    """Compile LangGraph agent. Gọi 1 lần duy nhất qua lifespan."""
-    graph = StateGraph(AgentState)
-
-    # Add nodes
-    graph.add_node("analyze", analyze_node)
-    graph.add_node("respond", respond_node)
-
-    # Add edges
-    graph.set_entry_point("analyze")
-    graph.add_conditional_edges("analyze", should_continue)
-    graph.add_edge("respond", END)
-
-    return graph.compile()
-
-
-# KHÔNG khởi tạo agent ở đây — dùng app.state.agent qua lifespan trong main.py

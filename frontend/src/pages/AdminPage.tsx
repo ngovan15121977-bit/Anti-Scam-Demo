@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import axiosInstance from "@/api/axios";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -327,8 +329,20 @@ function TransactionsTab({ searchQuery, setSearchQuery }: { searchQuery: string;
 // ===== BLACKLIST TAB =====
 function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; setSearchQuery: (s: string) => void }) {
   const [showAddModal, setShowAddModal] = useState(false);
+  const blacklistQuery = useQuery({
+    queryKey: ["admin-blacklist"],
+    queryFn: async () => (await axiosInstance.get<Array<{ id: string; entity_type: string; entity_value: string; source: string; evidence?: Record<string, unknown> | null; created_at: string }>>("/v1/admin/blacklist")).data,
+  });
 
-  const filtered = blacklistEntries.filter((entry) => {
+  const entries = blacklistQuery.data?.map((entry) => ({
+    id: entry.id,
+    type: entry.entity_type,
+    value: entry.entity_value,
+    reason: entry.source,
+    addedAt: new Date(entry.created_at).toLocaleString("vi-VN"),
+    reports: entry.evidence && typeof entry.evidence.reports === "number" ? entry.evidence.reports : 0,
+  })) ?? blacklistEntries;
+  const filtered = entries.filter((entry) => {
     if (searchQuery && !entry.value.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
@@ -355,6 +369,8 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 divide-y divide-slate-50">
+        {blacklistQuery.isLoading && <p className="p-5 text-sm text-slate-500">Đang tải toàn bộ blacklist...</p>}
+        {blacklistQuery.isError && <p className="p-5 text-sm text-red-600">Không tải được blacklist từ máy chủ.</p>}
         {filtered.map((entry) => (
           <div key={entry.id} className="p-4 hover:bg-slate-50 transition-colors">
             <div className="flex items-center justify-between mb-2">
@@ -363,13 +379,13 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
                   <Ban className="w-4 h-4 text-red-500" />
                 </div>
                 <div>
-                  <p className="font-semibold text-slate-800 text-sm">{entry.value}</p>
+                  <p className="max-w-[min(70vw,32rem)] break-all whitespace-normal font-semibold text-slate-800 text-sm">{entry.value}</p>
                   <p className="text-xs text-slate-400 capitalize">{entry.type}</p>
                 </div>
               </div>
               <span className="text-xs text-red-500 font-medium">{entry.reports} báo cáo</span>
             </div>
-            <p className="text-sm text-slate-600 mb-1">{entry.reason}</p>
+            <p className="break-words whitespace-pre-wrap text-sm text-slate-600 mb-1">{entry.reason}</p>
             <p className="text-xs text-slate-400">Thêm vào: {entry.addedAt}</p>
           </div>
         ))}

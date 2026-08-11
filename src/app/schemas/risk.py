@@ -7,6 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field
 RiskLevel = Literal["safe", "low", "medium", "high"]
 SignalSeverity = Literal["info", "low", "medium", "high"]
 WarningDecision = Literal["proceeded", "cancelled"]
+InterventionAction = Literal[
+    "start", "verify", "continue", "trust_recipient", "cancel", "proceed"
+]
 
 
 class AssessRequest(BaseModel):
@@ -27,6 +30,7 @@ class RiskSignalOut(BaseModel):
     severity: SignalSeverity
     score: float | None = None
     explanation: str
+    evidence: dict[str, object] = Field(default_factory=dict)
 
 
 class WarningOut(BaseModel):
@@ -50,6 +54,7 @@ class AssessResponse(BaseModel):
     should_warn: bool
     warning: WarningOut | None = None
     requires_user_decision: bool = True
+    intervention: "InterventionOut | None" = None
 
 
 class DecisionRequest(BaseModel):
@@ -57,6 +62,7 @@ class DecisionRequest(BaseModel):
     verification_confirmed: bool | None = None
     verification_method: str | None = Field(default=None, max_length=50)
     verification_answers: list[str] = Field(default_factory=list, max_length=3)
+    pin: str | None = Field(default=None, pattern=r"^\d{4,6}$")
 
 
 class DecisionResponse(BaseModel):
@@ -92,3 +98,22 @@ class WarningFeedbackCreate(BaseModel):
         "helpful", "false_positive", "confirmed_scam", "not_helpful", "unsure"
     ]
     comment: str | None = Field(default=None, max_length=2000)
+
+
+class InterventionRequest(BaseModel):
+    action: InterventionAction = "start"
+    response: str | None = Field(default=None, max_length=2000)
+
+
+class InterventionOut(BaseModel):
+    transaction_id: uuid.UUID
+    warning_id: uuid.UUID | None = None
+    step: int
+    total_steps: int
+    node_name: str
+    message: str
+    question: str | None = None
+    suggested_actions: list[str] = Field(default_factory=list)
+    risk_factors: list[str] = Field(default_factory=list)
+    decision_ready: bool = False
+    can_proceed: bool = False

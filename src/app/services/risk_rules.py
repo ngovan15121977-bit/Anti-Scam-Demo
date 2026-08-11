@@ -218,7 +218,21 @@ def collect_signals(
 
 
 def score_from_signals(signals: list[RiskSignalCandidate]) -> tuple[float, str]:
-    score = round(max(0.0, min(1.0, sum(signal.score for signal in signals))), 4)
+    positive = [signal for signal in signals if signal.score > 0]
+    has_exact_blacklist = any(signal.signal_type == "blacklist_exact_match" for signal in positive)
+    trusted = any(signal.signal_type == "trusted_recipient" for signal in signals)
+    score = sum(signal.score for signal in signals)
+    if trusted and not has_exact_blacklist:
+        score = max(0.0, score - 0.15)
+
+    strong_signal_count = sum(
+        1 for signal in positive
+        if signal.severity == "high"
+        or signal.signal_type in {"suspicious_note", "suspicious_link"}
+    )
+    if not has_exact_blacklist and strong_signal_count < 2 and score >= 0.60:
+        score = 0.59
+    score = round(max(0.0, min(1.0, score)), 4)
     if score == 0:
         return score, RiskLevel.SAFE
     if score < 0.30:

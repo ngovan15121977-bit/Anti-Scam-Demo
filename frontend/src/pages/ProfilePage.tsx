@@ -17,6 +17,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
+import { authApi } from "@/api/auth";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -27,6 +28,8 @@ export default function ProfilePage() {
     security: true,
     promotion: false,
   });
+  const [transactionPin, setTransactionPin] = useState("");
+  const [pinMessage, setPinMessage] = useState("");
 
   const menuItems = [
     {
@@ -124,6 +127,12 @@ export default function ProfilePage() {
         </div>
 
         {/* Personal Info — Full Width Card */}
+        <div className="w-full rounded-2xl border border-indigo-100 bg-indigo-50 p-5 shadow-sm">
+          <div className="flex items-center gap-3"><Lock className="h-5 w-5 text-indigo-600" /><div><h3 className="font-bold text-indigo-900">Mã PIN giao dịch</h3><p className="text-xs text-indigo-700">PIN được hỏi sau khi kiểm tra rủi ro và chỉ lưu dưới dạng hash.</p></div></div>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row"><input value={transactionPin} onChange={(event) => setTransactionPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" type="password" placeholder="PIN 4–6 chữ số" className="flex-1 rounded-xl border border-indigo-200 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-400" /><button onClick={() => void authApi.setTransactionPin(transactionPin).then(() => { setPinMessage("Đã cập nhật PIN"); setTransactionPin(""); }).catch(() => setPinMessage("PIN không hợp lệ"))} disabled={!/^\d{4,6}$/.test(transactionPin)} className="rounded-xl bg-indigo-600 px-4 py-2 font-semibold text-white disabled:opacity-50">Lưu PIN</button></div>
+          {pinMessage && <p className="mt-2 text-xs text-indigo-700">{pinMessage}</p>}
+        </div>
+
         <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-50">
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">

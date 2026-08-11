@@ -51,7 +51,7 @@ def _explain(state: AssessmentState) -> dict[str, Any]:
     # The deterministic explanation is always available and is the safety fallback.
     explanation = risk_rules.build_explanation(state["risk_level"], state["signals"])
     settings = get_settings()
-    if not settings.openai_api_key:
+    if not settings.openai_api_key or not settings.llm_explanation_enabled:
         return {"explanation": explanation, "llm_used": False}
 
     try:
@@ -95,4 +95,3 @@ def build_transaction_graph():
 
 
 transaction_graph = build_transaction_graph()
-

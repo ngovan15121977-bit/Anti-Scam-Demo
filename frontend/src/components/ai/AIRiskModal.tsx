@@ -6,7 +6,7 @@ export type RiskAssessment = AssessResponse;
 
 interface AIRiskModalProps {
   riskData: RiskAssessment;
-  onProceed: () => void;
+  onProceed: (pin: string) => void;
   onCancel: () => void;
   isLoading: boolean;
 }
@@ -24,6 +24,8 @@ export default function AIRiskModal({
 }: AIRiskModalProps) {
   const warning = riskData.warning;
   const [verified, setVerified] = useState(false);
+  const [pin, setPin] = useState("");
+  const [pinRequested, setPinRequested] = useState(false);
   const [remaining, setRemaining] = useState(() =>
     warning ? remainingSeconds(warning.displayed_at, warning.countdown_seconds) : 0,
   );
@@ -40,12 +42,13 @@ export default function AIRiskModal({
   }, [warning]);
 
   const isHighRisk = riskData.risk_level === "high";
-  const canProceed = remaining === 0 && verified && !isLoading;
+  const canContinue = remaining === 0 && verified && !isLoading;
+  const canProceed = pinRequested && /^\d{4,6}$/.test(pin) && !isLoading;
   const riskPercentage = Math.round(riskData.risk_score * 100);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
+    <div className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto bg-slate-950/60 p-4 pt-6 backdrop-blur-sm sm:py-6">
+      <div className={`w-full max-w-md max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-3xl bg-white shadow-2xl overscroll-contain transition-opacity ${pinRequested ? "pointer-events-none opacity-30" : ""}`}>
         <div className={`p-6 text-center ${isHighRisk ? "bg-red-50" : "bg-amber-50"}`}>
           <div className="mb-3 flex justify-center">
             {isHighRisk ? (
@@ -97,7 +100,8 @@ export default function AIRiskModal({
               <p className="mt-1 text-xs text-amber-700">Nút tiếp tục sẽ được mở khi countdown kết thúc.</p>
             </div>
           ) : (
-            <label className="flex cursor-pointer gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+            <>
+            <div className="flex cursor-pointer gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
               <input
                 type="checkbox"
                 checked={verified}
@@ -105,7 +109,14 @@ export default function AIRiskModal({
                 className="mt-0.5 h-4 w-4 accent-emerald-600"
               />
               <span>Tôi đã kiểm tra lại thông tin người nhận qua kênh độc lập.</span>
-            </label>
+            </div>
+            {false && pinRequested && (
+              <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                <label className="text-sm font-semibold text-indigo-900">Mã PIN giao dịch</label>
+                <input value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" type="password" autoComplete="off" placeholder="PIN 4–6 chữ số" className="mt-2 w-full rounded-xl border border-indigo-200 bg-white p-3 text-center tracking-[0.4em] outline-none focus:ring-2 focus:ring-indigo-400" />
+              </div>
+            )}
+            </>
           )}
         </div>
 
@@ -118,8 +129,11 @@ export default function AIRiskModal({
             Hủy giao dịch
           </button>
           <button
-            onClick={onProceed}
-            disabled={!canProceed}
+            onClick={() => {
+              if (!pinRequested) setPinRequested(true);
+              else onProceed(pin);
+            }}
+            disabled={pinRequested ? !canProceed : !canContinue}
             className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 font-medium text-white transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
@@ -127,6 +141,16 @@ export default function AIRiskModal({
           </button>
         </div>
       </div>
+
+      {pinRequested && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/35 p-4">
+          <div className="w-full max-w-sm rounded-3xl border border-rose-200 bg-rose-50 p-6 shadow-2xl">
+            <div className="mb-4 text-center"><div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-rose-100"><ShieldCheck className="h-7 w-7 text-rose-600" /></div><h3 className="text-xl font-bold text-rose-950">Mã PIN giao dịch</h3><p className="mt-1 text-sm text-rose-700">Nhập PIN để hoàn tất giao dịch.</p></div>
+            <input autoFocus value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" type="password" autoComplete="off" placeholder="PIN 4–6 chữ số" className="w-full rounded-xl border border-rose-200 bg-white p-4 text-center text-xl tracking-[0.5em] outline-none focus:ring-2 focus:ring-rose-400" />
+            <div className="mt-4 flex gap-3"><button onClick={() => { setPinRequested(false); setPin(""); }} disabled={isLoading} className="flex-1 rounded-xl bg-white px-4 py-3 font-semibold text-rose-700">Quay lại</button><button onClick={() => onProceed(pin)} disabled={!canProceed} className="flex-1 rounded-xl bg-rose-600 px-4 py-3 font-semibold text-white disabled:opacity-50">Hoàn tất</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

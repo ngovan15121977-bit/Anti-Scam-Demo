@@ -14,9 +14,10 @@ export default function LoginPage() {
 
   const loginMutation = useMutation({
     mutationFn: authApi.login,
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       setAuth(data.access_token, data.user);
-      navigate(data.user.role === "admin" ? "/admin" : "/dashboard");
+      const pinStatus = await authApi.transactionPinStatus();
+      navigate(!pinStatus.configured ? "/me" : (data.user.role === "admin" ? "/admin" : "/dashboard"));
     },
     onError: (err: any) => {
       setErrors({ general: err.response?.data?.detail || "Sai email hoặc mật khẩu" });

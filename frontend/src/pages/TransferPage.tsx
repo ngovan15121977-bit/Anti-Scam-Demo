@@ -89,7 +89,8 @@ const tips = [
 
 export default function TransferPage() {
   const navigate = useNavigate();
-  const [step, setStep] = useState<"form" | "review" | "ai-check" | "success">("form");
+  const [step, setStep] = useState<"form" | "review" | "ai-check" | "pin" | "success">("form");
+  const [pin, setPin] = useState("");
   const [form, setForm] = useState<TransferForm>({ recipient_account: "", recipient_name: "", recipient_lookup_token: "", bank_code: "", amount: "", note: "" });
   const [riskData, setRiskData] = useState<RiskAssessment | null>(null);
   const [txId, setTxId] = useState<string>("");
@@ -103,8 +104,8 @@ export default function TransferPage() {
   ));
 
   const decisionMutation = useMutation({
-    mutationFn: async ({ transactionId, decision, verified = false }: { transactionId: string; decision: "proceeded" | "cancelled"; verified?: boolean }) =>
-      transactionsApi.decide(transactionId, decision, { verificationConfirmed: verified, verificationMethod: verified ? "user_confirmed_independent_check" : undefined }),
+    mutationFn: async ({ transactionId, decision, verified = false, pin: transactionPin }: { transactionId: string; decision: "proceeded" | "cancelled"; verified?: boolean; pin?: string }) =>
+      transactionsApi.decide(transactionId, decision, { verificationConfirmed: verified, verificationMethod: verified ? "user_confirmed_independent_check" : undefined, pin: transactionPin }),
     onSuccess: (data) => {
       if (data.transaction_status === "completed") setStep("success");
       else if (data.transaction_status === "cancelled") { setStep("review"); setRiskData(null); }
@@ -124,7 +125,7 @@ export default function TransferPage() {
     onSuccess: (data) => {
       setTxId(data.transaction_id);
       if (data.should_warn && data.warning) { setRiskData(data); setStep("ai-check"); return; }
-      decisionMutation.mutate({ transactionId: data.transaction_id, decision: "proceeded" });
+      setStep("pin");
     },
     onError: (err: any) => alert(err.response?.data?.detail || "Có lỗi xảy ra khi phân tích rủi ro"),
   });
@@ -200,7 +201,7 @@ export default function TransferPage() {
 
   const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); if (!isFormValid) return; setStep("review"); };
   const handleRiskCheck = () => analyzeMutation.mutate(form);
-  const handleProceed = () => { if (!txId) return; decisionMutation.mutate({ transactionId: txId, decision: "proceeded", verified: true }); };
+  const handleProceed = (transactionPin: string) => { if (!txId) return; decisionMutation.mutate({ transactionId: txId, decision: "proceeded", verified: true, pin: transactionPin }); };
   const handleCancel = () => { if (!txId) return; decisionMutation.mutate({ transactionId: txId, decision: "cancelled" }); };
   const formatMoney = (amount: string) => { const num = parseFloat(amount); if (isNaN(num)) return "0 đ"; return new Intl.NumberFormat("vi-VN").format(num) + " đ"; };
   const isFormValid = Boolean(form.recipient_account && form.recipient_name && form.recipient_lookup_token && form.amount && form.bank_code);
@@ -428,12 +429,27 @@ export default function TransferPage() {
 
   if (step === "ai-check" && riskData) {
     return (
-      <div className="min-h-screen bg-gray-50 w-full flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="min-h-screen bg-gray-50 w-full flex items-center justify-center p-4 relative overflow-visible">
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
           <div className="absolute top-1/4 left-1/4 w-[300px] h-[300px] bg-gradient-to-br from-rose-200/30 to-pink-200/20 rounded-full blur-3xl" />
           <div className="absolute bottom-1/4 right-1/4 w-[300px] h-[300px] bg-gradient-to-br from-amber-200/25 to-orange-200/15 rounded-full blur-3xl" />
         </div>
-        <div className="relative z-10"><AIRiskModal riskData={riskData} onProceed={handleProceed} onCancel={handleCancel} isLoading={decisionMutation.isPending} /></div>
+        <AIRiskModal riskData={riskData} onProceed={handleProceed} onCancel={handleCancel} isLoading={decisionMutation.isPending} />
+      </div>
+    );
+  }
+
+  if (step === "pin") {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-indigo-100"><Lock className="h-8 w-8 text-indigo-600" /></div>
+          <h2 className="text-center text-2xl font-bold text-gray-800">Xác nhận mã PIN</h2>
+          <p className="mt-2 text-center text-sm text-gray-500">Kiểm tra rủi ro đã hoàn tất. Nhập PIN giao dịch để tiếp tục.</p>
+          <input value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" type="password" autoComplete="off" placeholder="PIN 4–6 chữ số" className="mt-6 w-full rounded-xl border border-gray-200 p-4 text-center text-xl tracking-[0.5em] outline-none focus:ring-2 focus:ring-indigo-400" />
+          <button disabled={!/^\d{4,6}$/.test(pin) || decisionMutation.isPending} onClick={() => decisionMutation.mutate({ transactionId: txId, decision: "proceeded", pin })} className="mt-4 w-full rounded-xl bg-indigo-600 py-3 font-bold text-white disabled:opacity-50">{decisionMutation.isPending ? "Đang xử lý..." : "Xác nhận chuyển tiền"}</button>
+          <button onClick={handleCancel} disabled={decisionMutation.isPending} className="mt-2 w-full rounded-xl bg-gray-100 py-3 font-medium text-gray-700">Hủy giao dịch</button>
+        </div>
       </div>
     );
   }

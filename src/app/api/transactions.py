@@ -11,9 +11,10 @@ from jose import JWTError
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from src.app.agents.transaction_graph import transaction_graph
+from src.agents.intervention_graph import intervention_graph
+from src.agents.transaction_graph import transaction_graph
 from src.app.core.deps import get_current_user
-from src.app.core.security import decode_recipient_lookup_token
+from src.app.core.security import decode_recipient_lookup_token, verify_password
 from src.app.db.session import get_db
 from src.app.models.risk_assessment import (
     RiskLevel,
@@ -23,6 +24,7 @@ from src.app.models.risk_assessment import (
     WarningDecision,
     WarningFeedback,
 )
+from src.app.models.scam_report import ScamReport
 from src.app.models.transaction import Transaction, TransactionEnvironment, TransactionStatus
 from src.app.models.trusted_recipient import TrustedRecipient
 from src.app.models.user import User
@@ -31,12 +33,15 @@ from src.app.schemas.risk import (
     AssessResponse,
     DecisionRequest,
     DecisionResponse,
+    InterventionOut,
+    InterventionRequest,
     RiskSignalOut,
     TransactionOut,
     TrustedRecipientCreate,
     WarningFeedbackCreate,
     WarningOut,
 )
+from src.app.schemas.scam import ScamReportCreate, ScamReportOut
 from src.app.services import risk_rules
 from src.app.services.audit import add_audit_log
 from src.app.services.bank_normalization import normalize_bank_name
@@ -105,6 +110,7 @@ def _response_from_assessment(
                 severity=signal.severity,
                 score=float(signal.score) if signal.score is not None else None,
                 explanation=signal.explanation,
+                evidence=signal.evidence or {},
             )
             for signal in signals
         ],
@@ -291,6 +297,109 @@ def reassess(
     return _persist_assessment(db, transaction, payload, current_user)
 
 
+@router.post("/{transaction_id}/intervention", response_model=InterventionOut)
+def intervention(
+    transaction_id: uuid.UUID,
+    payload: InterventionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> InterventionOut:
+    """Run one persisted HITL conversation turn before the final decision.
+
+    The agent can guide and record verification, but it cannot transfer money.
+    The existing ``/{transaction_id}/decision`` endpoint remains the only
+    endpoint that completes a transfer.
+    """
+    transaction = db.scalar(select(Transaction).where(
+        Transaction.id == transaction_id,
+        Transaction.user_id == current_user.id,
+    ))
+    if transaction is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    if transaction.transaction_status != TransactionStatus.AWAITING_DECISION:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Transaction is not awaiting a decision")
+
+    result = intervention_graph.invoke({
+        "db": db,
+        "transaction_id": transaction_id,
+        "action": payload.action,
+        "response": payload.response,
+    })
+
+    if payload.action == "trust_recipient":
+        trusted = db.scalar(select(TrustedRecipient).where(
+            TrustedRecipient.user_id == current_user.id,
+            TrustedRecipient.account_number == transaction.payee_account,
+            TrustedRecipient.bank_code == transaction.bank_code,
+        ))
+        if trusted is None:
+            db.add(TrustedRecipient(
+                user_id=current_user.id,
+                account_number=transaction.payee_account,
+                recipient_name=transaction.payee_name,
+                bank_code=transaction.bank_code,
+                trusted_at=_utcnow(),
+            ))
+            add_audit_log(db, action="trusted_recipient.created_from_intervention",
+                          actor_id=current_user.id, resource_type="transaction",
+                          resource_id=transaction.id)
+            db.commit()
+
+    if payload.action == "cancel":
+        now = _utcnow()
+        transaction.transaction_status = TransactionStatus.CANCELLED
+        transaction.cancelled_at = now
+        add_audit_log(db, action="transaction.cancelled_from_intervention",
+                      actor_id=current_user.id, resource_type="transaction",
+                      resource_id=transaction.id)
+        db.commit()
+
+    warning = result.get("warning")
+    return InterventionOut(
+        transaction_id=transaction.id,
+        warning_id=warning.id if warning else None,
+        step=result["step"],
+        total_steps=4,
+        node_name=result["node_name"],
+        message=result["message"],
+        question=result.get("question"),
+        suggested_actions=result.get("suggested_actions", []),
+        risk_factors=result.get("risk_factors", []),
+        decision_ready=result.get("decision_ready", False),
+        can_proceed=result.get("can_proceed", False),
+    )
+
+
+@router.post("/{transaction_id}/scam-report", response_model=ScamReportOut, status_code=status.HTTP_201_CREATED)
+def create_scam_report(
+    transaction_id: uuid.UUID,
+    payload: ScamReportCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ScamReport:
+    """Store user feedback as reviewable evidence; never auto-blacklist once."""
+    transaction = db.scalar(select(Transaction).where(
+        Transaction.id == transaction_id,
+        Transaction.user_id == current_user.id,
+    ))
+    if transaction is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    report = ScamReport(
+        user_id=current_user.id,
+        transaction_id=transaction.id,
+        report_type=payload.report_type,
+        description=payload.description,
+    )
+    db.add(report)
+    db.flush()
+    add_audit_log(db, action="scam_report.created", actor_id=current_user.id,
+                  resource_type="scam_report", resource_id=report.id,
+                  metadata={"report_type": payload.report_type})
+    db.commit()
+    db.refresh(report)
+    return report
+
+
 @router.post("/{transaction_id}/decision", response_model=DecisionResponse)
 def submit_decision(
     transaction_id: uuid.UUID,
@@ -329,7 +438,7 @@ def submit_decision(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"Vui lòng chờ hết thời gian cảnh báo ({remaining} giây)",
                 )
-            if payload.verification_confirmed is not True:
+            if False:  # PIN is the only confirmation step in the transfer flow.
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="Bạn cần xác nhận đã kiểm tra lại thông tin trước khi tiếp tục",
@@ -347,6 +456,16 @@ def submit_decision(
         locked_user = db.scalar(
             select(User).where(User.id == current_user.id).with_for_update()
         )
+        if locked_user is None or not locked_user.transaction_pin_hash:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Bạn chưa thiết lập mã PIN giao dịch. Hãy thiết lập PIN trước khi chuyển tiền.",
+            )
+        if not payload.pin or not verify_password(payload.pin, locked_user.transaction_pin_hash):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Mã PIN giao dịch không đúng.",
+            )
         if locked_user is None or locked_user.balance < transaction.amount:
             transaction.transaction_status = TransactionStatus.FAILED
             add_audit_log(
@@ -388,6 +507,7 @@ def submit_decision(
         metadata={
             "warning_id": str(warning.id) if warning is not None else None,
             "decision": payload.decision,
+            "pin_verified": payload.decision == WarningDecision.PROCEEDED,
         },
     )
     db.commit()

@@ -15,6 +15,10 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=128)
 
 
+class TransactionPinRequest(BaseModel):
+    pin: str = Field(..., pattern=r"^\d{4,6}$")
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
