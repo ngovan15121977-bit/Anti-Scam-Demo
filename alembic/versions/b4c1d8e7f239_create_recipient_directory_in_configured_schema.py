@@ -10,7 +10,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-from app.config import get_settings
+from src.app.config import get_settings
 
 revision: str = "b4c1d8e7f239"
 down_revision: str | Sequence[str] | None = "a72d4e0c61b9"

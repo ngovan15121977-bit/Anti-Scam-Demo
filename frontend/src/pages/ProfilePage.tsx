@@ -15,9 +15,6 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
-  TrendingUp,
-  Wallet,
-  Activity,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 

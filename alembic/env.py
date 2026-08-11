@@ -1,11 +1,12 @@
-"""Alembic configuration for the active ``backend/app`` application."""
+"""Alembic configuration for the canonical ``src/app`` application."""
 
 import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
+
+from alembic import context
 
 config = context.config
 
@@ -13,13 +14,12 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 project_root = Path(__file__).resolve().parents[1]
-backend_dir = project_root / "backend"
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
-from app.config import get_settings  # noqa: E402
-from app.db.base import Base  # noqa: E402
-import app.models  # noqa: E402, F401 - registers every active ORM model
+import src.app.models  # noqa: E402, F401 - registers every active ORM model
+from src.app.config import get_settings  # noqa: E402
+from src.app.db.base import Base  # noqa: E402
 
 target_metadata = Base.metadata
 settings = get_settings()

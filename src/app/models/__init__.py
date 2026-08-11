@@ -1,0 +1,48 @@
+"""Import all active ORM models so Alembic sees one metadata registry."""
+
+from src.app.db.base import Base
+from src.app.models.audit_log import AuditLog
+from src.app.models.blacklist import Blacklist
+from src.app.models.compliance import DataRetentionPolicy, UserConsent
+from src.app.models.intervention_log import InterventionLog
+from src.app.models.model_registry import IntelligenceSource, ModelVersion
+from src.app.models.recipient_directory import RecipientDirectory
+from src.app.models.risk_assessment import (
+    RiskLevel,
+    RiskSignal,
+    TransactionRiskAssessment,
+    TransactionWarning,
+    WarningDecision,
+    WarningFeedback,
+)
+from src.app.models.scam_pattern import ScamPattern
+from src.app.models.scam_report import ScamReport
+from src.app.models.transaction import Transaction, TransactionEnvironment, TransactionStatus
+from src.app.models.trusted_recipient import TrustedRecipient
+from src.app.models.user import User, UserRole
+
+__all__ = [
+    "AuditLog",
+    "Base",
+    "Blacklist",
+    "DataRetentionPolicy",
+    "IntelligenceSource",
+    "InterventionLog",
+    "ModelVersion",
+    "RiskLevel",
+    "RiskSignal",
+    "RecipientDirectory",
+    "ScamPattern",
+    "ScamReport",
+    "Transaction",
+    "TransactionEnvironment",
+    "TransactionRiskAssessment",
+    "TransactionStatus",
+    "TransactionWarning",
+    "TrustedRecipient",
+    "User",
+    "UserConsent",
+    "UserRole",
+    "WarningDecision",
+    "WarningFeedback",
+]

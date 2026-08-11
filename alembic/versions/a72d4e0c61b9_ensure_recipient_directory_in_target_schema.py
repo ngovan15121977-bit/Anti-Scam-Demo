@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-from app.config import get_settings
+from src.app.config import get_settings
 
 revision: str = "a72d4e0c61b9"
 down_revision: str | Sequence[str] | None = "f19c6a8b2d04"
