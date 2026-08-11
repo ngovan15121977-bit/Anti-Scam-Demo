@@ -16,8 +16,12 @@ export default function LoginPage() {
     mutationFn: authApi.login,
     onSuccess: async (data) => {
       setAuth(data.access_token, data.user);
-      const pinStatus = await authApi.transactionPinStatus();
-      navigate(!pinStatus.configured ? "/me" : (data.user.role === "admin" ? "/admin" : "/dashboard"));
+      try {
+        const pinStatus = await authApi.transactionPinStatus();
+        navigate(!pinStatus.configured ? "/setup-pin" : (data.user.role === "admin" ? "/admin" : "/dashboard"));
+      } catch {
+        navigate("/setup-pin");
+      }
     },
     onError: (err: any) => {
       setErrors({ general: err.response?.data?.detail || "Sai email hoặc mật khẩu" });

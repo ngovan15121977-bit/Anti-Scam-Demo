@@ -23,6 +23,7 @@ export default function ProfilePage() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
   const [notifications, setNotifications] = useState({
     transaction: true,
     security: true,
@@ -43,6 +44,12 @@ export default function ProfilePage() {
       label: "Thông báo",
       desc: "Quản lý cài đặt thông báo",
       action: () => navigate("/notifications"),
+    },
+    {
+      icon: Lock,
+      label: "Mã PIN giao dịch",
+      desc: "Tạo hoặc cập nhật PIN khi chuyển tiền",
+      action: () => setShowPinModal(true),
     },
     {
       icon: HelpCircle,
@@ -127,12 +134,6 @@ export default function ProfilePage() {
         </div>
 
         {/* Personal Info — Full Width Card */}
-        <div className="w-full rounded-2xl border border-indigo-100 bg-indigo-50 p-5 shadow-sm">
-          <div className="flex items-center gap-3"><Lock className="h-5 w-5 text-indigo-600" /><div><h3 className="font-bold text-indigo-900">Mã PIN giao dịch</h3><p className="text-xs text-indigo-700">PIN được hỏi sau khi kiểm tra rủi ro và chỉ lưu dưới dạng hash.</p></div></div>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row"><input value={transactionPin} onChange={(event) => setTransactionPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" type="password" placeholder="PIN 4–6 chữ số" className="flex-1 rounded-xl border border-indigo-200 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-400" /><button onClick={() => void authApi.setTransactionPin(transactionPin).then(() => { setPinMessage("Đã cập nhật PIN"); setTransactionPin(""); }).catch(() => setPinMessage("PIN không hợp lệ"))} disabled={!/^\d{4,6}$/.test(transactionPin)} className="rounded-xl bg-indigo-600 px-4 py-2 font-semibold text-white disabled:opacity-50">Lưu PIN</button></div>
-          {pinMessage && <p className="mt-2 text-xs text-indigo-700">{pinMessage}</p>}
-        </div>
-
         <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-50">
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">
@@ -273,6 +274,16 @@ export default function ProfilePage() {
       {/* Password Change Modal */}
       {showPasswordModal && (
         <PasswordChangeModal onClose={() => setShowPasswordModal(false)} />
+      )}
+      {showPinModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="w-full max-w-md rounded-3xl bg-rose-50 p-6 shadow-2xl">
+            <div className="mb-5 flex items-center justify-between"><div><h2 className="text-xl font-bold text-rose-950">Mã PIN giao dịch</h2><p className="mt-1 text-sm text-rose-700">Tạo hoặc cập nhật PIN 4–6 chữ số.</p></div><Lock className="h-7 w-7 text-rose-600" /></div>
+            <input value={transactionPin} onChange={(event) => setTransactionPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" type="password" autoComplete="new-password" placeholder="Nhập mã PIN" className="w-full rounded-xl border border-rose-200 bg-white p-3 text-center tracking-[0.4em] outline-none focus:ring-2 focus:ring-rose-400" />
+            {pinMessage && <p className="mt-2 text-sm text-rose-700">{pinMessage}</p>}
+            <div className="mt-5 flex gap-3"><button onClick={() => { setShowPinModal(false); setTransactionPin(""); setPinMessage(""); }} className="flex-1 rounded-xl bg-white px-4 py-3 font-semibold text-rose-700">Hủy</button><button onClick={() => void authApi.setTransactionPin(transactionPin).then(() => { setPinMessage("Đã cập nhật PIN"); setTransactionPin(""); }).catch(() => setPinMessage("PIN không hợp lệ"))} disabled={!/^\d{4,6}$/.test(transactionPin)} className="flex-1 rounded-xl bg-rose-600 px-4 py-3 font-semibold text-white disabled:opacity-50">Lưu PIN</button></div>
+          </div>
+        </div>
       )}
     </div>
   );
