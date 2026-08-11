@@ -1,0 +1,212 @@
+# FintechGuard - Docker Setup
+
+Hướng dẫn chạy hệ thống gồm FastAPI backend (`src/app`), React/Vite frontend (`frontend`), PostgreSQL/Neon và Alembic.
+
+## 1. Yêu cầu
+
+- Docker Desktop, Linux containers và WSL 2 trên Windows.
+- Git.
+- Node.js 20+ và Python 3.11+ nếu chạy ngoài Docker.
+
+Kiểm tra Docker:
+
+```powershell
+docker --version
+docker compose version
+docker info
+```
+
+Nếu `docker info` không trả về thông tin Server, hãy mở Docker Desktop và chờ `Engine running`.
+
+## 2. Cấu hình `.env`
+
+Từ thư mục root:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Đặt các biến cần thiết:
+
+```env
+APP_ENV=development
+JWT_SECRET_KEY=replace-with-a-long-random-secret
+OPENAI_API_KEY=
+
+# URL pooled dùng cho app runtime
+DATABASE_URL=postgresql+psycopg2://user:password@host-pooler/neondb?sslmode=require
+
+# URL direct/unpooled dùng cho Alembic migration
+DATABASE_URL_UNPOOLED=postgresql+psycopg2://user:password@host/neondb?sslmode=require
+
+DATABASE_SCHEMA=public
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+```
+
+Không commit `.env` hoặc API key lên Git.
+
+## 3. Development bằng Docker
+
+Development dùng bind mount. Code sửa trên máy được container thấy ngay; backend tự reload bằng Uvicorn và frontend tự cập nhật bằng Vite HMR.
+
+```powershell
+docker compose -f docker-compose.dev.yml up --build
+```
+
+Chạy nền:
+
+```powershell
+docker compose -f docker-compose.dev.yml up -d --build
+```
+
+Truy cập:
+
+- Frontend: http://localhost:5173
+- Backend: http://localhost:8000
+- Swagger: http://localhost:8000/docs
+- Health: http://localhost:8000/health
+
+Logs và dừng:
+
+```powershell
+docker compose -f docker-compose.dev.yml logs -f backend
+docker compose -f docker-compose.dev.yml logs -f frontend
+docker compose -f docker-compose.dev.yml down
+```
+
+## 4. Production bằng Docker Compose
+
+Production build backend Python và frontend static/Nginx. Nginx proxy `/api` tới service backend.
+
+```powershell
+docker compose up -d --build
+```
+
+Backend container tự chạy migration trước khi start API:
+
+```text
+alembic upgrade head
+uvicorn src.main:app --host 0.0.0.0 --port 8000
+```
+
+Truy cập production local:
+
+- Frontend: http://localhost:5173
+- Backend health: http://localhost:8000/health
+
+Quản lý container:
+
+```powershell
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose down
+```
+
+Không dùng `docker compose down -v` nếu chưa backup dữ liệu volume.
+
+## 5. Chạy không dùng Docker
+
+Backend:
+
+```powershell
+\.venv\Scripts\python.exe -m pip install -r requirements.txt
+\.venv\Scripts\python.exe -m alembic upgrade head
+\.venv\Scripts\python.exe -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Frontend, ở terminal khác:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+## 6. Database migration
+
+Production entrypoint tự chạy migration. Chạy thủ công trong container:
+
+```powershell
+docker compose run --rm backend alembic upgrade head
+```
+
+Tạo migration mới:
+
+```powershell
+\.venv\Scripts\python.exe -m alembic revision --autogenerate -m "describe change"
+\.venv\Scripts\python.exe -m alembic upgrade head
+```
+
+Với Neon, dùng `DATABASE_URL_UNPOOLED` cho migration và kiểm tra migration trên branch/test database trước production.
+
+## 7. Troubleshooting Docker
+
+### Docker Desktop chưa chạy
+
+Nếu gặp `Docker Desktop is unable to start`:
+
+```powershell
+wsl --shutdown
+```
+
+Mở lại Docker Desktop, chờ `Engine running`, rồi kiểm tra:
+
+```powershell
+docker info
+```
+
+### BuildKit báo `read-only file system`
+
+Đây thường là lỗi Docker Desktop storage/WSL, không phải lỗi dòng `COPY . .`.
+
+```powershell
+wsl --shutdown
+docker builder prune
+docker compose build --no-cache
+```
+
+Kiểm tra Docker Desktop → Settings → Resources → Disk usage và dung lượng ổ đĩa.
+
+Không chạy lệnh sau nếu chưa backup volume:
+
+```powershell
+docker system prune -a --volumes
+```
+
+### Port bị chiếm
+
+```powershell
+netstat -ano | findstr :8000
+netstat -ano | findstr :5173
+```
+
+Có thể đổi mapping, ví dụ `8080:8000` trong `docker-compose.yml`.
+
+### Backend không kết nối Neon
+
+Kiểm tra `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `sslmode=require`, user/password, branch Neon và `DATABASE_SCHEMA`. Xem lỗi bằng:
+
+```powershell
+docker compose logs backend
+```
+
+## 8. Quy trình khuyến nghị
+
+```text
+1. Mở Docker Desktop.
+2. docker compose -f docker-compose.dev.yml up -d --build
+3. Sửa code trên máy; backend/frontend tự cập nhật.
+4. Chạy test và lint.
+5. docker compose up -d --build để kiểm tra production image.
+6. Deploy image lên server/platform.
+```
+
+Các file chính:
+
+- `Dockerfile`: backend production image.
+- `frontend/Dockerfile`: frontend production image.
+- `docker-compose.yml`: production.
+- `docker-compose.dev.yml`: development hot reload.
+- `docker/entrypoint.sh`: migration trước khi start backend.
+- `alembic/`: database migrations.

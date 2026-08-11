@@ -2,6 +2,10 @@
 .gitignore
 .env
 .venv
+.gitignore
+frontend/node_modules
+frontend/dist
+dist
 __pycache__
 *.pyc
 .pytest_cache
