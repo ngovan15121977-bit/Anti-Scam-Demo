@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
-import { Home, Send, History, User, LogOut } from "lucide-react";
+import { Home, Send, History, User, LogOut, QrCode } from "lucide-react";
 
 export default function MainLayout() {
   const navigate = useNavigate();
@@ -15,6 +15,7 @@ export default function MainLayout() {
   const navItems = [
     { path: "/dashboard", label: "Trang chủ", icon: Home },
     { path: "/transfer", label: "Chuyển tiền", icon: Send },
+    { path: "/qr", label: "QR demo", icon: QrCode },
     { path: "/history", label: "Lịch sử", icon: History },
     { path: "/me", label: "Tài khoản", icon: User },
   ];
