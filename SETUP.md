@@ -228,3 +228,65 @@ Các file chính:
 - `docker-compose.dev.yml`: development hot reload.
 - `docker/entrypoint.sh`: migration trước khi start backend.
 - `alembic/`: database migrations.
+
+## 9. Deploy Render
+
+Nên tạo hai service trên Render: backend là **Web Service (Docker)** và frontend là **Static Site**.
+
+### Backend Web Service
+
+Chọn `New → Web Service → GitHub`, sau đó cấu hình:
+
+- Language: `Docker`
+- Dockerfile: `./Dockerfile`
+- Docker context: repository root
+- Health check path: `/health`
+- Auto-deploy: bật nếu muốn deploy sau mỗi lần push
+
+Thêm trong tab **Environment**:
+
+```env
+APP_ENV=production
+DATABASE_URL=<Neon pooled URL>
+DATABASE_URL_UNPOOLED=<Neon direct URL, hostname không có -pooler>
+DATABASE_SCHEMA=antiscam
+JWT_SECRET_KEY=<random-production-secret>
+OPENAI_API_KEY=<OpenAI-key>
+LLM_EXPLANATION_ENABLED=true
+MODEL_NAME=gpt-4o-mini
+CORS_ORIGINS=https://<frontend-service>.onrender.com
+```
+
+Dockerfile đã dùng biến `PORT` của Render. `docker/entrypoint.sh` sẽ chạy `alembic upgrade head` trước khi khởi động Uvicorn.
+
+Kiểm tra sau deploy:
+
+```text
+https://<backend-service>.onrender.com/health
+https://<backend-service>.onrender.com/docs
+```
+
+### Frontend Static Site
+
+Chọn `New → Static Site`, dùng cùng repository và cấu hình:
+
+- Root Directory: `frontend`
+- Build Command: `npm ci && npm run build`
+- Publish Directory: `dist`
+- Environment variable lúc build:
+
+```env
+VITE_API_URL=https://<backend-service>.onrender.com/api
+```
+
+Sau khi có URL frontend thật, cập nhật lại `CORS_ORIGINS` ở backend rồi chọn `Save, rebuild, and deploy`.
+
+### Kiểm tra end-to-end
+
+1. Mở frontend Render.
+2. Đăng ký tài khoản và tạo PIN trong phần Tài khoản/Cài đặt.
+3. Tra cứu recipient và chạy assessment.
+4. Kiểm tra warning, countdown, checkbox, PIN và quyết định chuyển/hủy.
+5. Nếu lỗi CORS, kiểm tra `CORS_ORIGINS` không có dấu `/` cuối URL.
+
+Không commit `.env` hoặc secret thật. Render hỗ trợ nhập biến trong Dashboard và tự rebuild/deploy khi lưu. Xem thêm [Render Web Services](https://render.com/docs/web-services), [Docker deploys](https://render.com/docs/docker) và [Environment Variables](https://render.com/docs/configure-environment-variables).
