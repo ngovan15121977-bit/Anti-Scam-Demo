@@ -20,7 +20,7 @@ import {
   Heart,
   QrCode,
 } from "lucide-react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
 import AIRiskModal, { type RiskAssessment } from "@/components/ai/AIRiskModal";
 
@@ -91,6 +91,7 @@ const tips = [
 export default function TransferPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [step, setStep] = useState<
     "form" | "review" | "ai-check" | "pin" | "success"
   >("form");
@@ -180,6 +181,7 @@ export default function TransferPage() {
         pin: transactionPin,
       }),
     onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["transaction-history"] });
       if (data.transaction_status === "completed") setStep("success");
       else if (data.transaction_status === "cancelled") {
         setStep("review");

@@ -25,6 +25,7 @@ from src.app.models.risk_assessment import (
     WarningFeedback,
 )
 from src.app.models.scam_report import ScamReport
+from src.app.models.recipient_directory import RecipientDirectory
 from src.app.models.transaction import Transaction, TransactionEnvironment, TransactionStatus
 from src.app.models.trusted_recipient import TrustedRecipient
 from src.app.models.user import User
@@ -52,6 +53,33 @@ router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _sync_completed_recipient(db: Session, transaction: Transaction) -> None:
+    """Add a successfully transferred recipient to the shared directory."""
+    bank_code = normalize_bank_name(transaction.bank_code)
+    account_number = transaction.payee_account.replace(" ", "").strip()
+    if not bank_code or not account_number:
+        return
+
+    entry = db.scalar(
+        select(RecipientDirectory).where(
+            RecipientDirectory.account_number == account_number,
+            RecipientDirectory.bank_code == bank_code,
+        )
+    )
+    if entry is None:
+        db.add(
+            RecipientDirectory(
+                account_number=account_number,
+                bank_code=bank_code,
+                account_name=transaction.payee_name.strip(),
+                source="completed_transfer",
+                is_active=True,
+            )
+        )
+    elif not entry.is_active:
+        entry.is_active = True
 
 
 def _warning_content(level: str, explanation: str, recommendation: str) -> tuple[str, str]:
@@ -482,6 +510,7 @@ def submit_decision(
         locked_user.balance -= transaction.amount
         transaction.transaction_status = TransactionStatus.COMPLETED
         transaction.completed_at = now
+        _sync_completed_recipient(db, transaction)
         action = "transaction.proceeded"
 
     if warning is not None:
