@@ -2,8 +2,8 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from src.app.core.deps import require_admin
@@ -13,7 +13,9 @@ from src.app.models.risk_assessment import RiskLevel, TransactionRiskAssessment,
 from src.app.models.scam_pattern import ScamPattern
 from src.app.models.scam_report import ScamReport
 from src.app.models.transaction import Transaction
-from src.app.schemas.admin import BlacklistCreate, BlacklistOut, ScamPatternCreate, ScamPatternOut, StatsOut
+from src.app.models.audit_log import AuditLog
+from src.app.models.user import User
+from src.app.schemas.admin import AdminTransactionOut, AuditLogOut, BlacklistCreate, BlacklistOut, ScamPatternCreate, ScamPatternOut, StatsOut
 from src.app.schemas.scam import ScamReportOut, ScamReportReview
 from src.app.services.audit import add_audit_log
 
@@ -166,3 +168,65 @@ def stats(db: Session = Depends(get_db)) -> StatsOut:
         blacklist_size=db.scalar(select(func.count()).select_from(Blacklist)) or 0,
         pattern_count=db.scalar(select(func.count()).select_from(ScamPattern)) or 0,
     )
+
+
+@router.get("/audit-logs", response_model=list[AuditLogOut])
+def list_audit_logs(
+    action: str | None = Query(default=None, max_length=100),
+    resource_type: str | None = Query(default=None, max_length=50),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[AuditLog]:
+    """Return masked audit metadata for the admin audit dashboard."""
+    statement = select(AuditLog)
+    if action:
+        statement = statement.where(AuditLog.action == action)
+    if resource_type:
+        statement = statement.where(AuditLog.resource_type == resource_type)
+    statement = statement.order_by(AuditLog.created_at.desc()).limit(limit)
+    return list(db.scalars(statement).all())
+
+
+@router.get("/transactions", response_model=list[AdminTransactionOut])
+def list_transactions(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """Return real transactions with their latest risk assessment for admin views."""
+    latest_assessment = (
+        select(
+            TransactionRiskAssessment.transaction_id,
+            func.max(TransactionRiskAssessment.created_at).label("latest_created_at"),
+        )
+        .group_by(TransactionRiskAssessment.transaction_id)
+        .subquery()
+    )
+    rows = db.execute(
+        select(Transaction, User.full_name, TransactionRiskAssessment.risk_level)
+        .join(User, Transaction.user_id == User.id)
+        .outerjoin(latest_assessment, latest_assessment.c.transaction_id == Transaction.id)
+        .outerjoin(
+            TransactionRiskAssessment,
+            and_(
+                TransactionRiskAssessment.transaction_id == Transaction.id,
+                TransactionRiskAssessment.created_at == latest_assessment.c.latest_created_at,
+            ),
+        )
+        .order_by(Transaction.created_at.desc())
+        .limit(limit)
+    ).all()
+    result = []
+    for transaction, user_name, risk_level in rows:
+        result.append({
+            "id": transaction.id,
+            "user_id": transaction.user_id,
+            "user_name": user_name,
+            "payee_account": transaction.payee_account,
+            "payee_name": transaction.payee_name,
+            "bank_code": transaction.bank_code,
+            "amount": transaction.amount,
+            "transaction_status": transaction.transaction_status,
+            "risk_level": risk_level,
+            "created_at": transaction.created_at,
+        })
+    return result

@@ -524,14 +524,36 @@ def history(
     limit: int = 20,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> list[Transaction]:
+) -> list[dict[str, object]]:
     rows = db.scalars(
         select(Transaction)
         .where(Transaction.user_id == current_user.id)
         .order_by(desc(Transaction.created_at))
         .limit(min(max(limit, 1), 100))
     ).all()
-    return list(rows)
+    transactions = list(rows)
+    result: list[dict[str, object]] = []
+    for transaction in transactions:
+        latest_assessment = db.scalar(
+            select(TransactionRiskAssessment)
+            .where(TransactionRiskAssessment.transaction_id == transaction.id)
+            .order_by(desc(TransactionRiskAssessment.created_at))
+            .limit(1)
+        )
+        result.append({
+            "id": transaction.id,
+            "payee_account": transaction.payee_account,
+            "payee_name": transaction.payee_name,
+            "bank_code": transaction.bank_code,
+            "amount": transaction.amount,
+            "currency": transaction.currency,
+            "transaction_status": transaction.transaction_status,
+            "created_at": transaction.created_at,
+            "completed_at": transaction.completed_at,
+            "cancelled_at": transaction.cancelled_at,
+            "risk_level": latest_assessment.risk_level if latest_assessment else None,
+        })
+    return result
 
 
 @router.post("/trusted-recipients", status_code=status.HTTP_201_CREATED)

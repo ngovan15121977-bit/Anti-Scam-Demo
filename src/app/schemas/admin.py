@@ -51,3 +51,29 @@ class StatsOut(BaseModel):
     recommendation_compliance_rate: float | None
     blacklist_size: int
     pattern_count: int
+
+
+class AuditLogOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    actor_id: uuid.UUID | None
+    action: str
+    resource_type: str
+    resource_id: uuid.UUID | None
+    metadata_json: dict[str, Any] | None
+    ip_address: str | None
+    created_at: datetime
+
+
+class AdminTransactionOut(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    user_name: str
+    payee_account: str
+    payee_name: str
+    bank_code: str | None
+    amount: int
+    transaction_status: str
+    risk_level: str | None
+    created_at: datetime

@@ -18,9 +18,9 @@ export default function LoginPage() {
       setAuth(data.access_token, data.user);
       try {
         const pinStatus = await authApi.transactionPinStatus();
-        navigate(!pinStatus.configured ? "/setup-pin" : (data.user.role === "admin" ? "/admin" : "/dashboard"));
+        navigate(!pinStatus.configured ? "/setup-pin" : (data.user.role === "admin" ? "/admin" : "/dashboard"), { replace: true });
       } catch {
-        navigate("/setup-pin");
+        navigate("/setup-pin", { replace: true });
       }
     },
     onError: (err: any) => {
@@ -47,7 +47,7 @@ export default function LoginPage() {
         <h1 className="text-3xl font-bold text-white mb-1">AI Anti-Scam</h1>
         <p className="text-pink-200 text-sm mb-8">Bảo vệ ví tiền của bạn 24/7</p>
 
-        <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 space-y-5">
           <h2 className="text-xl font-bold text-gray-800 text-center">Đăng nhập</h2>
 
           {errors.general && (
@@ -88,7 +88,7 @@ export default function LoginPage() {
           </div>
 
           <button
-            onClick={handleSubmit}
+            type="submit"
             disabled={loginMutation.isPending}
             className="w-full py-3.5 bg-momo-600 hover:bg-momo-700 text-white font-bold rounded-2xl shadow-lg shadow-pink-200 transition-all active:scale-95 disabled:opacity-70"
           >
@@ -103,7 +103,7 @@ export default function LoginPage() {
               Đăng ký ngay
             </Link>
           </div>
-        </div>
+        </form>
       </div>
 
       <div className="py-6 text-center text-pink-200 text-xs">

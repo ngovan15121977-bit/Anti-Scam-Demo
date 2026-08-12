@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import axios from "axios";
+import { transactionsApi, type Transaction as ApiTransaction } from "@/api/transactions";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -21,6 +24,7 @@ import {
   Shield,
   Sparkles,
   Download,
+  Loader2,
 } from "lucide-react";
 
 interface Transaction {
@@ -35,14 +39,21 @@ interface Transaction {
   description: string;
 }
 
-const demoTransactions: Transaction[] = [
-  { id: "TXN001", type: "transfer", recipient_name: "Nguyễn Văn A", recipient_account: "123456789", amount: 500000, status: "success", risk_level: "low", created_at: "2026-08-06T14:30:00", description: "Chuyển tiền ăn trưa" },
-  { id: "TXN002", type: "transfer", recipient_name: "Lê Thị B", recipient_account: "987654321", amount: 2000000, status: "blocked", risk_level: "critical", created_at: "2026-08-06T10:15:00", description: "AI phát hiện tài khoản đen" },
-  { id: "TXN003", type: "receive", recipient_name: "Trần Văn C", recipient_account: "456789123", amount: 1000000, status: "success", risk_level: "low", created_at: "2026-08-05T16:45:00", description: "Nhận tiền từ bạn" },
-  { id: "TXN004", type: "payment", recipient_name: "Công ty Điện lực", recipient_account: "EVN001", amount: 350000, status: "success", risk_level: "low", created_at: "2026-08-05T08:00:00", description: "Thanh toán hóa đơn điện" },
-  { id: "TXN005", type: "transfer", recipient_name: "Phạm Thị D", recipient_account: "789123456", amount: 5000000, status: "pending", risk_level: "medium", created_at: "2026-08-04T20:30:00", description: "Chuyển tiền mua hàng" },
-  { id: "TXN006", type: "transfer", recipient_name: "Hoàng Văn E", recipient_account: "321654987", amount: 1500000, status: "failed", risk_level: "high", created_at: "2026-08-04T14:00:00", description: "Người dùng hủy sau cảnh báo AI" },
-];
+const APP_TIME_ZONE = "Asia/Ho_Chi_Minh";
+const appDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: APP_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+const getAppDateKey = (value: Date | string) => appDateFormatter.format(new Date(value));
+const shiftDateKey = (dateKey: string, days: number) => {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
 
 const statusConfig = {
   success: { label: "Thành công", icon: CheckCircle2, color: "text-emerald-500 bg-emerald-50 border-emerald-100" },
@@ -62,24 +73,91 @@ export default function HistoryPage() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<"all" | "transfer" | "receive" | "payment">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "success" | "pending" | "failed" | "blocked">("all");
+  const [quickFilter, setQuickFilter] = useState<"all" | "today" | "yesterday" | "week" | "month">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
-  const filteredTransactions = demoTransactions.filter((tx) => {
+  const historyQuery = useQuery({
+    queryKey: ["transaction-history"],
+    queryFn: () => transactionsApi.getHistory(100),
+    refetchOnMount: "always",
+    staleTime: 0,
+  });
+
+  const historyError = historyQuery.error;
+  const historyErrorMessage = axios.isAxiosError(historyError)
+    ? historyError.response?.status === 401
+      ? "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
+      : historyError.response?.status === 403
+        ? "Tài khoản không có quyền xem lịch sử giao dịch."
+        : typeof historyError.response?.data?.detail === "string"
+          ? historyError.response.data.detail
+          : `Không tải được lịch sử giao dịch (HTTP ${historyError.response?.status ?? "không xác định"}).`
+    : "Không thể kết nối tới máy chủ.";
+
+  const transactions: Transaction[] = (historyQuery.data ?? []).map((transaction: ApiTransaction) => ({
+    id: transaction.id,
+    type: "transfer",
+    recipient_name: transaction.payee_name,
+    recipient_account: `${transaction.payee_account}${transaction.bank_code ? ` • ${transaction.bank_code}` : ""}`,
+    amount: transaction.amount,
+    status: transaction.transaction_status === "completed"
+      ? "success"
+      : transaction.transaction_status === "awaiting_decision" || transaction.transaction_status === "processing" || transaction.transaction_status === "risk_checking"
+        ? "pending"
+        : transaction.transaction_status === "cancelled" || transaction.transaction_status === "failed"
+          ? "failed"
+          : "pending",
+    risk_level: transaction.risk_level === "safe" || transaction.risk_level === "low" || !transaction.risk_level
+      ? "low"
+      : transaction.risk_level === "medium" ? "medium" : transaction.risk_level === "high" ? "high" : "critical",
+    created_at: transaction.created_at,
+    description: transaction.transaction_status === "completed" ? "Giao dịch đã hoàn tất" : "Giao dịch chuyển khoản",
+  }));
+
+  const filteredTransactions = transactions.filter((tx) => {
     if (filter !== "all" && tx.type !== filter) return false;
     if (statusFilter !== "all" && tx.status !== statusFilter) return false;
     if (searchQuery && !tx.recipient_name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (quickFilter !== "all") {
+      const transactionDateKey = getAppDateKey(tx.created_at);
+      const todayKey = getAppDateKey(new Date());
+      const yesterdayKey = shiftDateKey(todayKey, -1);
+      const todayDate = new Date(`${todayKey}T00:00:00Z`);
+      const dayOfWeek = todayDate.getUTCDay();
+      const weekStartKey = shiftDateKey(todayKey, -(dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+      const monthStartKey = `${todayKey.slice(0, 7)}-01`;
+      if (quickFilter === "today" && transactionDateKey !== todayKey) return false;
+      if (quickFilter === "yesterday" && transactionDateKey !== yesterdayKey) return false;
+      if (quickFilter === "week" && (transactionDateKey < weekStartKey || transactionDateKey > todayKey)) return false;
+      if (quickFilter === "month" && (transactionDateKey < monthStartKey || transactionDateKey > todayKey)) return false;
+    }
     return true;
   });
+
+  const handleExport = () => {
+    const escapeCsv = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+    const rows = [
+      ["ID", "Loại", "Người nhận", "Tài khoản", "Số tiền", "Trạng thái", "Rủi ro", "Thời gian"],
+      ...filteredTransactions.map((tx) => [tx.id, tx.type, tx.recipient_name, tx.recipient_account, tx.amount, tx.status, tx.risk_level, tx.created_at]),
+    ];
+    const csv = "\uFEFF" + rows.map((row) => row.map(escapeCsv).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `lich-su-giao-dich-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   const formatMoney = (amount: number) => new Intl.NumberFormat("vi-VN").format(amount) + " đ";
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    const now = new Date();
-    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-    if (diffDays === 0) return "Hôm nay, " + date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-    if (diffDays === 1) return "Hôm qua, " + date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-    return date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const todayKey = getAppDateKey(new Date());
+    const dateKey = getAppDateKey(date);
+    if (dateKey === todayKey) return "Hôm nay, " + date.toLocaleTimeString("vi-VN", { timeZone: APP_TIME_ZONE, hour: "2-digit", minute: "2-digit" });
+    if (dateKey === shiftDateKey(todayKey, -1)) return "Hôm qua, " + date.toLocaleTimeString("vi-VN", { timeZone: APP_TIME_ZONE, hour: "2-digit", minute: "2-digit" });
+    return date.toLocaleDateString("vi-VN", { timeZone: APP_TIME_ZONE, day: "2-digit", month: "2-digit", year: "numeric" });
   };
   const getTypeIcon = (type: string) => {
     switch (type) { case "transfer": return <ArrowUpRight className="w-4 h-4 text-rose-500" />; case "receive": return <ArrowDownLeft className="w-4 h-4 text-emerald-500" />; case "payment": return <ArrowRightLeft className="w-4 h-4 text-blue-500" />; default: return <ArrowRightLeft className="w-4 h-4" />; }
@@ -187,8 +265,38 @@ export default function HistoryPage() {
 
               {/* Transaction List */}
               <div className="space-y-4">
-                {filteredTransactions.length === 0 ? (
-                  <div className="text-center py-16 bg-white rounded-2xl shadow-sm border border-gray-100"><Clock className="w-14 h-14 text-gray-200 mx-auto mb-4" /><p className="text-gray-500 font-medium">Không có giao dịch nào</p></div>
+                {historyQuery.isLoading ? (
+                  <div className="flex min-h-[280px] items-center justify-center rounded-2xl border border-gray-100 bg-white shadow-sm">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50">
+                        <Loader2 className="h-7 w-7 animate-spin text-rose-500" />
+                      </div>
+
+                      <p className="text-sm font-bold text-gray-800">
+                        Đang tải lịch sử giao dịch
+                      </p>
+
+                      <p className="mt-1 text-xs text-gray-400">
+                        Đang đồng bộ dữ liệu, vui lòng chờ...
+                      </p>
+                    </div>
+                  </div>
+                ) : historyQuery.isError ? (
+                  <div className="flex min-h-[200px] items-center justify-center rounded-2xl border border-red-100 bg-red-50">
+                    <div className="text-center">
+                      <XCircle className="mx-auto mb-3 h-8 w-8 text-red-400" />
+                      <p className="text-sm font-medium text-red-700">
+                        {historyErrorMessage}
+                      </p>
+                    </div>
+                  </div>
+                ) : filteredTransactions.length === 0 ? (
+                  <div className="text-center py-16 bg-white rounded-2xl shadow-sm border border-gray-100">
+                    <Clock className="w-14 h-14 text-gray-200 mx-auto mb-4" />
+                    <p className="text-gray-500 font-medium">
+                      Không có giao dịch nào
+                    </p>
+                  </div>
                 ) : (
                   filteredTransactions.map((tx) => {
                     const status = statusConfig[tx.status];
@@ -253,13 +361,13 @@ export default function HistoryPage() {
               <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Lọc nhanh</h3>
                 <div className="space-y-2">
-                  {["Hôm nay", "Hôm qua", "Tuần này", "Tháng này"].map((label) => (
-                    <button key={label} className="w-full text-left px-3 py-2 rounded-xl text-sm text-gray-600 hover:bg-rose-50 hover:text-rose-600 transition-colors font-medium">{label}</button>
+                  {[{ key: "today", label: "Hôm nay" }, { key: "yesterday", label: "Hôm qua" }, { key: "week", label: "Tuần này" }, { key: "month", label: "Tháng này" }].map((item) => (
+                    <button key={item.key} onClick={() => setQuickFilter(item.key as typeof quickFilter)} className={`w-full text-left px-3 py-2 rounded-xl text-sm transition-colors font-medium ${quickFilter === item.key ? "bg-rose-50 text-rose-600" : "text-gray-600 hover:bg-rose-50 hover:text-rose-600"}`}>{item.label}</button>
                   ))}
                 </div>
               </div>
 
-              <button className="w-full flex items-center justify-center gap-2 p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow text-sm font-bold text-gray-700">
+              <button onClick={handleExport} className="w-full flex items-center justify-center gap-2 p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow text-sm font-bold text-gray-700">
                 <Download className="w-4 h-4" />Xuất báo cáo
               </button>
 

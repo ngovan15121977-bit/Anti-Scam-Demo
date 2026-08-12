@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import axios from "axios";
 import axiosInstance from "@/api/axios";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
-  Users,
   ArrowRightLeft,
   ShieldAlert,
   BarChart3,
@@ -19,41 +19,39 @@ import {
   Filter,
   Download,
   MoreVertical,
+  FileClock,
+  RefreshCw,
 } from "lucide-react";
 
-// Demo data
-const stats = [
-  { label: "Tổng người dùng", value: "12,456", change: "+8.2%", up: true, icon: Users },
-  { label: "Giao dịch hôm nay", value: "3,842", change: "+12.5%", up: true, icon: ArrowRightLeft },
-  { label: "Giao dịch bị chặn", value: "127", change: "+23.1%", up: false, icon: ShieldAlert },
-  { label: "Tỷ lệ an toàn", value: "99.2%", change: "+0.3%", up: true, icon: CheckCircle2 },
-];
+type TabType = "overview" | "transactions" | "blacklist" | "audit" | "settings";
 
-const recentTransactions = [
-  { id: "TXN001", user: "Nguyễn Văn A", amount: 500000, status: "success", risk: "low", time: "2 phút trước" },
-  { id: "TXN002", user: "Lê Thị B", amount: 2000000, status: "blocked", risk: "critical", time: "5 phút trước" },
-  { id: "TXN003", user: "Trần Văn C", amount: 150000, status: "success", risk: "low", time: "10 phút trước" },
-  { id: "TXN004", user: "Phạm Thị D", amount: 5000000, status: "pending", risk: "medium", time: "15 phút trước" },
-  { id: "TXN005", user: "Hoàng Văn E", amount: 1000000, status: "failed", risk: "high", time: "20 phút trước" },
-];
+type AdminTransaction = {
+  id: string;
+  user_id: string;
+  user_name: string;
+  payee_account: string;
+  payee_name: string;
+  bank_code: string | null;
+  amount: number;
+  transaction_status: string;
+  risk_level: "safe" | "low" | "medium" | "high" | null;
+  created_at: string;
+};
 
-const blacklistEntries = [
-  { id: "BL001", type: "account", value: "123456789", reason: "Nhiều báo cáo lừa đảo", addedAt: "2026-08-05", reports: 15 },
-  { id: "BL002", type: "phone", value: "0909123456", reason: "Số điện thoại lừa đảo", addedAt: "2026-08-04", reports: 8 },
-  { id: "BL003", type: "email", value: "scam@example.com", reason: "Email phishing", addedAt: "2026-08-03", reports: 23 },
-];
+function useAdminTransactions() {
+  return useQuery({
+    queryKey: ["admin-transactions"],
+    queryFn: async () => (await axiosInstance.get<AdminTransaction[]>("/v1/admin/transactions", { params: { limit: 100 } })).data,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+}
 
-const riskDistribution = [
-  { label: "An toàn", value: 78, color: "bg-emerald-500" },
-  { label: "Lưu ý", value: 15, color: "bg-amber-500" },
-  { label: "Rủi ro", value: 5, color: "bg-orange-500" },
-  { label: "Nguy hiểm", value: 2, color: "bg-red-500" },
-];
-
-type TabType = "overview" | "transactions" | "blacklist" | "settings";
+type AdminTransactionsQuery = ReturnType<typeof useAdminTransactions>;
 
 export default function AdminPage() {
   const navigate = useNavigate();
+  const transactionsQuery = useAdminTransactions();
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -61,6 +59,7 @@ export default function AdminPage() {
     { key: "overview" as TabType, label: "Tổng quan", icon: BarChart3 },
     { key: "transactions" as TabType, label: "Giao dịch", icon: ArrowRightLeft },
     { key: "blacklist" as TabType, label: "Blacklist", icon: Ban },
+    { key: "audit" as TabType, label: "Audit log", icon: FileClock },
     { key: "settings" as TabType, label: "Cài đặt AI", icon: Settings },
   ];
 
@@ -102,22 +101,128 @@ export default function AdminPage() {
 
       {/* Content */}
       <div className="p-4">
-        {activeTab === "overview" && <OverviewTab />}
-        {activeTab === "transactions" && <TransactionsTab searchQuery={searchQuery} setSearchQuery={setSearchQuery} />}
+        {activeTab === "overview" && <OverviewTab transactionsQuery={transactionsQuery} onViewAll={() => setActiveTab("transactions")} />}
+        {activeTab === "transactions" && <TransactionsTab transactionsQuery={transactionsQuery} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />}
         {activeTab === "blacklist" && <BlacklistTab searchQuery={searchQuery} setSearchQuery={setSearchQuery} />}
+        {activeTab === "audit" && <AuditTab />}
         {activeTab === "settings" && <SettingsTab />}
       </div>
     </div>
   );
 }
 
+// ===== AUDIT TAB =====
+function AuditTab() {
+  const [action, setAction] = useState("");
+  const auditQuery = useQuery({
+    queryKey: ["admin-audit-logs", action],
+    queryFn: async () => (await axiosInstance.get<Array<{
+      id: string;
+      actor_id: string | null;
+      action: string;
+      resource_type: string;
+      resource_id: string | null;
+      metadata_json: Record<string, unknown> | null;
+      ip_address: string | null;
+      created_at: string;
+    }>>("/v1/admin/audit-logs", { params: { limit: 200, ...(action ? { action } : {}) } })).data,
+  });
+
+  const logs = auditQuery.data ?? [];
+  const actions = Array.from(new Set(logs.map((log) => log.action))).sort();
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 rounded-2xl bg-white p-4 shadow-sm border border-slate-100 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="font-bold text-slate-800">Audit log hệ thống</h2>
+          <p className="text-xs text-slate-400 mt-1">Theo dõi hành động AI, giao dịch và quản trị từ dữ liệu thật.</p>
+        </div>
+        <div className="flex gap-2">
+          <select value={action} onChange={(event) => setAction(event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-500">
+            <option value="">Tất cả hành động</option>
+            {actions.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <button onClick={() => void auditQuery.refetch()} className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50" title="Làm mới">
+            <RefreshCw className={`h-4 w-4 ${auditQuery.isFetching ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+        {auditQuery.isLoading && <p className="p-6 text-sm text-slate-500">Đang tải audit log...</p>}
+        {auditQuery.isError && <p className="p-6 text-sm text-red-600">Không tải được audit log từ máy chủ.</p>}
+        {!auditQuery.isLoading && !auditQuery.isError && logs.length === 0 && <p className="p-6 text-sm text-slate-500">Chưa có audit log phù hợp.</p>}
+        {logs.map((log) => (
+          <div key={log.id} className="border-b border-slate-50 p-4 last:border-0 hover:bg-slate-50">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50"><FileClock className="h-4 w-4 text-rose-500" /></div>
+                <div className="min-w-0">
+                  <p className="break-words font-semibold text-slate-800">{log.action}</p>
+                  <p className="mt-1 text-xs text-slate-400">{log.resource_type} {log.resource_id ? `• ${log.resource_id}` : ""}</p>
+                </div>
+              </div>
+              <time className="shrink-0 text-xs text-slate-400">{new Date(log.created_at).toLocaleString("vi-VN")}</time>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
+              <span>Actor: {log.actor_id ?? "system"}</span>
+              <span>IP: {log.ip_address ?? "—"}</span>
+            </div>
+            {log.metadata_json && Object.keys(log.metadata_json).length > 0 && (
+              <pre className="mt-3 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-slate-50 p-3 text-[11px] text-slate-600">{JSON.stringify(log.metadata_json, null, 2)}</pre>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ===== OVERVIEW TAB =====
-function OverviewTab() {
+function OverviewTab({ transactionsQuery, onViewAll }: { transactionsQuery: AdminTransactionsQuery; onViewAll: () => void }) {
+  const statsQuery = useQuery({
+    queryKey: ["admin-stats"],
+    queryFn: async () => (await axiosInstance.get<{
+      total_transactions: number;
+      by_risk_level: Record<string, number>;
+      high_risk_count: number;
+      high_risk_cancelled: number;
+      recommendation_compliance_rate: number | null;
+      blacklist_size: number;
+      pattern_count: number;
+    }>("/v1/admin/stats")).data,
+  });
+
+  const liveStats = statsQuery.data;
+  const total = liveStats?.total_transactions ?? 0;
+  const safeCount = (liveStats?.by_risk_level.safe ?? 0) + (liveStats?.by_risk_level.low ?? 0);
+  const safeRate = total ? Math.round((safeCount / total) * 1000) / 10 : 0;
+  const liveCards = [
+    { label: "Tổng giao dịch", value: total.toLocaleString("vi-VN"), change: "Database", up: true, icon: ArrowRightLeft },
+    { label: "Cảnh báo rủi ro cao", value: (liveStats?.high_risk_count ?? 0).toLocaleString("vi-VN"), change: "Risk engine", up: false, icon: ShieldAlert },
+    { label: "Đã hủy sau cảnh báo", value: (liveStats?.high_risk_cancelled ?? 0).toLocaleString("vi-VN"), change: "HITL", up: true, icon: CheckCircle2 },
+    { label: "Tỷ lệ an toàn", value: `${safeRate}%`, change: "Risk assessment", up: true, icon: ShieldAlert },
+  ];
+  const liveRiskDistribution = [
+    { label: "An toàn", value: total ? Math.round((safeCount / total) * 100) : 0, color: "bg-emerald-500" },
+    { label: "Lưu ý", value: total ? Math.round(((liveStats?.by_risk_level.medium ?? 0) / total) * 100) : 0, color: "bg-amber-500" },
+    { label: "Nguy hiểm", value: total ? Math.round(((liveStats?.by_risk_level.high ?? 0) / total) * 100) : 0, color: "bg-red-500" },
+  ];
+  const liveRecentTransactions = (transactionsQuery.data ?? []).slice(0, 3).map((transaction) => ({
+    id: transaction.id,
+    user: transaction.user_name,
+    amount: transaction.amount,
+    status: transaction.transaction_status === "completed" ? "success" : transaction.transaction_status === "cancelled" || transaction.transaction_status === "failed" ? "failed" : "pending",
+    risk: transaction.risk_level === "high" ? "high" : transaction.risk_level === "medium" ? "medium" : "low",
+    time: new Date(transaction.created_at).toLocaleString("vi-VN"),
+  }));
+
   return (
     <div className="space-y-6">
       {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => {
+        {liveCards.map((stat) => {
           const Icon = stat.icon;
           return (
             <div key={stat.label} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
@@ -145,8 +250,8 @@ function OverviewTab() {
         <div className="flex items-center gap-6">
           <div className="w-32 h-32 relative">
             <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
-              {riskDistribution.reduce((acc, item, i) => {
-                const prevTotal = riskDistribution.slice(0, i).reduce((s, r) => s + r.value, 0);
+              {liveRiskDistribution.reduce((acc, item, i) => {
+                const prevTotal = liveRiskDistribution.slice(0, i).reduce((s, r) => s + r.value, 0);
                 const dashArray = `${item.value} ${100 - item.value}`;
                 const dashOffset = -prevTotal;
                 acc.push(
@@ -171,7 +276,7 @@ function OverviewTab() {
             </div>
           </div>
           <div className="flex-1 space-y-3">
-            {riskDistribution.map((item) => (
+            {liveRiskDistribution.map((item) => (
               <div key={item.label} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className={`w-3 h-3 rounded-full ${item.color}`} />
@@ -188,10 +293,12 @@ function OverviewTab() {
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-slate-800">Hoạt động gần đây</h3>
-          <button className="text-sm text-rose-500 font-medium hover:underline">Xem tất cả</button>
+          <button onClick={onViewAll} className="text-sm text-rose-500 font-medium hover:underline">Xem tất cả</button>
         </div>
         <div className="space-y-3">
-          {recentTransactions.slice(0, 3).map((tx) => (
+          {transactionsQuery.isError && <p className="text-sm text-red-600">Không tải được giao dịch từ máy chủ.</p>}
+          {!transactionsQuery.isLoading && !transactionsQuery.isError && liveRecentTransactions.length === 0 && <p className="text-sm text-slate-500">Chưa có giao dịch trong database.</p>}
+          {liveRecentTransactions.map((tx) => (
             <div key={tx.id} className="flex items-center gap-4 p-3 bg-slate-50 rounded-xl">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
                 tx.status === "success" ? "bg-emerald-50" :
@@ -229,14 +336,43 @@ function OverviewTab() {
 }
 
 // ===== TRANSACTIONS TAB =====
-function TransactionsTab({ searchQuery, setSearchQuery }: { searchQuery: string; setSearchQuery: (s: string) => void }) {
+function TransactionsTab({ transactionsQuery, searchQuery, setSearchQuery }: { transactionsQuery: AdminTransactionsQuery; searchQuery: string; setSearchQuery: (s: string) => void }) {
   const [filter, setFilter] = useState("all");
+  const transactions = (transactionsQuery.data ?? []).map((transaction) => ({
+    id: transaction.id,
+    user: `${transaction.user_name} → ${transaction.payee_name}`,
+    amount: transaction.amount,
+    status: transaction.transaction_status === "completed" ? "success" : transaction.transaction_status === "cancelled" || transaction.transaction_status === "failed" ? "failed" : transaction.transaction_status === "awaiting_decision" && transaction.risk_level === "high" ? "blocked" : "pending",
+    risk: transaction.risk_level === "high" ? "high" : transaction.risk_level === "medium" ? "medium" : "low",
+    time: new Date(transaction.created_at).toLocaleString("vi-VN"),
+  }));
 
-  const filtered = recentTransactions.filter((tx) => {
+  const filtered = transactions.filter((tx) => {
     if (filter !== "all" && tx.status !== filter) return false;
     if (searchQuery && !tx.user.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
+  const transactionError = transactionsQuery.error;
+  const transactionErrorMessage = axios.isAxiosError(transactionError)
+    ? typeof transactionError.response?.data?.detail === "string"
+      ? transactionError.response.data.detail
+      : `Không tải được giao dịch (HTTP ${transactionError.response?.status ?? "không xác định"}).`
+    : "Không thể kết nối tới máy chủ.";
+
+  const handleExport = () => {
+    const escapeCsv = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+    const rows = [
+      ["ID", "Người dùng / Người nhận", "Số tiền", "Trạng thái", "Rủi ro", "Thời gian"],
+      ...filtered.map((tx) => [tx.id, tx.user, tx.amount, tx.status, tx.risk, tx.time]),
+    ];
+    const csv = "\uFEFF" + rows.map((row) => row.map(escapeCsv).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `admin-giao-dich-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-4">
@@ -254,7 +390,7 @@ function TransactionsTab({ searchQuery, setSearchQuery }: { searchQuery: string;
         <button className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50">
           <Filter className="w-4 h-4 text-slate-600" />
         </button>
-        <button className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50">
+        <button onClick={handleExport} className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50" title="Xuất giao dịch đang hiển thị">
           <Download className="w-4 h-4 text-slate-600" />
         </button>
       </div>
@@ -280,6 +416,9 @@ function TransactionsTab({ searchQuery, setSearchQuery }: { searchQuery: string;
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 divide-y divide-slate-50">
+        {transactionsQuery.isLoading && <p className="p-5 text-sm text-slate-500">Đang tải giao dịch...</p>}
+        {transactionsQuery.isError && <p className="p-5 text-sm text-red-600">{transactionErrorMessage}</p>}
+        {!transactionsQuery.isLoading && !transactionsQuery.isError && filtered.length === 0 && <p className="p-5 text-sm text-slate-500">Không có giao dịch phù hợp.</p>}
         {filtered.map((tx) => (
           <div key={tx.id} className="p-4 hover:bg-slate-50 transition-colors">
             <div className="flex items-center justify-between mb-2">
@@ -334,14 +473,14 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
     queryFn: async () => (await axiosInstance.get<Array<{ id: string; entity_type: string; entity_value: string; source: string; evidence?: Record<string, unknown> | null; created_at: string }>>("/v1/admin/blacklist")).data,
   });
 
-  const entries = blacklistQuery.data?.map((entry) => ({
+  const entries = (blacklistQuery.data ?? []).map((entry) => ({
     id: entry.id,
     type: entry.entity_type,
     value: entry.entity_value,
     reason: entry.source,
     addedAt: new Date(entry.created_at).toLocaleString("vi-VN"),
     reports: entry.evidence && typeof entry.evidence.reports === "number" ? entry.evidence.reports : 0,
-  })) ?? blacklistEntries;
+  }));
   const filtered = entries.filter((entry) => {
     if (searchQuery && !entry.value.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;

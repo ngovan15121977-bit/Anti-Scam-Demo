@@ -28,10 +28,14 @@ axiosInstance.interceptors.request.use(
 axiosInstance.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    if (error.response?.status === 401) {
+    const requestUrl = error.config?.url ?? "";
+    const isAuthAttempt = requestUrl.includes("/v1/auth/login")
+      || requestUrl.includes("/v1/auth/register")
+      || requestUrl.includes("/v1/auth/transaction-pin/status");
+    if (error.response?.status === 401 && !isAuthAttempt) {
       localStorage.removeItem("token");
       localStorage.removeItem("auth-storage");
-      window.location.href = "/login";
+      window.location.replace("/login");
     }
     return Promise.reject(error);
   }

@@ -85,6 +85,7 @@ class TransactionOut(BaseModel):
     created_at: datetime
     completed_at: datetime | None
     cancelled_at: datetime | None
+    risk_level: str | None = None
 
 
 class TrustedRecipientCreate(BaseModel):

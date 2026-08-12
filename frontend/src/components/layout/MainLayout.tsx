@@ -1,15 +1,15 @@
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
-import { Home, Send, History, User, LogOut, QrCode } from "lucide-react";
+import { Home, Send, History, User, LogOut, QrCode, ShieldCheck } from "lucide-react";
 
 export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { logout } = useAuthStore();
+  const { logout, isAdmin } = useAuthStore();
 
   const handleLogout = () => {
     logout();
-    navigate("/login");
+    navigate("/", { replace: true });
   };
 
   const navItems = [
@@ -17,6 +17,7 @@ export default function MainLayout() {
     { path: "/transfer", label: "Chuyển tiền", icon: Send },
     { path: "/qr", label: "QR", icon: QrCode },
     { path: "/history", label: "Lịch sử", icon: History },
+    ...(isAdmin ? [{ path: "/admin", label: "Admin", icon: ShieldCheck }] : []),
     { path: "/me", label: "Tài khoản", icon: User },
   ];
 

@@ -770,8 +770,8 @@ export default function TransferPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl">
-          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-indigo-100">
-            <Lock className="h-8 w-8 text-indigo-600" />
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-rose-100">
+            <Lock className="h-8 w-8 text-rose-600" />
           </div>
           <h2 className="text-center text-2xl font-bold text-gray-800">
             Xác nhận mã PIN
@@ -788,7 +788,7 @@ export default function TransferPage() {
             type="password"
             autoComplete="off"
             placeholder="PIN 4–6 chữ số"
-            className="mt-6 w-full rounded-xl border border-gray-200 p-4 text-center text-xl tracking-[0.5em] outline-none focus:ring-2 focus:ring-indigo-400"
+            className="mt-6 w-full rounded-xl border border-rose-200 p-4 text-center text-xl tracking-[0.5em] outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-300"
           />
           <button
             disabled={!/^\d{4,6}$/.test(pin) || decisionMutation.isPending}
@@ -799,7 +799,7 @@ export default function TransferPage() {
                 pin,
               })
             }
-            className="mt-4 w-full rounded-xl bg-indigo-600 py-3 font-bold text-white disabled:opacity-50"
+            className="mt-4 w-full rounded-xl bg-rose-600 py-3 font-bold text-white transition-colors hover:bg-rose-700 disabled:opacity-50"
           >
             {decisionMutation.isPending
               ? "Đang xử lý..."

@@ -85,6 +85,7 @@ export interface Transaction {
   created_at: string;
   completed_at?: string | null;
   cancelled_at?: string | null;
+  risk_level?: "safe" | "low" | "medium" | "high" | null;
 }
 
 export const transactionsApi = {

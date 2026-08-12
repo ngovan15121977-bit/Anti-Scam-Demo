@@ -22,7 +22,7 @@ export default function RegisterPage() {
     mutationFn: authApi.register,
     onSuccess: (data) => {
       setAuth(data.access_token, data.user);
-      navigate("/setup-pin");
+      navigate("/setup-pin", { replace: true });
     },
     onError: (err: any) => {
       setErrors({ general: err.response?.data?.detail || "Đăng ký thất bại" });
