@@ -4,8 +4,10 @@ import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import QRCode from "qrcode";
 import {
   ArrowLeft,
+  Building2,
   Camera,
   CheckCircle2,
+  ChevronRight,
   Download,
   ImageUp,
   Loader2,
@@ -69,9 +71,16 @@ export default function QrPaymentPage() {
     accountName: "",
   });
   const [recipientLookupState, setRecipientLookupState] = useState<RecipientLookupState>({ status: "idle" });
+  const [isBankPickerOpen, setBankPickerOpen] = useState(false);
+  const [bankSearch, setBankSearch] = useState("");
   const [generatedQr, setGeneratedQr] = useState<{ image: string; payload: string; payment: PaymentQrData } | null>(null);
   const [createError, setCreateError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const selectedBank = paymentBanks.find((bank) => bank.code === form.bankCode);
+  const normalizedBankSearch = bankSearch.trim().toLocaleLowerCase("vi-VN");
+  const filteredBanks = paymentBanks.filter((bank) => (
+    `${bank.name} ${bank.code}`.toLocaleLowerCase("vi-VN").includes(normalizedBankSearch)
+  ));
 
   const stopScanner = useCallback(async () => {
     const scanner = scannerRef.current;
@@ -141,6 +150,27 @@ export default function QrPaymentPage() {
     setScannerState("idle");
     setScanError("");
     setMode(nextMode);
+  };
+
+  const handleBankChange = (bankCode: string) => {
+    setForm((current) => ({ ...current, bankCode, accountName: "" }));
+    setBankSearch(paymentBanks.find((bank) => bank.code === bankCode)?.name ?? "");
+    setBankPickerOpen(false);
+    setRecipientLookupState({ status: "idle" });
+  };
+
+  const handleBankSearchChange = (value: string) => {
+    setBankSearch(value);
+    setBankPickerOpen(true);
+    if (form.bankCode) {
+      setForm((current) => ({ ...current, bankCode: "", accountName: "" }));
+      setRecipientLookupState({ status: "idle" });
+    }
+  };
+
+  const handleBankFocus = () => {
+    setBankPickerOpen(true);
+    if (form.bankCode) setBankSearch("");
   };
 
   const handleDecodedText = useCallback((decodedText: string) => {
@@ -297,10 +327,6 @@ export default function QrPaymentPage() {
       </header>
 
       <main className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 flex gap-3 text-amber-800">
-          <ShieldCheck className="h-5 w-5 shrink-0 mt-0.5" />
-          <p className="text-sm leading-relaxed"><strong>Chỉ dùng để .</strong> Mã QR này không kết nối ngân hàng và không thể thực hiện thanh toán ngoài đời thực.</p>
-        </div>
 
         <div className="grid lg:grid-cols-[0.9fr_1.1fr] gap-6">
           <section className="bg-white rounded-3xl p-5 sm:p-7 border border-gray-100 shadow-sm">
@@ -354,15 +380,51 @@ export default function QrPaymentPage() {
                   <h2 className="text-xl font-bold text-gray-900">Tạo QR nhận tiền </h2>
                   <p className="mt-1 text-sm text-gray-500">Chọn thông tin sẽ được điền khi người khác quét mã.</p>
                 </div>
-                <label className="block text-sm font-semibold text-gray-700">Ngân hàng
-                  <select required value={form.bankCode} onChange={(event) => {
-                    setForm((current) => ({ ...current, bankCode: event.target.value, accountName: "" }));
-                    setRecipientLookupState({ status: "idle" });
-                  }} className="mt-1.5 w-full rounded-xl bg-gray-50 px-3 py-2.5 outline-none ring-0 focus:ring-2 focus:ring-rose-500">
-                    <option value="">Chọn ngân hàng</option>
-                    {paymentBanks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}
-                  </select>
-                </label>
+                <div>
+                  <label htmlFor="payment-qr-bank" className="block text-sm font-semibold text-gray-700">Ngân hàng</label>
+                  <div className="relative mt-1.5">
+                    <Building2 className="absolute left-3.5 top-3 w-5 h-5 text-gray-400 pointer-events-none" />
+                    <input
+                      id="payment-qr-bank"
+                      type="text"
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-controls="payment-qr-bank-options"
+                      aria-expanded={isBankPickerOpen}
+                      placeholder="Nhập tên hoặc mã ngân hàng"
+                      value={isBankPickerOpen || !form.bankCode ? bankSearch : selectedBank?.name ?? ""}
+                      onFocus={handleBankFocus}
+                      onBlur={() => setBankPickerOpen(false)}
+                      onChange={(event) => handleBankSearchChange(event.target.value)}
+                      className="w-full pl-11 pr-10 py-2.5 rounded-xl bg-gray-50 outline-none focus:ring-2 focus:ring-rose-500"
+                    />
+                    <ChevronRight className="absolute right-3.5 top-3 w-5 h-5 text-gray-400 rotate-90 pointer-events-none" />
+                    {isBankPickerOpen && (
+                      <div id="payment-qr-bank-options" role="listbox" className="absolute left-0 top-full z-30 mt-2 max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl">
+                        {filteredBanks.length === 0 ? (
+                          <p className="px-3 py-2 text-sm text-gray-500">Không tìm thấy ngân hàng phù hợp.</p>
+                        ) : (
+                          filteredBanks.map((bank) => (
+                            <button
+                              key={bank.code}
+                              type="button"
+                              role="option"
+                              aria-selected={bank.code === form.bankCode}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                handleBankChange(bank.code);
+                              }}
+                              className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-rose-50"
+                            >
+                              <span className="font-medium text-gray-800">{bank.name}</span>
+                              <span className="text-xs font-semibold text-gray-400">{bank.code}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <label className="block text-sm font-semibold text-gray-700">Số tài khoản
                   <input required inputMode="numeric" maxLength={19} value={form.accountNumber} onChange={(event) => {
                     setForm((current) => ({ ...current, accountNumber: event.target.value.replace(/\D/g, ""), accountName: "" }));
