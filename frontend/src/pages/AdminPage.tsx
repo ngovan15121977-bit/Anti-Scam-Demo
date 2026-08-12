@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import axiosInstance from "@/api/axios";
@@ -21,6 +21,10 @@ import {
   MoreVertical,
   FileClock,
   RefreshCw,
+  Activity,
+  Wifi,
+  Pause,
+  Play,
 } from "lucide-react";
 
 type TabType = "overview" | "transactions" | "blacklist" | "audit" | "settings";
@@ -36,6 +40,27 @@ type AdminTransaction = {
   transaction_status: string;
   risk_level: "safe" | "low" | "medium" | "high" | null;
   created_at: string;
+};
+
+type AdminAuditLog = {
+  id: string;
+  actor_id: string | null;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  metadata_json: Record<string, unknown> | null;
+  ip_address: string | null;
+  created_at: string;
+};
+
+type AdminStats = {
+  total_transactions: number;
+  by_risk_level: Record<string, number>;
+  high_risk_count: number;
+  high_risk_cancelled: number;
+  recommendation_compliance_rate: number | null;
+  blacklist_size: number;
+  pattern_count: number;
 };
 
 function useAdminTransactions() {
@@ -114,38 +139,119 @@ export default function AdminPage() {
 // ===== AUDIT TAB =====
 function AuditTab() {
   const [action, setAction] = useState("");
-  const auditQuery = useQuery({
+  const [liveEnabled, setLiveEnabled] = useState(true);
+  const auditQuery = useQuery<AdminAuditLog[]>({
     queryKey: ["admin-audit-logs", action],
-    queryFn: async () => (await axiosInstance.get<Array<{
-      id: string;
-      actor_id: string | null;
-      action: string;
-      resource_type: string;
-      resource_id: string | null;
-      metadata_json: Record<string, unknown> | null;
-      ip_address: string | null;
-      created_at: string;
-    }>>("/v1/admin/audit-logs", { params: { limit: 200, ...(action ? { action } : {}) } })).data,
+    queryFn: async () => (await axiosInstance.get<AdminAuditLog[]>("/v1/admin/audit-logs", { params: { limit: 200, ...(action ? { action } : {}) } })).data,
+    refetchInterval: liveEnabled ? 5000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  });
+  const statsQuery = useQuery<AdminStats>({
+    queryKey: ["admin-stats", "live-audit"],
+    queryFn: async () => (await axiosInstance.get<AdminStats>("/v1/admin/stats")).data,
+    refetchInterval: liveEnabled ? 5000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 
   const logs = auditQuery.data ?? [];
   const actions = Array.from(new Set(logs.map((log) => log.action))).sort();
+  const now = Date.now();
+  const recentLogs = useMemo(
+    () => logs.filter((log) => now - new Date(log.created_at).getTime() <= 5 * 60 * 1000),
+    [logs, now],
+  );
+  const warningEvents = recentLogs.filter((log) =>
+    /warning|risk|blacklist/i.test(log.action),
+  ).length;
+  const hitlEvents = recentLogs.filter((log) =>
+    /intervention|cancelled|proceeded|decision/i.test(log.action),
+  ).length;
+  const intelligenceEvents = recentLogs.filter((log) =>
+    /scam|pattern/i.test(log.action),
+  ).length;
+  const lastUpdated = auditQuery.dataUpdatedAt || statsQuery.dataUpdatedAt;
+  const isLive = liveEnabled && !auditQuery.isError && !statsQuery.isError;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-2xl bg-white p-4 shadow-sm border border-slate-100 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="font-bold text-slate-800">Audit log hệ thống</h2>
-          <p className="text-xs text-slate-400 mt-1">Theo dõi hành động AI, giao dịch và quản trị từ dữ liệu thật.</p>
+          <div className="flex items-center gap-2">
+            <Activity className="h-5 w-5 text-rose-500" />
+            <h2 className="font-bold text-slate-800">Live audit dashboard</h2>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${isLive ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${isLive ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
+              {isLive ? "Live" : "Paused"}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-400">Theo dõi audit, cảnh báo và HITL từ dữ liệu thật; tự làm mới mỗi 5 giây.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="hidden items-center gap-1 text-xs text-slate-400 sm:flex">
+            <Wifi className={`h-3.5 w-3.5 ${isLive ? "text-emerald-500" : "text-slate-400"}`} />
+            {lastUpdated ? `Cập nhật ${new Date(lastUpdated).toLocaleTimeString("vi-VN")}` : "Đang kết nối..."}
+          </span>
           <select value={action} onChange={(event) => setAction(event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-500">
             <option value="">Tất cả hành động</option>
             {actions.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
+          <button onClick={() => setLiveEnabled((value) => !value)} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50" title={liveEnabled ? "Tạm dừng live" : "Bật live polling"}>
+            {liveEnabled ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+            <span className="hidden sm:inline">{liveEnabled ? "Tạm dừng" : "Tiếp tục"}</span>
+          </button>
           <button onClick={() => void auditQuery.refetch()} className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50" title="Làm mới">
             <RefreshCw className={`h-4 w-4 ${auditQuery.isFetching ? "animate-spin" : ""}`} />
           </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { label: "Sự kiện / 5 phút", value: recentLogs.length, icon: Activity, tone: "rose" },
+          { label: "Cảnh báo rủi ro", value: warningEvents, icon: ShieldAlert, tone: "amber" },
+          { label: "HITL / quyết định", value: hitlEvents, icon: CheckCircle2, tone: "blue" },
+          { label: "Scam intelligence", value: intelligenceEvents, icon: Ban, tone: "violet" },
+        ].map((card) => {
+          const Icon = card.icon;
+          const toneClass = card.tone === "amber" ? "bg-amber-50 text-amber-600" : card.tone === "blue" ? "bg-blue-50 text-blue-600" : card.tone === "violet" ? "bg-violet-50 text-violet-600" : "bg-rose-50 text-rose-600";
+          return (
+            <div key={card.label} className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${toneClass}`}><Icon className="h-4 w-4" /></div>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Live</span>
+              </div>
+              <p className="mt-3 text-2xl font-bold text-slate-800">{card.value}</p>
+              <p className="mt-1 text-xs text-slate-500">{card.label}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
+        <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-slate-800">Trạng thái hệ thống</h3>
+              <p className="mt-1 text-xs text-slate-400">Snapshot từ risk engine và dữ liệu kiểm duyệt</p>
+            </div>
+            <span className="rounded-full bg-slate-50 px-2 py-1 text-xs font-medium text-slate-500">{statsQuery.isFetching ? "Đang đồng bộ" : "Đã đồng bộ"}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              ["Giao dịch", statsQuery.data?.total_transactions ?? 0],
+              ["Rủi ro cao", statsQuery.data?.high_risk_count ?? 0],
+              ["Blacklist", statsQuery.data?.blacklist_size ?? 0],
+              ["Scam patterns", statsQuery.data?.pattern_count ?? 0],
+            ].map(([label, value]) => <div key={label} className="rounded-xl bg-slate-50 p-3"><p className="text-lg font-bold text-slate-800">{value}</p><p className="mt-1 text-[11px] text-slate-500">{label}</p></div>)}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-900 to-slate-800 p-4 text-white shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Audit health</p>
+          <p className="mt-2 text-2xl font-bold">{isLive ? "Đang theo dõi" : "Đang tạm dừng"}</p>
+          <p className="mt-2 text-xs leading-relaxed text-slate-300">Luồng audit chỉ đọc dữ liệu đã mask; không hiển thị PIN hoặc số tài khoản đầy đủ.</p>
+          <div className="mt-4 flex items-center gap-2 text-xs text-emerald-300"><span className="h-2 w-2 rounded-full bg-emerald-400" /> PDPA safe logging</div>
         </div>
       </div>
 
