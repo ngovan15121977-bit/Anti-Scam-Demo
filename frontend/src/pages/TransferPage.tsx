@@ -390,14 +390,6 @@ export default function TransferPage() {
               <ArrowLeft className="w-5 h-5 text-gray-600" />
             </button>
             <h1 className="text-lg font-bold text-gray-800">Chuyển tiền</h1>
-            <button
-              type="button"
-              onClick={() => navigate("/qr?mode=create")}
-              className="ml-auto inline-flex items-center gap-2 rounded-xl bg-rose-50 px-3 py-2 text-sm font-bold text-rose-600 hover:bg-rose-100"
-            >
-              <QrCode className="w-4 h-4" />
-              QR
-            </button>
           </div>
 
           <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 py-6">
