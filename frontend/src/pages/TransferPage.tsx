@@ -20,9 +20,10 @@ import {
   Heart,
   QrCode,
 } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
 import AIRiskModal, { type RiskAssessment } from "@/components/ai/AIRiskModal";
+import { useAuthStore } from "@/stores/authStore";
 
 interface TransferForm {
   recipient_account: string;
@@ -92,6 +93,30 @@ export default function TransferPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const user = useAuthStore((state) => state.user);
+  const fetchMe = useAuthStore((state) => state.fetchMe);
+  const historyQuery = useQuery({
+    queryKey: ["transaction-history"],
+    queryFn: () => transactionsApi.getHistory(100),
+    staleTime: 30_000,
+  });
+  const dailyTransferLimit = 100_000_000;
+  const today = new Date();
+  const completedToday = (historyQuery.data ?? []).reduce((total, transaction) => {
+    const createdAt = new Date(transaction.created_at);
+    const isToday = createdAt.getFullYear() === today.getFullYear()
+      && createdAt.getMonth() === today.getMonth()
+      && createdAt.getDate() === today.getDate();
+    return isToday && transaction.transaction_status === "completed"
+      ? total + transaction.amount
+      : total;
+  }, 0);
+  const remainingDailyLimit = Math.max(0, dailyTransferLimit - completedToday);
+
+  useEffect(() => {
+    void fetchMe();
+  }, [fetchMe]);
+
   const [step, setStep] = useState<
     "form" | "review" | "ai-check" | "pin" | "success"
   >("form");
@@ -182,6 +207,7 @@ export default function TransferPage() {
       }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["transaction-history"] });
+      void fetchMe();
       if (data.transaction_status === "completed") setStep("success");
       else if (data.transaction_status === "cancelled") {
         setStep("review");
@@ -622,7 +648,9 @@ export default function TransferPage() {
                       </div>
                       <div>
                         <p className="text-xs text-gray-500">Số dư khả dụng</p>
-                        <p className="font-bold text-gray-900">50.000.000 đ</p>
+                        <p className="font-bold text-gray-900">
+                          {new Intl.NumberFormat("vi-VN").format(user?.balance ?? 0)} đ
+                        </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
@@ -631,7 +659,9 @@ export default function TransferPage() {
                       </div>
                       <div>
                         <p className="text-xs text-gray-500">Hạn mức còn lại</p>
-                        <p className="font-bold text-gray-900">100.000.000 đ</p>
+                        <p className="font-bold text-gray-900">
+                          {new Intl.NumberFormat("vi-VN").format(remainingDailyLimit)} đ
+                        </p>
                       </div>
                     </div>
                   </div>

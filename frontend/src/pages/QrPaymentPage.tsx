@@ -13,7 +13,6 @@ import {
   Loader2,
   QrCode,
   ScanLine,
-  ShieldCheck,
   X,
 } from "lucide-react";
 
