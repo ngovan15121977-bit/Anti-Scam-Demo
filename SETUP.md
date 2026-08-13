@@ -1,5 +1,5 @@
 # FintechGuard - Docker Setup
-
+# Đã check
 Hướng dẫn chạy hệ thống gồm FastAPI backend (`src/app`), React/Vite frontend (`frontend`), PostgreSQL/Neon và Alembic.
 
 ## 1. Yêu cầu
