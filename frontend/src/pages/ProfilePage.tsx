@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -21,7 +22,7 @@ import { authApi } from "@/api/auth";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { user, logout } = useAuthStore();
+  const { user, logout, updateUser } = useAuthStore();
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
   const [notifications, setNotifications] = useState({
@@ -31,6 +32,37 @@ export default function ProfilePage() {
   });
   const [transactionPin, setTransactionPin] = useState("");
   const [pinMessage, setPinMessage] = useState("");
+  const [avatarError, setAvatarError] = useState("");
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const overviewQuery = useQuery({
+    queryKey: ["account-overview"],
+    queryFn: authApi.overview,
+    staleTime: 30_000,
+  });
+  const overview = overviewQuery.data;
+
+  const handleAvatarChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const avatar = event.target.files?.[0];
+    event.target.value = "";
+    if (!avatar) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(avatar.type) || avatar.size > 5 * 1024 * 1024) {
+      setAvatarError("Chọn ảnh JPG, PNG hoặc WebP có dung lượng tối đa 5 MB.");
+      return;
+    }
+    setAvatarError("");
+    setAvatarFailed(false);
+    setIsUploadingAvatar(true);
+    try {
+      const updatedUser = await authApi.uploadAvatar(avatar);
+      updateUser(updatedUser);
+    } catch {
+      setAvatarError("Không thể tải ảnh lên. Vui lòng thử lại.");
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
 
   const menuItems = [
     {
@@ -82,10 +114,15 @@ export default function ProfilePage() {
         <div className="w-full bg-gradient-to-br from-rose-500 via-rose-600 to-pink-700 rounded-2xl p-6 sm:p-8 text-white shadow-xl shadow-rose-200">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
             <div className="relative shrink-0">
-              <div className="w-20 h-20 sm:w-24 sm:h-24 bg-white/20 backdrop-blur rounded-full flex items-center justify-center border-2 border-white/30">
-                <User className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
+              <div className="w-20 h-20 sm:w-24 sm:h-24 bg-white/20 backdrop-blur rounded-full flex items-center justify-center border-2 border-white/30 overflow-hidden">
+                {user?.avatar_url && !avatarFailed ? (
+                  <img src={user.avatar_url} onError={() => setAvatarFailed(true)} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <User className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
+                )}
               </div>
-              <button className="absolute bottom-0 right-0 w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform">
+              <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void handleAvatarChange(event)} className="hidden" />
+              <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={isUploadingAvatar} aria-label="Đổi ảnh đại diện" className="absolute bottom-0 right-0 w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform disabled:opacity-60">
                 <Camera className="w-4 h-4 text-rose-600" />
               </button>
             </div>
@@ -109,26 +146,27 @@ export default function ProfilePage() {
               </div>
             </div>
           </div>
+          {avatarError && <p className="mt-3 text-sm text-rose-100">{avatarError}</p>}
 
           {/* Stats Grid inside Hero */}
           <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-white/10 backdrop-blur rounded-xl p-4 text-center">
               <p className="text-xl sm:text-2xl font-bold">
-                {new Intl.NumberFormat("vi-VN").format(user?.balance || 0)}
+                {new Intl.NumberFormat("vi-VN").format(overview?.balance ?? user?.balance ?? 0)}
               </p>
               <p className="text-xs text-rose-100 mt-1">Số dư (VND)</p>
             </div>
             <div className="bg-white/10 backdrop-blur rounded-xl p-4 text-center">
-              <p className="text-xl sm:text-2xl font-bold">12</p>
+              <p className="text-xl sm:text-2xl font-bold">{overview?.transactions_today ?? "—"}</p>
               <p className="text-xs text-rose-100 mt-1">Giao dịch hôm nay</p>
             </div>
             <div className="bg-white/10 backdrop-blur rounded-xl p-4 text-center">
-              <p className="text-xl sm:text-2xl font-bold">128</p>
+              <p className="text-xl sm:text-2xl font-bold">{overview?.transactions_this_month ?? "—"}</p>
               <p className="text-xs text-rose-100 mt-1">Giao dịch tháng</p>
             </div>
             <div className="bg-white/10 backdrop-blur rounded-xl p-4 text-center">
-              <p className="text-xl sm:text-2xl font-bold">A+</p>
-              <p className="text-xs text-rose-100 mt-1">Điểm bảo mật</p>
+              <p className="text-xl sm:text-2xl font-bold">{overview?.security_grade ?? "—"}</p>
+              <p className="text-xs text-rose-100 mt-1">Điểm bảo mật {overview ? `${overview.security_score}/100` : ""}</p>
             </div>
           </div>
         </div>
@@ -281,7 +319,7 @@ export default function ProfilePage() {
             <div className="mb-5 flex items-center justify-between"><div><h2 className="text-xl font-bold text-rose-950">Mã PIN giao dịch</h2><p className="mt-1 text-sm text-rose-700">Tạo hoặc cập nhật PIN 4–6 chữ số.</p></div><Lock className="h-7 w-7 text-rose-600" /></div>
             <input value={transactionPin} onChange={(event) => setTransactionPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" type="password" autoComplete="new-password" placeholder="Nhập mã PIN" className="w-full rounded-xl border border-rose-200 bg-white p-3 text-center tracking-[0.4em] outline-none focus:ring-2 focus:ring-rose-400" />
             {pinMessage && <p className="mt-2 text-sm text-rose-700">{pinMessage}</p>}
-            <div className="mt-5 flex gap-3"><button onClick={() => { setShowPinModal(false); setTransactionPin(""); setPinMessage(""); }} className="flex-1 rounded-xl bg-white px-4 py-3 font-semibold text-rose-700">Hủy</button><button onClick={() => void authApi.setTransactionPin(transactionPin).then(() => { setPinMessage("Đã cập nhật PIN"); setTransactionPin(""); }).catch(() => setPinMessage("PIN không hợp lệ"))} disabled={!/^\d{4,6}$/.test(transactionPin)} className="flex-1 rounded-xl bg-rose-600 px-4 py-3 font-semibold text-white disabled:opacity-50">Lưu PIN</button></div>
+            <div className="mt-5 flex gap-3"><button onClick={() => { setShowPinModal(false); setTransactionPin(""); setPinMessage(""); }} className="flex-1 rounded-xl bg-white px-4 py-3 font-semibold text-rose-700">Hủy</button><button onClick={() => void authApi.setTransactionPin(transactionPin).then(() => { setPinMessage("Đã cập nhật PIN"); setTransactionPin(""); void overviewQuery.refetch(); }).catch(() => setPinMessage("PIN không hợp lệ"))} disabled={!/^\d{4,6}$/.test(transactionPin)} className="flex-1 rounded-xl bg-rose-600 px-4 py-3 font-semibold text-white disabled:opacity-50">Lưu PIN</button></div>
           </div>
         </div>
       )}

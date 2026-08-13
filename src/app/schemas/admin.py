@@ -77,3 +77,26 @@ class AdminTransactionOut(BaseModel):
     transaction_status: str
     risk_level: str | None
     created_at: datetime
+
+
+class AdminUserOut(BaseModel):
+    """User data that may be viewed only by an administrator."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: str
+    full_name: str
+    phone: str | None
+    role: Literal["user", "admin"]
+    is_active: bool
+    balance: int
+    created_at: datetime
+
+
+class UserRoleUpdate(BaseModel):
+    role: Literal["user", "admin"]
+
+
+class UserStatusUpdate(BaseModel):
+    is_active: bool

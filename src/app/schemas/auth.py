@@ -25,4 +25,16 @@ class TokenResponse(BaseModel):
     user: UserOut
 
 
+class AccountOverview(BaseModel):
+    """Live account metrics shown on the authenticated user's profile."""
+
+    balance: int
+    transactions_today: int
+    transactions_this_month: int
+    security_score: int = Field(..., ge=0, le=100)
+    security_grade: str
+    transaction_pin_configured: bool
+    phone_configured: bool
+
+
 AuthResponse = TokenResponse

@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from src.app.api import admin, auth, health, recipients, transactions
 from src.app.config import get_settings
@@ -8,6 +9,9 @@ settings = get_settings()
 settings.validate_production_secrets()
 
 app = FastAPI(title="FintechGuard API", version="2.0.0")
+media_directory = settings.project_root / "data" / "uploads"
+media_directory.mkdir(parents=True, exist_ok=True)
+app.mount("/media", StaticFiles(directory=media_directory), name="media")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,

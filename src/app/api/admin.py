@@ -8,18 +8,113 @@ from sqlalchemy.orm import Session
 
 from src.app.core.deps import require_admin
 from src.app.db.session import get_db
+from src.app.models.audit_log import AuditLog
 from src.app.models.blacklist import Blacklist
 from src.app.models.risk_assessment import RiskLevel, TransactionRiskAssessment, TransactionWarning, WarningDecision
 from src.app.models.scam_pattern import ScamPattern
 from src.app.models.scam_report import ScamReport
 from src.app.models.transaction import Transaction
-from src.app.models.audit_log import AuditLog
 from src.app.models.user import User
-from src.app.schemas.admin import AdminTransactionOut, AuditLogOut, BlacklistCreate, BlacklistOut, ScamPatternCreate, ScamPatternOut, StatsOut
+from src.app.schemas.admin import (
+    AdminTransactionOut,
+    AdminUserOut,
+    AuditLogOut,
+    BlacklistCreate,
+    BlacklistOut,
+    ScamPatternCreate,
+    ScamPatternOut,
+    StatsOut,
+    UserRoleUpdate,
+    UserStatusUpdate,
+)
 from src.app.schemas.scam import ScamReportOut, ScamReportReview
 from src.app.services.audit import add_audit_log
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+
+
+def _get_user_or_404(db: Session, user_id: uuid.UUID) -> User:
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KhÃ´ng tÃ¬m tháº¥y ngÆ°á»i dÃ¹ng")
+    return user
+
+
+def _ensure_not_last_active_admin(db: Session, user: User, *, becoming_admin: bool) -> None:
+    """Do not let an admin action remove the application's last active admin."""
+    if user.role != "admin" or not user.is_active or becoming_admin:
+        return
+    active_admins = db.scalar(
+        select(func.count()).select_from(User).where(
+            User.role == "admin", User.is_active.is_(True)
+        )
+    ) or 0
+    if active_admins <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="KhÃ´ng thá»ƒ gá»¡ quyá»n hoáº·c khÃ³a admin Ä‘ang hoáº¡t Ä‘á»™ng cuá»‘i cÃ¹ng",
+        )
+
+
+@router.get("/users", response_model=list[AdminUserOut])
+def list_users(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[User]:
+    """List accounts for role and account-status administration."""
+    return list(db.scalars(select(User).order_by(User.created_at.desc()).limit(limit)).all())
+
+
+@router.patch("/users/{user_id}/role", response_model=AdminUserOut)
+def update_user_role(
+    user_id: uuid.UUID,
+    payload: UserRoleUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> User:
+    user = _get_user_or_404(db, user_id)
+    if user.id == admin.id and payload.role != "admin":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="KhÃ´ng thá»ƒ tá»± thá»§y quyá»n admin")
+    _ensure_not_last_active_admin(db, user, becoming_admin=payload.role == "admin")
+    previous_role = user.role
+    user.role = payload.role
+    add_audit_log(
+        db,
+        action="user.role_updated",
+        actor_id=admin.id,
+        resource_type="user",
+        resource_id=user.id,
+        metadata={"previous_role": previous_role, "new_role": user.role},
+    )
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.patch("/users/{user_id}/status", response_model=AdminUserOut)
+def update_user_status(
+    user_id: uuid.UUID,
+    payload: UserStatusUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> User:
+    user = _get_user_or_404(db, user_id)
+    if user.id == admin.id and not payload.is_active:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="KhÃ´ng thá»ƒ tá»± khÃ³a tÃ i khoáº£n admin")
+    _ensure_not_last_active_admin(db, user, becoming_admin=payload.is_active)
+    previous_status = user.is_active
+    user.is_active = payload.is_active
+    add_audit_log(
+        db,
+        action="user.status_updated",
+        actor_id=admin.id,
+        resource_type="user",
+        resource_id=user.id,
+        metadata={"previous_is_active": previous_status, "new_is_active": user.is_active},
+    )
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 @router.get("/blacklist", response_model=list[BlacklistOut])

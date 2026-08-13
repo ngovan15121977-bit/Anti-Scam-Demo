@@ -4,6 +4,7 @@ export interface User {
   id: string;
   email: string;
   phone?: string | null;
+  avatar_url?: string | null;
   full_name: string;
   role: "user" | "admin";
   is_active: boolean;
@@ -15,6 +16,16 @@ export interface TokenResponse {
   access_token: string;
   token_type: "bearer";
   user: User;
+}
+
+export interface AccountOverview {
+  balance: number;
+  transactions_today: number;
+  transactions_this_month: number;
+  security_score: number;
+  security_grade: string;
+  transaction_pin_configured: boolean;
+  phone_configured: boolean;
 }
 
 export interface LoginRequest {
@@ -42,6 +53,20 @@ export const authApi = {
 
   me: async (): Promise<User> => {
     const response = await axiosInstance.get<User>("/v1/auth/me");
+    return response.data;
+  },
+
+  overview: async (): Promise<AccountOverview> => {
+    const response = await axiosInstance.get<AccountOverview>("/v1/auth/overview");
+    return response.data;
+  },
+
+  uploadAvatar: async (avatar: File): Promise<User> => {
+    const formData = new FormData();
+    formData.append("avatar", avatar);
+    const response = await axiosInstance.put<User>("/v1/auth/avatar", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
     return response.data;
   },
 

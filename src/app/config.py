@@ -7,7 +7,6 @@ from typing import Literal
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -36,11 +35,20 @@ class Settings(BaseSettings):
     # Schema được quản lý bằng Alembic / file SQL, không tự tạo khi app khởi động.
     db_auto_create: bool = False
 
+    @property
+    def project_root(self) -> Path:
+        return PROJECT_ROOT
+
     # ---- Auth ----
     # Bắt buộc override ở production, xem validate_production_secrets().
     jwt_secret_key: str = "dev-only-insecure-secret-change-me"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = Field(default=60, ge=1)
+
+    # ---- Cloudinary media storage ----
+    cloudinary_cloud_name: str = ""
+    cloudinary_api_key: str = ""
+    cloudinary_api_secret: str = ""
 
     # ---- LLM ----
     openai_api_key: str = ""

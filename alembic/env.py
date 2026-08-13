@@ -41,6 +41,8 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
         compare_server_default=True,
+        include_schemas=True,
+        version_table_schema=settings.database_schema,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -53,17 +55,20 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        # App requests use DATABASE_SCHEMA; migrations must create tables in
-        # the same schema instead of PostgreSQL's default public schema.
+        # A missing schema in PostgreSQL's search_path is silently ignored,
+        # causing unqualified CREATE TABLE calls to fall back to public.
         quoted_schema = connection.dialect.identifier_preparer.quote(
             settings.database_schema
         )
+        connection.exec_driver_sql(f"CREATE SCHEMA IF NOT EXISTS {quoted_schema}")
         connection.exec_driver_sql(f"SET search_path TO {quoted_schema}, public")
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
             compare_server_default=True,
+            include_schemas=True,
+            version_table_schema=settings.database_schema,
         )
         with context.begin_transaction():
             context.run_migrations()

@@ -13,6 +13,7 @@ class UserOut(BaseModel):
     email: EmailStr
     full_name: str
     phone: str | None
+    avatar_url: str | None
     role: str
     is_active: bool
     balance: int

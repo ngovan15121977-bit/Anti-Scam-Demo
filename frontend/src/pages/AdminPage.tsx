@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import axiosInstance from "@/api/axios";
 import { useNavigate } from "react-router-dom";
@@ -25,9 +25,10 @@ import {
   Wifi,
   Pause,
   Play,
+  Users,
 } from "lucide-react";
 
-type TabType = "overview" | "transactions" | "blacklist" | "audit" | "settings";
+type TabType = "overview" | "transactions" | "users" | "blacklist" | "audit" | "settings";
 
 type AdminTransaction = {
   id: string;
@@ -63,6 +64,16 @@ type AdminStats = {
   pattern_count: number;
 };
 
+type AdminUser = {
+  id: string;
+  email: string;
+  full_name: string;
+  phone: string | null;
+  role: "user" | "admin";
+  is_active: boolean;
+  created_at: string;
+};
+
 function useAdminTransactions() {
   return useQuery({
     queryKey: ["admin-transactions"],
@@ -83,6 +94,7 @@ export default function AdminPage() {
   const tabs = [
     { key: "overview" as TabType, label: "Tổng quan", icon: BarChart3 },
     { key: "transactions" as TabType, label: "Giao dịch", icon: ArrowRightLeft },
+    { key: "users" as TabType, label: "Users", icon: Users },
     { key: "blacklist" as TabType, label: "Blacklist", icon: Ban },
     { key: "audit" as TabType, label: "Audit log", icon: FileClock },
     { key: "settings" as TabType, label: "Cài đặt AI", icon: Settings },
@@ -128,6 +140,7 @@ export default function AdminPage() {
       <div className="p-4">
         {activeTab === "overview" && <OverviewTab transactionsQuery={transactionsQuery} onViewAll={() => setActiveTab("transactions")} />}
         {activeTab === "transactions" && <TransactionsTab transactionsQuery={transactionsQuery} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />}
+        {activeTab === "users" && <UsersTab searchQuery={searchQuery} setSearchQuery={setSearchQuery} />}
         {activeTab === "blacklist" && <BlacklistTab searchQuery={searchQuery} setSearchQuery={setSearchQuery} />}
         {activeTab === "audit" && <AuditTab />}
         {activeTab === "settings" && <SettingsTab />}
@@ -278,6 +291,50 @@ function AuditTab() {
             {log.metadata_json && Object.keys(log.metadata_json).length > 0 && (
               <pre className="mt-3 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-slate-50 p-3 text-[11px] text-slate-600">{JSON.stringify(log.metadata_json, null, 2)}</pre>
             )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ===== USERS TAB =====
+function UsersTab({ searchQuery, setSearchQuery }: { searchQuery: string; setSearchQuery: (value: string) => void }) {
+  const queryClient = useQueryClient();
+  const usersQuery = useQuery({
+    queryKey: ["admin-users"],
+    queryFn: async () => (await axiosInstance.get<AdminUser[]>("/v1/admin/users")).data,
+  });
+  const updateUser = useMutation({
+    mutationFn: async ({ id, path, body }: { id: string; path: "role" | "status"; body: object }) =>
+      axiosInstance.patch(`/v1/admin/users/${id}/${path}`, body),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
+  });
+  const users = (usersQuery.data ?? []).filter((user) =>
+    `${user.full_name} ${user.email}`.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="relative">
+        <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+        <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Tìm theo tên hoặc email..." className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-rose-500" />
+      </div>
+      {usersQuery.isError && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-600">Không tải được danh sách người dùng.</p>}
+      {updateUser.isError && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-600">Không thể cập nhật quyền hoặc trạng thái. Hãy kiểm tra lại quyền admin.</p>}
+      <div className="divide-y divide-slate-100 rounded-2xl border border-slate-100 bg-white shadow-sm">
+        {usersQuery.isLoading && <p className="p-4 text-sm text-slate-500">Đang tải người dùng...</p>}
+        {users.map((user) => (
+          <div key={user.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="truncate font-semibold text-slate-800">{user.full_name}</p>
+              <p className="truncate text-xs text-slate-400">{user.email}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`rounded-full px-2 py-1 text-xs font-semibold ${user.role === "admin" ? "bg-violet-50 text-violet-700" : "bg-slate-100 text-slate-600"}`}>{user.role}</span>
+              <button disabled={updateUser.isPending} onClick={() => updateUser.mutate({ id: user.id, path: "role", body: { role: user.role === "admin" ? "user" : "admin" } })} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">{user.role === "admin" ? "Gỡ admin" : "Cấp admin"}</button>
+              <button disabled={updateUser.isPending} onClick={() => updateUser.mutate({ id: user.id, path: "status", body: { is_active: !user.is_active } })} className={`rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${user.is_active ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"}`}>{user.is_active ? "Khóa" : "Mở khóa"}</button>
+            </div>
           </div>
         ))}
       </div>
