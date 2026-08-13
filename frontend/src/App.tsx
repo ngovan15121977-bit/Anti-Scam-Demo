@@ -8,6 +8,8 @@ import RegisterPage from "@/pages/RegisterPage";
 import HomePage from "@/pages/HomePage";
 import MainLayout from "@/components/layout/MainLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import PinRequiredRoute from "@/components/auth/PinRequiredRoute";
+import PinSetupEnforcer from "@/components/auth/PinSetupEnforcer";
 
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const TransferPage = lazy(() => import("@/pages/TransferPage"));
@@ -42,6 +44,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <PinSetupEnforcer />
         <AuthInitializer>
           <Suspense
             fallback={
@@ -59,13 +62,15 @@ function App() {
               <Route path="/register" element={<PublicOnlyRoute><RegisterPage /></PublicOnlyRoute>} />
 
               <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route path="/transfer" element={<TransferPage />} />
-                <Route path="/history" element={<HistoryPage />} />
-                <Route path="/me" element={<ProfilePage />} />
                 <Route path="/setup-pin" element={<PinSetupPage />} />
-                <Route path="/qr" element={<QrPaymentPage />} />
-                <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminPage /></ProtectedRoute>} />
+                <Route element={<PinRequiredRoute />}>
+                  <Route path="/dashboard" element={<DashboardPage />} />
+                  <Route path="/transfer" element={<TransferPage />} />
+                  <Route path="/history" element={<HistoryPage />} />
+                  <Route path="/me" element={<ProfilePage />} />
+                  <Route path="/qr" element={<QrPaymentPage />} />
+                  <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminPage /></ProtectedRoute>} />
+                </Route>
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

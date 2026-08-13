@@ -26,6 +26,14 @@ export interface AccountOverview {
   security_grade: string;
   transaction_pin_configured: boolean;
   phone_configured: boolean;
+  security_checks: SecurityCheck[];
+}
+
+export interface SecurityCheck {
+  label: string;
+  detail: string;
+  score: number;
+  completed: boolean;
 }
 
 export interface LoginRequest {

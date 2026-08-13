@@ -14,7 +14,14 @@ from src.app.core.security import create_access_token, hash_password, verify_pas
 from src.app.db.session import get_db
 from src.app.models.transaction import Transaction
 from src.app.models.user import User, UserRole
-from src.app.schemas.auth import AccountOverview, LoginRequest, RegisterRequest, TokenResponse, TransactionPinRequest
+from src.app.schemas.auth import (
+    AccountOverview,
+    LoginRequest,
+    RegisterRequest,
+    SecurityCheck,
+    TokenResponse,
+    TransactionPinRequest,
+)
 from src.app.schemas.user import UserOut
 from src.app.services.audit import add_audit_log
 
@@ -127,11 +134,18 @@ def account_overview(
             .where(Transaction.user_id == current_user.id, Transaction.created_at >= start)
         ) or 0
 
-    # Password is mandatory for every account. PIN and phone raise protection score.
+    # Registration already collects email, password and phone. A transaction
+    # PIN is the first extra protection layer; A+ remains unavailable until
+    # two-factor authentication is introduced.
     has_pin = bool(current_user.transaction_pin_hash)
     has_phone = bool(current_user.phone)
-    score = 60 + (25 if has_pin else 0) + (15 if has_phone else 0)
-    grade = "A+" if score >= 95 else "A" if score >= 80 else "B" if score >= 60 else "C"
+    checks = [
+        SecurityCheck(label="Thông tin tài khoản", detail="Email, mật khẩu và số điện thoại đã được đăng ký", score=50, completed=has_phone),
+        SecurityCheck(label="PIN giao dịch", detail="Xác nhận trước khi chuyển tiền", score=35, completed=has_pin),
+        SecurityCheck(label="Xác thực hai lớp", detail="Lớp bảo vệ nâng cao sẽ sớm được hỗ trợ", score=15, completed=False),
+    ]
+    score = 50 + (35 if has_pin else 0)
+    grade = "A+" if score >= 100 else "A" if score >= 80 else "B" if score >= 50 else "C"
     return AccountOverview(
         balance=current_user.balance,
         transactions_today=count_transactions_from(start_of_today),
@@ -140,6 +154,7 @@ def account_overview(
         security_grade=grade,
         transaction_pin_configured=has_pin,
         phone_configured=has_phone,
+        security_checks=checks,
     )
 
 

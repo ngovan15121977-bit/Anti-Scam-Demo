@@ -35,6 +35,14 @@ class AccountOverview(BaseModel):
     security_grade: str
     transaction_pin_configured: bool
     phone_configured: bool
+    security_checks: list["SecurityCheck"]
+
+
+class SecurityCheck(BaseModel):
+    label: str
+    detail: str
+    score: int
+    completed: bool
 
 
 AuthResponse = TokenResponse
