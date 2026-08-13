@@ -1,5 +1,5 @@
 # FintechGuard — AI Agent chống lừa đảo chuyển tiền
-
+# Đã check
 FintechGuard là ứng dụng React + FastAPI giúp kiểm tra giao dịch trước khi chuyển tiền. LangGraph điều phối flow; Rule Engine/ML tạo risk score, còn LLM chỉ giải thích evidence và hướng dẫn người dùng. LLM không được tự chấm điểm và không được tự chuyển tiền.
 
 ## User flow chính
