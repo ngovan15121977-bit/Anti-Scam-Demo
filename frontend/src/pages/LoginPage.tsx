@@ -4,6 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Shield, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { authApi } from "@/api/auth";
 import { useAuthStore } from "@/stores/authStore";
+import FaceVerificationModal, { type FaceMatchResult } from "@/components/auth/FaceVerificationModal";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -11,17 +12,13 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: "", password: "" });
   const [showPass, setShowPass] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [faceStep, setFaceStep] = useState(false);
 
   const loginMutation = useMutation({
     mutationFn: authApi.login,
     onSuccess: async (data) => {
       setAuth(data.access_token, data.user);
-      try {
-        const pinStatus = await authApi.transactionPinStatus();
-        navigate(!pinStatus.configured ? "/setup-pin" : (data.user.role === "admin" ? "/admin" : "/dashboard"), { replace: true });
-      } catch {
-        navigate("/setup-pin", { replace: true });
-      }
+      navigate(data.user.role === "admin" ? "/admin" : "/dashboard", { replace: true });
     },
     onError: (err: any) => {
       setErrors({ general: err.response?.data?.detail || "Sai email hoặc mật khẩu" });
@@ -36,6 +33,13 @@ export default function LoginPage() {
       return;
     }
     loginMutation.mutate(form);
+  };
+  const verifyLoginFace = async (imageData: string, pin?: string): Promise<FaceMatchResult> => {
+    const data = await authApi.loginWithFace({ ...form, pin: pin ?? "", image_data: imageData });
+    setAuth(data.access_token, data.user);
+    const pinStatus = await authApi.transactionPinStatus();
+    navigate(!pinStatus.configured ? "/setup-pin" : (data.user.role === "admin" ? "/admin" : "/dashboard"), { replace: true });
+    return { matched: true, similarity: data.similarity, threshold: data.threshold, message: "Khuôn mặt khớp với tài khoản." };
   };
 
   return (
@@ -105,6 +109,8 @@ export default function LoginPage() {
           </div>
         </form>
       </div>
+
+      {faceStep && <FaceVerificationModal onVerified={verifyLoginFace} onCancel={() => setFaceStep(false)} isLoading={loginMutation.isPending} requirePin />}
 
       <div className="py-6 text-center text-pink-200 text-xs">
         © 2026 AI Anti-Scam Agent. Bảo vệ bạn mọi lúc.

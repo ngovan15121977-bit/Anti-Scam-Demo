@@ -82,5 +82,26 @@ def decode_recipient_lookup_token(token: str, *, user_id: str) -> dict[str, str]
     return {field: payload[field] for field in required_fields}
 
 
+def create_face_verification_token(*, user_id: str, transaction_id: str | None = None) -> str:
+    """A short-lived proof that the server completed face matching."""
+    payload: dict[str, Any] = {
+        "sub": user_id,
+        "purpose": "face_verification",
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=3),
+    }
+    if transaction_id:
+        payload["transaction_id"] = transaction_id
+    settings = get_settings()
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def decode_face_verification_token(token: str, *, user_id: str, transaction_id: str | None = None) -> None:
+    payload = decode_access_token(token)
+    if payload.get("purpose") != "face_verification" or payload.get("sub") != user_id:
+        raise ValueError("Face verification token does not belong to this user")
+    if transaction_id is not None and payload.get("transaction_id") != transaction_id:
+        raise ValueError("Face verification token does not belong to this transaction")
+
+
 # Backward-compatible aliases for files that have not been mounted by app.main.
 get_password_hash = hash_password

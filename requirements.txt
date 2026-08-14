@@ -26,6 +26,15 @@ pandas>=2.1.0
 openpyxl>=3.1.0
 numpy>=1.26.0
 
+# Local face verification. The public model is downloaded once from Hugging Face
+# and then served from the local cache.
+timm>=1.0.15
+torch>=2.2.0
+torchvision>=0.17.0
+Pillow>=10.0.0
+# Detect and crop the single primary face before ArcFace creates an embedding.
+opencv-python-headless>=4.10.0
+
 # Dev tools
 ruff>=0.8.0
 pytest>=8.0.0

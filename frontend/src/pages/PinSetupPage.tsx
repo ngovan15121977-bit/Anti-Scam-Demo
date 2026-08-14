@@ -3,12 +3,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Lock, ShieldCheck } from "lucide-react";
 import { authApi } from "@/api/auth";
-import { useAuthStore } from "@/stores/authStore";
 
 export default function PinSetupPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const user = useAuthStore((state) => state.user);
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
@@ -27,7 +25,7 @@ export default function PinSetupPage() {
         queryFn: authApi.transactionPinStatus,
         staleTime: 0,
       });
-      navigate(user?.role === "admin" ? "/admin" : "/dashboard", {
+      navigate("/setup-face", {
         replace: true,
       });
     } catch (requestError: any) {

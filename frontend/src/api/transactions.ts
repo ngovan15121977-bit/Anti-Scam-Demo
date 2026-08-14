@@ -113,6 +113,8 @@ export const transactionsApi = {
       verificationMethod?: string;
       verificationAnswers?: string[];
       pin?: string;
+      faceVerificationConfirmed?: boolean;
+      faceVerificationToken?: string;
     },
   ): Promise<DecisionResponse> => {
     const response = await axiosInstance.post<DecisionResponse>(
@@ -123,6 +125,8 @@ export const transactionsApi = {
         verification_method: options?.verificationMethod,
         verification_answers: options?.verificationAnswers ?? [],
         pin: options?.pin,
+        face_verification_confirmed: options?.faceVerificationConfirmed ?? false,
+        face_verification_token: options?.faceVerificationToken,
       },
     );
     return response.data;

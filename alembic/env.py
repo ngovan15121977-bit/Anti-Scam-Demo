@@ -54,7 +54,9 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
-    with connectable.connect() as connection:
+    # ``begin`` is important with pooled/remote PostgreSQL connections: it
+    # commits both schema setup and Alembic's version-table update.
+    with connectable.begin() as connection:
         # A missing schema in PostgreSQL's search_path is silently ignored,
         # causing unqualified CREATE TABLE calls to fall back to public.
         quoted_schema = connection.dialect.identifier_preparer.quote(

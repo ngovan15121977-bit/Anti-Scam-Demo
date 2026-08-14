@@ -63,6 +63,8 @@ class DecisionRequest(BaseModel):
     verification_method: str | None = Field(default=None, max_length=50)
     verification_answers: list[str] = Field(default_factory=list, max_length=3)
     pin: str | None = Field(default=None, pattern=r"^\d{4,6}$")
+    face_verification_confirmed: bool = False
+    face_verification_token: str | None = Field(default=None, max_length=4096)
 
 
 class DecisionResponse(BaseModel):

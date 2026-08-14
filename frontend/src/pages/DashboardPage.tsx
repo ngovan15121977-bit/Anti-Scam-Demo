@@ -1,4 +1,6 @@
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import {
   Shield,
   ArrowRight,
@@ -26,6 +28,7 @@ import {
   Bus,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
+import { authApi } from "@/api/auth";
 
 const services = [
   { icon: Sparkles, label: "MoMo đề xuất" },
@@ -103,9 +106,14 @@ const stats = [
 export default function HomePage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
+  const [securityPromptDismissed, setSecurityPromptDismissed] = useState(false);
+  const pinStatus = useQuery({ queryKey: ["transaction-pin-status"], queryFn: authApi.transactionPinStatus, staleTime: 0 });
+  const faceStatus = useQuery({ queryKey: ["face-enrollment-status"], queryFn: authApi.faceEnrollmentStatus, staleTime: 0 });
+  const needsSecuritySetup = !securityPromptDismissed && pinStatus.isSuccess && faceStatus.isSuccess && (!pinStatus.data.configured || !faceStatus.data.configured);
 
   return (
     <div className="min-h-screen bg-white w-full">
+      {needsSecuritySetup && <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-3xl bg-white p-7 text-center shadow-2xl"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-rose-100"><Shield className="h-8 w-8 text-rose-600" /></div><h2 className="mt-5 text-2xl font-bold text-slate-900">Thiết lập bảo mật tài khoản</h2><p className="mt-3 text-sm leading-relaxed text-slate-600">Bạn cần thêm mã PIN và khuôn mặt để bảo vệ các giao dịch chuyển tiền.</p><button onClick={() => navigate(!pinStatus.data.configured ? "/setup-pin" : "/setup-face")} className="mt-6 w-full rounded-xl bg-rose-600 py-3 font-bold text-white">{!pinStatus.data.configured ? "Tạo mã PIN" : "Đăng ký khuôn mặt"}</button><button onClick={() => setSecurityPromptDismissed(true)} className="mt-3 w-full rounded-xl bg-slate-100 py-3 font-semibold text-slate-700 hover:bg-slate-200">Để sau, quay lại Dashboard</button></div></div>}
       {/* ===== TIỆN ÍCH VÀ DỊCH VỤ ===== */}
       <section className="pt-6 pb-6 bg-white w-full">
         <div className="w-full px-6 lg:px-12 xl:px-20">

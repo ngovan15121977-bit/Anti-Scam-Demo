@@ -9,6 +9,7 @@ interface AIRiskModalProps {
   onProceed: (pin: string) => void;
   onCancel: () => void;
   isLoading: boolean;
+  requiresFaceVerification?: boolean;
 }
 
 function remainingSeconds(displayedAt: string, countdownSeconds: number): number {
@@ -21,6 +22,7 @@ export default function AIRiskModal({
   onProceed,
   onCancel,
   isLoading,
+  requiresFaceVerification = false,
 }: AIRiskModalProps) {
   const warning = riskData.warning;
   const [verified, setVerified] = useState(false);
@@ -156,10 +158,11 @@ export default function AIRiskModal({
           </button>
           <button
             onClick={() => {
-              if (!pinRequested) setPinRequested(true);
+              if (requiresFaceVerification) handleProceed("");
+              else if (!pinRequested) setPinRequested(true);
               else handleProceed(pin);
             }}
-            disabled={pinRequested ? !canProceed : !canContinue}
+            disabled={requiresFaceVerification ? !canContinue : (pinRequested ? !canProceed : !canContinue)}
             className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 font-medium text-white transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin text-rose-100" /> : <ShieldCheck className="h-4 w-4" />}

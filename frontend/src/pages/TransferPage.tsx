@@ -22,7 +22,9 @@ import {
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
+import { authApi } from "@/api/auth";
 import AIRiskModal, { type RiskAssessment } from "@/components/ai/AIRiskModal";
+import FaceVerificationModal from "@/components/auth/FaceVerificationModal";
 import { useAuthStore } from "@/stores/authStore";
 
 interface TransferForm {
@@ -118,7 +120,7 @@ export default function TransferPage() {
   }, [fetchMe]);
 
   const [step, setStep] = useState<
-    "form" | "review" | "ai-check" | "pin" | "success"
+    "form" | "review" | "ai-check" | "pin" | "face" | "success"
   >("form");
   const [pin, setPin] = useState("");
   const [form, setForm] = useState<TransferForm>({
@@ -192,18 +194,26 @@ export default function TransferPage() {
       decision,
       verified = false,
       pin: transactionPin,
+      faceVerified = false,
+      verificationMethod,
+      faceVerificationToken,
     }: {
       transactionId: string;
       decision: "proceeded" | "cancelled";
       verified?: boolean;
       pin?: string;
+      faceVerified?: boolean;
+      verificationMethod?: string;
+      faceVerificationToken?: string;
     }) =>
       transactionsApi.decide(transactionId, decision, {
         verificationConfirmed: verified,
-        verificationMethod: verified
+        verificationMethod: verificationMethod ?? (verified
           ? "user_confirmed_independent_check"
-          : undefined,
+          : undefined),
         pin: transactionPin,
+        faceVerificationConfirmed: faceVerified,
+        faceVerificationToken,
       }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["transaction-history"] });
@@ -232,12 +242,14 @@ export default function TransferPage() {
       }),
     onSuccess: (data) => {
       setTxId(data.transaction_id);
+      setRiskData(data);
       if (data.should_warn && data.warning) {
-        setRiskData(data);
         setStep("ai-check");
         return;
       }
-      setStep("pin");
+      const needsFace = (data.risk_level === "low" || data.risk_level === "medium")
+        && Math.round(Number(form.amount)) > 10_000_000;
+      setStep(needsFace ? "face" : "pin");
     },
     onError: (err: any) =>
       alert(err.response?.data?.detail || "Có lỗi xảy ra khi phân tích rủi ro"),
@@ -344,12 +356,30 @@ export default function TransferPage() {
   const handleRiskCheck = () => analyzeMutation.mutate(form);
   const handleProceed = (transactionPin: string) => {
     if (!txId) return;
+    if (requiresFaceVerification) {
+      setStep("face");
+      return;
+    }
     decisionMutation.mutate({
       transactionId: txId,
       decision: "proceeded",
       verified: true,
       pin: transactionPin,
     });
+  };
+  const handleFaceVerified = async (imageData: string) => {
+    if (!txId) throw new Error("Không tìm thấy giao dịch cần xác thực");
+    const result = await authApi.verifyFace(imageData, txId);
+    if (!result.matched || !result.verification_token) return result;
+    decisionMutation.mutate({
+      transactionId: txId,
+      decision: "proceeded",
+      verified: true,
+      faceVerified: true,
+      verificationMethod: "face_liveness_camera",
+      faceVerificationToken: result.verification_token,
+    });
+    return result;
   };
   const handleCancel = () => {
     if (!txId) return;
@@ -366,6 +396,12 @@ export default function TransferPage() {
     form.recipient_lookup_token &&
     form.amount &&
     form.bank_code,
+  );
+  const requiresFaceVerification = Boolean(
+    (riskData?.risk_level === "high" &&
+      riskData.signals.some((signal) => signal.signal_type === "blacklist_exact_match")) ||
+    ((riskData?.risk_level === "low" || riskData?.risk_level === "medium") &&
+      Math.round(Number(form.amount)) > 10_000_000),
   );
 
   if (step === "form") {
@@ -785,9 +821,14 @@ export default function TransferPage() {
           onProceed={handleProceed}
           onCancel={handleCancel}
           isLoading={decisionMutation.isPending}
+          requiresFaceVerification={requiresFaceVerification}
         />
       </div>
     );
+  }
+
+  if (step === "face") {
+    return <FaceVerificationModal onVerified={handleFaceVerified} onCancel={handleCancel} onSetupFace={() => navigate("/setup-face")} isLoading={decisionMutation.isPending} />;
   }
 
   if (step === "pin") {

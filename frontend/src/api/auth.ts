@@ -48,6 +48,17 @@ export interface RegisterRequest {
   password: string;
 }
 
+export interface FaceVerificationResponse {
+  matched: boolean;
+  similarity: number;
+  threshold: number;
+  message: string;
+  verification_token?: string | null;
+}
+
+export interface FaceLoginRequest extends LoginRequest { pin: string; image_data: string; }
+export interface FaceLoginResponse extends TokenResponse { similarity: number; threshold: number; }
+
 export const authApi = {
   login: async (data: LoginRequest): Promise<TokenResponse> => {
     const response = await axiosInstance.post<TokenResponse>("/v1/auth/login", data);
@@ -78,6 +89,27 @@ export const authApi = {
     return response.data;
   },
 
+  loginWithFace: async (data: FaceLoginRequest): Promise<FaceLoginResponse> => {
+    const response = await axiosInstance.post<FaceLoginResponse>("/v1/auth/login/face", data);
+    return response.data;
+  },
+
+  verifyFace: async (imageData: string, transactionId?: string): Promise<FaceVerificationResponse> => {
+    const response = await axiosInstance.post<FaceVerificationResponse>("/v1/auth/face/verify", {
+      image_data: imageData,
+      transaction_id: transactionId,
+    }, { timeout: 120_000 });
+    return response.data;
+  },
+
+  enrollFace: async (imageData: string): Promise<FaceVerificationResponse> => {
+    const response = await axiosInstance.put<FaceVerificationResponse>("/v1/auth/face/enrollment", {
+      image_data: imageData,
+      consent: true,
+    }, { timeout: 120_000 });
+    return response.data;
+  },
+
   setTransactionPin: async (pin: string): Promise<{ configured: boolean }> => {
     const response = await axiosInstance.put<{ configured: boolean }>("/v1/auth/transaction-pin", { pin });
     return response.data;
@@ -85,6 +117,11 @@ export const authApi = {
 
   transactionPinStatus: async (): Promise<{ configured: boolean }> => {
     const response = await axiosInstance.get<{ configured: boolean }>("/v1/auth/transaction-pin/status");
+    return response.data;
+  },
+
+  faceEnrollmentStatus: async (): Promise<{ configured: boolean }> => {
+    const response = await axiosInstance.get<{ configured: boolean }>("/v1/auth/face/enrollment/status");
     return response.data;
   },
 

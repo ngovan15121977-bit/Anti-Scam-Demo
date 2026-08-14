@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from src.agents.intervention_graph import intervention_graph
 from src.agents.transaction_graph import transaction_graph
 from src.app.core.deps import get_current_user
-from src.app.core.security import decode_recipient_lookup_token, verify_password
+from src.app.core.security import decode_face_verification_token, decode_recipient_lookup_token, verify_password
 from src.app.db.session import get_db
 from src.app.models.risk_assessment import (
     RiskLevel,
@@ -456,6 +456,7 @@ def submit_decision(
         .limit(1)
     )
     now = _utcnow()
+    requires_face_verification = False
 
     if warning is not None:
         if payload.decision == WarningDecision.PROCEEDED:
@@ -481,15 +482,47 @@ def submit_decision(
         transaction.cancelled_at = now
         action = "transaction.cancelled"
     else:
+        latest_assessment = db.scalar(
+            select(TransactionRiskAssessment)
+            .where(TransactionRiskAssessment.transaction_id == transaction.id)
+            .order_by(desc(TransactionRiskAssessment.created_at))
+            .limit(1)
+        )
+        requires_face_verification = bool(
+            latest_assessment
+            and (
+                (
+                    latest_assessment.risk_level == RiskLevel.HIGH
+                    and latest_assessment.blacklist_match_found
+                )
+                or (
+                    latest_assessment.risk_level in {RiskLevel.LOW, RiskLevel.MEDIUM}
+                    and transaction.amount > 10_000_000
+                )
+            )
+        )
+        if requires_face_verification:
+            if not payload.face_verification_token:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Giao dịch này phải được xác thực khuôn mặt trước khi hoàn tất.")
+            try:
+                decode_face_verification_token(
+                    payload.face_verification_token,
+                    user_id=str(current_user.id),
+                    transaction_id=str(transaction.id),
+                )
+            except (JWTError, ValueError):
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Xác thực khuôn mặt không hợp lệ hoặc đã hết hạn.") from None
         locked_user = db.scalar(
             select(User).where(User.id == current_user.id).with_for_update()
         )
-        if locked_user is None or not locked_user.transaction_pin_hash:
+        if not requires_face_verification and (locked_user is None or not locked_user.transaction_pin_hash):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Bạn chưa thiết lập mã PIN giao dịch. Hãy thiết lập PIN trước khi chuyển tiền.",
             )
-        if not payload.pin or not verify_password(payload.pin, locked_user.transaction_pin_hash):
+        if not requires_face_verification and (
+            not payload.pin or not verify_password(payload.pin, locked_user.transaction_pin_hash)
+        ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Mã PIN giao dịch không đúng.",
@@ -536,7 +569,8 @@ def submit_decision(
         metadata={
             "warning_id": str(warning.id) if warning is not None else None,
             "decision": payload.decision,
-            "pin_verified": payload.decision == WarningDecision.PROCEEDED,
+            "pin_verified": payload.decision == WarningDecision.PROCEEDED and not requires_face_verification,
+            "face_verified": payload.decision == WarningDecision.PROCEEDED and requires_face_verification,
         },
     )
     db.commit()

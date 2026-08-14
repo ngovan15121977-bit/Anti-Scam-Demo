@@ -4,6 +4,8 @@ from src.app.db.base import Base
 from src.app.models.audit_log import AuditLog
 from src.app.models.blacklist import Blacklist
 from src.app.models.compliance import DataRetentionPolicy, UserConsent
+from src.app.models.face_enrollment import FaceEnrollment
+from src.app.models.face_verification_log import FaceVerificationLog
 from src.app.models.intervention_log import InterventionLog
 from src.app.models.model_registry import IntelligenceSource, ModelVersion
 from src.app.models.recipient_directory import RecipientDirectory
@@ -26,6 +28,8 @@ __all__ = [
     "Base",
     "Blacklist",
     "DataRetentionPolicy",
+    "FaceEnrollment",
+    "FaceVerificationLog",
     "IntelligenceSource",
     "InterventionLog",
     "ModelVersion",

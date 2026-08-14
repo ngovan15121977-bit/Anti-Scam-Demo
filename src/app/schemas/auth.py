@@ -1,3 +1,5 @@
+import uuid
+
 from pydantic import BaseModel, EmailStr, Field
 
 from src.app.schemas.user import UserOut
@@ -19,10 +21,40 @@ class TransactionPinRequest(BaseModel):
     pin: str = Field(..., pattern=r"^\d{4,6}$")
 
 
+class FaceVerificationRequest(BaseModel):
+    image_data: str = Field(..., min_length=20, max_length=7_000_000)
+    transaction_id: uuid.UUID | None = None
+
+
+class FaceLoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=1, max_length=128)
+    pin: str = Field(..., pattern=r"^\d{4,6}$")
+    image_data: str = Field(..., min_length=20, max_length=7_000_000)
+
+
+class FaceEnrollmentRequest(BaseModel):
+    image_data: str = Field(..., min_length=20, max_length=7_000_000)
+    consent: bool
+
+
+class FaceVerificationResponse(BaseModel):
+    matched: bool
+    similarity: float = Field(..., ge=0, le=1)
+    threshold: float = Field(..., ge=0, le=1)
+    message: str
+    verification_token: str | None = None
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class FaceLoginResponse(TokenResponse):
+    similarity: float = Field(..., ge=0, le=1)
+    threshold: float = Field(..., ge=0, le=1)
 
 
 class AccountOverview(BaseModel):
