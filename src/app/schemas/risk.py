@@ -70,6 +70,7 @@ class AssessResponse(BaseModel):
     explanation: str
     recommendation: str
     should_warn: bool
+    requires_face_verification: bool = False
     warning: WarningOut | None = None
     requires_user_decision: bool = True
     intervention: "InterventionOut | None" = None
