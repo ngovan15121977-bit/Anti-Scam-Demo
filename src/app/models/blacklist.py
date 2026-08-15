@@ -24,6 +24,9 @@ class Blacklist(Base, TimestampMixin):
             "bank",
             postgresql_where="entity_type = 'account' AND is_active = true",
         ),
+        # Supports newest-first keyset pages in the admin blacklist without an
+        # offset scan as the imported blacklist grows.
+        Index("ix_blacklist_created_at_id", "created_at", "id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

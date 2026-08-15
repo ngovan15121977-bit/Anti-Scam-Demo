@@ -23,6 +23,13 @@ class BlacklistOut(BlacklistCreate):
     updated_at: datetime
 
 
+class BlacklistPage(BaseModel):
+    """One stable, newest-first page for the admin blacklist."""
+
+    items: list[BlacklistOut]
+    next_cursor: str | None = None
+
+
 class ScamPatternCreate(BaseModel):
     pattern_name: str = Field(..., min_length=1, max_length=100)
     description: str = Field(..., min_length=1, max_length=10_000)
