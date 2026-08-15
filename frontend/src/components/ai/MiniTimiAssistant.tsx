@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AudioLines, Loader2, MessageCircle, Mic, Minimize2, Send, ShieldCheck, Sparkles, Wifi } from "lucide-react";
+import { Loader2, MessageCircle, Minimize2, Send, Sparkles } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 
@@ -68,17 +68,6 @@ export default function MiniTimiAssistant() {
   const {
     criticalAlert,
     risk,
-    status: guardianStatus,
-    error: guardianError,
-    audioLevel,
-    mediaTrackState,
-    audioContextState,
-    recorderState,
-    audioChunkCount,
-    audioAckCount,
-    audioDataEventCount,
-    audioSkippedCount,
-    transcriptionMode,
   } = useScamGuardian();
   const [isOpen, setOpen] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
@@ -108,15 +97,6 @@ export default function MiniTimiAssistant() {
         ? { title: "Timi đã kiểm tra xong", message: activity.message ?? "Mình đã hoàn tất kiểm tra. Cảm ơn bạn đã kiên nhẫn nhé!" }
         : null;
   const displayedTip = activityTip ?? tip;
-  const guardianStatusLabel = guardianStatus === "active"
-    ? "đang bảo vệ"
-    : guardianStatus === "starting"
-      ? "đang khởi động"
-      : guardianStatus === "error"
-        ? "cần kiểm tra"
-        : guardianStatus === "stopped"
-          ? "đã dừng"
-          : "đang chờ";
   const chatMutation = useMutation({
     mutationFn: assistantApi.chat,
     onSuccess: (response) => {
@@ -228,23 +208,6 @@ export default function MiniTimiAssistant() {
               <button type="button" onClick={() => setChatOpen(true)} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-100">
                 <MessageCircle className="h-3.5 w-3.5" />Trò chuyện
               </button>
-            </div>
-            <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50/90 p-3" aria-label="Trạng thái Scam Guardian">
-              <div className="flex items-center justify-between gap-2 text-[11px] font-extrabold text-slate-700">
-                <span className="flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />Guardian {guardianStatusLabel}</span>
-                <span className={guardianStatus === "active" ? "text-emerald-600" : guardianStatus === "error" ? "text-red-500" : "text-amber-600"}>{guardianStatus}</span>
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] leading-4 text-slate-500">
-                <span className="flex items-center gap-1"><Mic className="h-3 w-3" />Mic {audioLevel.toFixed(3)} · {mediaTrackState}</span>
-                <span>WebAudio {audioContextState}</span>
-                <span>Recorder {recorderState}</span>
-                <span className="flex items-center gap-1"><AudioLines className="h-3 w-3" />Chunk {audioChunkCount} · ACK {audioAckCount}</span>
-                <span>Data event {audioDataEventCount}</span>
-                <span>Bỏ qua {audioSkippedCount}</span>
-              </div>
-              <div className="mt-2 flex items-center gap-1 text-[10px] leading-4 text-slate-500"><Wifi className="h-3 w-3" />STT {transcriptionMode}</div>
-              <div className={`mt-1 text-[10px] font-bold ${risk.recommended_action === "STOP" ? "text-red-600" : risk.recommended_action === "PAUSE" || risk.recommended_action === "MONITOR" ? "text-amber-600" : "text-emerald-600"}`}>Risk {risk.risk_score}/100 · {risk.recommended_action} · {risk.decision_source === "fail_closed" ? "fail-closed" : "agent"}</div>
-              {guardianError && <p className="mt-1 break-words text-[10px] leading-4 text-red-500">{guardianError}</p>}
             </div>
           </div>
           </div>

@@ -26,7 +26,7 @@ Timi là ứng dụng ngân hàng mô phỏng tập trung vào việc phát hi�
 ### Người dùng
 
 - Đăng ký/đăng nhập bằng email, mật khẩu và số điện thoại Timi 10 chữ số.
-- Sau khi đăng nhập, xác nhận vị trí gần đúng là bước bắt buộc trước khi vào các trang chức năng.
+- Sau khi đăng nhập, xác nhận vị trí gần đúng là bước bắt buộc trước khi vào các trang chức năng trên thiết bị chưa được ghi nhận. Cùng tài khoản trên cùng browser/device ID sẽ không bị hỏi lại ở các phiên sau; thiết bị mới vẫn phải cấp quyền.
 - Thiết lập PIN giao dịch; PIN chỉ được lưu dưới dạng hash.
 - Đăng ký và xác thực khuôn mặt bằng model ArcFace chạy local; ngưỡng hiện tại là 65%.
 - Tài khoản Timi dùng số điện thoại làm số tài khoản.

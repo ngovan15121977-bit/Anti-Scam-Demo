@@ -20,8 +20,12 @@ export class LocationPermissionRequiredError extends Error {
 }
 
 const DEVICE_ID_STORAGE_KEY = "timi-risk-device-id-v1";
-const LOGIN_LOCATION_SESSION_KEY = "timi-login-location-confirmed-token";
-const GEOLOCATION_TIMEOUT_MS = 5_000;
+const LOGIN_LOCATION_CONFIRMED_DEVICE_PREFIX = "timi-login-location-confirmed-device-v1";
+// The first request can include the browser permission prompt. Five seconds
+// is too short on slower devices and makes the first click fail even after
+// the user presses Allow.
+const GEOLOCATION_TIMEOUT_MS = 9_000;
+const GEOLOCATION_RETRY_DELAY_MS = 300;
 
 function createDeviceId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -52,21 +56,33 @@ async function getCoarseLocation(): Promise<Pick<
   "geo_latitude" | "geo_longitude" | "geo_accuracy_m"
 > | undefined> {
   if (!("geolocation" in navigator)) return undefined;
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (position) => resolve({
-        geo_latitude: position.coords.latitude,
-        geo_longitude: position.coords.longitude,
-        geo_accuracy_m: position.coords.accuracy,
-      }),
-      () => resolve(undefined),
-      {
-        enableHighAccuracy: false,
-        maximumAge: 5 * 60_000,
-        timeout: GEOLOCATION_TIMEOUT_MS,
-      },
-    );
-  });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          (position) => resolve({
+            geo_latitude: position.coords.latitude,
+            geo_longitude: position.coords.longitude,
+            geo_accuracy_m: position.coords.accuracy,
+          }),
+          (error) => reject(error),
+          {
+            enableHighAccuracy: false,
+            maximumAge: 5 * 60_000,
+            timeout: GEOLOCATION_TIMEOUT_MS,
+          },
+        );
+      });
+    } catch (error) {
+      // PERMISSION_DENIED is final: retrying would only produce another
+      // confusing prompt. TIMEOUT/POSITION_UNAVAILABLE can be transient while
+      // the browser initializes its location provider after Allow is clicked.
+      const code = (error as GeolocationPositionError | undefined)?.code;
+      if (code === 1 || attempt === 1) return undefined;
+      await new Promise((resolve) => window.setTimeout(resolve, GEOLOCATION_RETRY_DELAY_MS));
+    }
+  }
+  return undefined;
 }
 
 async function getRequiredCoarseLocation(): Promise<Required<Pick<
@@ -102,21 +118,42 @@ export async function collectLoginRiskContext(): Promise<LoginRiskClientContext>
   return { device_id: deviceId, ...(await getRequiredCoarseLocation()) };
 }
 
-/** A location confirmation lasts for the current browser session and token. */
-export function hasConfirmedLoginLocation(token: string | null): boolean {
+function loginLocationConfirmationKey(userId: string, deviceId: string): string {
+  return `${LOGIN_LOCATION_CONFIRMED_DEVICE_PREFIX}:${userId}:${deviceId}`;
+}
+
+/**
+ * Location confirmation is scoped to the account and this browser/device ID.
+ * Logging in again rotates the JWT, but a known device does not need to ask
+ * for the same browser permission again.
+ */
+export function hasConfirmedLoginLocation(userId: string | null): boolean {
   try {
-    return Boolean(token) && window.sessionStorage.getItem(LOGIN_LOCATION_SESSION_KEY) === token;
+    const deviceId = userId ? getStableDeviceId() : undefined;
+    return Boolean(
+      userId
+      && deviceId
+      && window.localStorage.getItem(loginLocationConfirmationKey(userId, deviceId)) === "confirmed",
+    );
   } catch {
     return false;
   }
 }
 
-export function markLoginLocationConfirmed(token: string): void {
+export function markLoginLocationConfirmed(userId: string): void {
   try {
-    window.sessionStorage.setItem(LOGIN_LOCATION_SESSION_KEY, token);
+    const deviceId = getStableDeviceId();
+    if (deviceId) {
+      // This marker is written only after the server accepted the location
+      // context. It does not replace the server-side hashed audit record.
+      window.localStorage.setItem(
+        loginLocationConfirmationKey(userId, deviceId),
+        "confirmed",
+      );
+    }
   } catch {
-    // The API call remains the source of truth; a browser that blocks session
-    // storage will request the coarse location again on the next route change.
+    // The API call remains the source of truth; a browser that blocks storage
+    // will request the coarse location again on the next login.
   }
 }
 

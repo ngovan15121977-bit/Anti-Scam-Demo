@@ -107,7 +107,7 @@ sequenceDiagram
 - MEDIUM/HIGH remains `AWAITING_DECISION` until human choice.
 - PIN is hashed; raw PIN is never stored in audit logs.
 - Device ID and IP are HMAC-pseudonymized before persistence; precise location is never stored.
-- Sau khi đăng nhập thành công, vị trí gần đúng là bắt buộc ở màn setup trước khi tiếp tục vào các trang chức năng; bước thanh toán không yêu cầu popup vị trí.
+- Sau khi đăng nhập thành công, vị trí gần đúng là bắt buộc ở màn setup trên thiết bị chưa được ghi nhận; cùng tài khoản và browser/device ID đã xác nhận sẽ được bỏ qua ở phiên sau. Thiết bị mới vẫn phải cấp quyền; bước thanh toán không yêu cầu popup vị trí.
 - Missing telemetry from a transaction cannot independently create a risk alert; login is fail-closed if location permission is denied.
 - Device/network changes are supporting signals; only high-confidence velocity and impossible-travel rules can independently make risk HIGH.
 - One alert does not automatically blacklist; promotion requires independent evidence.
