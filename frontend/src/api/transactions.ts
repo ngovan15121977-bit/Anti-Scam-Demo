@@ -54,6 +54,7 @@ export interface AssessResponse {
   explanation: string;
   recommendation: string;
   should_warn: boolean;
+  requires_face_verification: boolean;
   warning?: TransactionWarning | null;
   requires_user_decision: boolean;
   intervention?: InterventionResponse | null;

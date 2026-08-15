@@ -65,6 +65,9 @@ from src.app.services.transaction_telemetry import (
     build_risk_telemetry,
     persist_risk_telemetry,
 )
+from src.app.services.transaction_authentication import (
+    requires_face_verification as requires_transfer_face_verification,
+)
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -176,6 +179,11 @@ def _response_from_assessment(
             else risk_rules.recommendation(assessment.risk_level)
         ),
         should_warn=assessment.should_warn,
+        requires_face_verification=requires_transfer_face_verification(
+            amount=transaction.amount,
+            risk_level=assessment.risk_level,
+            blacklist_match_found=assessment.blacklist_match_found,
+        ),
         warning=(
             WarningOut(
                 id=warning.id,
@@ -545,18 +553,12 @@ def submit_decision(
             .order_by(desc(TransactionRiskAssessment.created_at))
             .limit(1)
         )
-        requires_face_verification = bool(
-            latest_assessment
-            and (
-                (
-                    latest_assessment.risk_level == RiskLevel.HIGH
-                    and latest_assessment.blacklist_match_found
-                )
-                or (
-                    latest_assessment.risk_level in {RiskLevel.LOW, RiskLevel.MEDIUM}
-                    and transaction.amount > 10_000_000
-                )
-            )
+        requires_face_verification = requires_transfer_face_verification(
+            amount=transaction.amount,
+            risk_level=latest_assessment.risk_level if latest_assessment else None,
+            blacklist_match_found=bool(
+                latest_assessment and latest_assessment.blacklist_match_found
+            ),
         )
         if requires_face_verification:
             if not payload.face_verification_token:

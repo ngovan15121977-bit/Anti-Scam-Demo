@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     face_model_id: str = "gaunernst/vit_tiny_patch8_112.arcface_ms1mv3"
     # Changes whenever preprocessing changes, so incompatible old embeddings are re-enrolled.
     face_embedding_version: str = "arcface-face-crop-v1"
-    face_similarity_threshold: float = Field(default=0.88, ge=0.0, le=1.0)
+    face_similarity_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
 
     @computed_field
     @property

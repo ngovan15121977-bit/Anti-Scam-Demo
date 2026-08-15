@@ -93,6 +93,15 @@ const tips = [
   { icon: Sparkles, text: "AI sẽ quét tự động trước mỗi giao dịch" },
 ];
 
+const amountInputFormatter = new Intl.NumberFormat("vi-VN", {
+  maximumFractionDigits: 0,
+});
+
+function normalizeAmountInput(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  return digits.replace(/^0+(?=\d)/, "");
+}
+
 export default function TransferPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -242,9 +251,7 @@ export default function TransferPage() {
         setStep("ai-check");
         return;
       }
-      const needsFace = (data.risk_level === "low" || data.risk_level === "medium")
-        && Math.round(Number(form.amount)) > 10_000_000;
-      setStep(needsFace ? "face" : "pin");
+      setStep(data.requires_face_verification ? "face" : "pin");
     },
     onError: (err: any) =>
       alert(err.response?.data?.detail || "Có lỗi xảy ra khi phân tích rủi ro"),
@@ -399,12 +406,7 @@ export default function TransferPage() {
     form.amount &&
     form.bank_code,
   );
-  const requiresFaceVerification = Boolean(
-    (riskData?.risk_level === "high" &&
-      riskData.signals.some((signal) => signal.signal_type === "blacklist_exact_match")) ||
-    ((riskData?.risk_level === "low" || riskData?.risk_level === "medium") &&
-      Math.round(Number(form.amount)) > 10_000_000),
-  );
+  const requiresFaceVerification = Boolean(riskData?.requires_face_verification);
 
   if (step === "form") {
     return (
@@ -612,13 +614,21 @@ export default function TransferPage() {
                     </h2>
                     <div className="relative">
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        aria-label="Số tiền chuyển"
                         placeholder="0"
-                        className="w-full text-3xl sm:text-4xl font-bold text-gray-800 bg-transparent border-0 focus:ring-0 outline-none placeholder-gray-300"
-                        value={form.amount}
-                        onChange={(e) =>
-                          setForm({ ...form, amount: e.target.value })
+                        className="w-full pr-16 text-3xl sm:text-4xl font-bold tabular-nums text-gray-800 bg-transparent border-0 focus:ring-0 outline-none placeholder-gray-300"
+                        value={
+                          form.amount
+                            ? amountInputFormatter.format(Number(form.amount))
+                            : ""
                         }
+                        onChange={(e) => {
+                          const amount = normalizeAmountInput(e.target.value);
+                          setForm((current) => ({ ...current, amount }));
+                        }}
                       />
                       <span className="absolute right-0 top-2 text-lg text-gray-500 font-semibold">
                         VND
