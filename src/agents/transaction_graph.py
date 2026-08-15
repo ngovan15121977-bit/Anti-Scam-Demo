@@ -14,12 +14,14 @@ from sqlalchemy.orm import Session
 from src.app.config import get_settings
 from src.app.schemas.risk import AssessRequest
 from src.app.services import risk_rules
+from src.app.services.transaction_telemetry import RiskTelemetry
 
 
 class AssessmentState(TypedDict, total=False):
     db: Session
     user_id: Any
     request: AssessRequest
+    telemetry: RiskTelemetry | None
     signals: list[risk_rules.RiskSignalCandidate]
     risk_score: float
     risk_level: str
@@ -38,7 +40,14 @@ def _guard_input(state: AssessmentState) -> dict[str, Any]:
 
 
 def _collect_evidence(state: AssessmentState) -> dict[str, Any]:
-    return {"signals": risk_rules.collect_signals(state["db"], state["user_id"], state["request"])}
+    return {
+        "signals": risk_rules.collect_signals(
+            state["db"],
+            state["user_id"],
+            state["request"],
+            state.get("telemetry"),
+        )
+    }
 
 
 def _score(state: AssessmentState) -> dict[str, Any]:

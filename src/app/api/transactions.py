@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from jose import JWTError
-from sqlalchemy import desc, or_, select
+from sqlalchemy import and_, desc, func, lateral, or_, select, true, union_all
 from sqlalchemy.orm import Session, aliased
 
 from src.agents.intervention_graph import intervention_graph
@@ -37,6 +40,8 @@ from src.app.schemas.risk import (
     InterventionOut,
     InterventionRequest,
     RiskSignalOut,
+    TransactionHistoryPage,
+    TransactionHistorySummary,
     TransactionOut,
     TrustedRecipientCreate,
     WarningFeedbackCreate,
@@ -55,12 +60,22 @@ from src.app.services.timi_bank import (
     is_timi_bank,
     lock_timi_transfer_parties,
 )
+from src.app.services.transaction_telemetry import (
+    RiskTelemetry,
+    build_risk_telemetry,
+    persist_risk_telemetry,
+)
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _request_peer_ip(request: Request) -> str | None:
+    """Return only the direct ASGI peer; forwarded headers are not trusted."""
+    return request.client.host if request.client is not None else None
 
 
 def _sync_completed_recipient(db: Session, transaction: Transaction) -> None:
@@ -178,14 +193,25 @@ def _response_from_assessment(
 
 
 def _persist_assessment(
-    db: Session, transaction: Transaction, request: AssessRequest, current_user: User
+    db: Session,
+    transaction: Transaction,
+    request: AssessRequest,
+    current_user: User,
+    telemetry: RiskTelemetry | None,
 ) -> AssessResponse:
     started = time.perf_counter()
     transaction.transaction_status = TransactionStatus.RISK_CHECKING
     db.add(transaction)
     db.flush()
 
-    graph_result = transaction_graph.invoke({"db": db, "user_id": current_user.id, "request": request})
+    graph_result = transaction_graph.invoke(
+        {
+            "db": db,
+            "user_id": current_user.id,
+            "request": request,
+            "telemetry": telemetry,
+        }
+    )
     candidates = graph_result["signals"]
     score, level = graph_result["risk_score"], graph_result["risk_level"]
     explanation = graph_result["explanation"]
@@ -207,11 +233,22 @@ def _persist_assessment(
             "agent": "langgraph",
             "llm_used": graph_result.get("llm_used", False),
             "prompt_injection_detected": graph_result.get("prompt_injection_detected", False),
+            "telemetry": {
+                "device_context_available": bool(telemetry and telemetry.device_hash),
+                "network_context_available": bool(telemetry and telemetry.ip_hash),
+                "coarse_location_opted_in": bool(telemetry and telemetry.has_location),
+            },
         },
         latency_ms=round((time.perf_counter() - started) * 1000),
     )
     db.add(assessment)
     db.flush()
+    persist_risk_telemetry(
+        db,
+        user_id=current_user.id,
+        transaction_id=transaction.id,
+        telemetry=telemetry,
+    )
 
     persisted_signals: list[RiskSignal] = []
     for candidate in candidates:
@@ -284,6 +321,7 @@ def _persist_assessment(
 @router.post("/assess", response_model=AssessResponse, status_code=status.HTTP_201_CREATED)
 def assess(
     payload: AssessRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AssessResponse:
@@ -299,13 +337,17 @@ def assess(
         currency=payload.currency.upper(),
         environment=TransactionEnvironment.SANDBOX,
     )
-    return _persist_assessment(db, transaction, payload, current_user)
+    telemetry = build_risk_telemetry(
+        payload.client_context, client_ip=_request_peer_ip(request)
+    )
+    return _persist_assessment(db, transaction, payload, current_user, telemetry)
 
 
 @router.post("/{transaction_id}/reassess", response_model=AssessResponse)
 def reassess(
     transaction_id: uuid.UUID,
     payload: AssessRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AssessResponse:
@@ -334,7 +376,10 @@ def reassess(
     transaction.amount = payload.amount
     transaction.note = payload.note.strip() if payload.note else None
     transaction.currency = payload.currency.upper()
-    return _persist_assessment(db, transaction, payload, current_user)
+    telemetry = build_risk_telemetry(
+        payload.client_context, client_ip=_request_peer_ip(request)
+    )
+    return _persist_assessment(db, transaction, payload, current_user, telemetry)
 
 
 @router.post("/{transaction_id}/intervention", response_model=InterventionOut)
@@ -624,63 +669,159 @@ def submit_decision(
     )
 
 
-@router.get("/history", response_model=list[TransactionOut])
-def history(
-    limit: int = 20,
+_HISTORY_TIME_ZONE = ZoneInfo("Asia/Ho_Chi_Minh")
+_HISTORY_DEFAULT_PAGE_SIZE = 20
+_HISTORY_MAX_PAGE_SIZE = 50
+
+
+def _encode_history_cursor(transaction: Transaction) -> str:
+    payload = {
+        "created_at": transaction.created_at.astimezone(UTC).isoformat(),
+        "id": str(transaction.id),
+    }
+    return base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+
+
+def _decode_history_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
+    try:
+        decoded = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
+        payload = json.loads(decoded.decode("utf-8"))
+        created_at = datetime.fromisoformat(payload["created_at"])
+        transaction_id = uuid.UUID(payload["id"])
+        if created_at.tzinfo is None:
+            raise ValueError("cursor timestamp has no timezone")
+        return created_at.astimezone(UTC), transaction_id
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=422, detail="Cursor lịch sử giao dịch không hợp lệ") from None
+
+
+def _history_item(
+    transaction: Transaction,
+    sender_user: User | None,
+    risk_level: str | None,
+    *,
+    current_user_id: uuid.UUID,
+) -> dict[str, object]:
+    is_incoming_timi_transfer = transaction.timi_recipient_user_id == current_user_id
+    return {
+        "id": transaction.id,
+        "payee_account": transaction.payee_account,
+        "payee_name": transaction.payee_name,
+        # Kept for compatibility with older clients. New clients should use
+        # counterparty_* because it works for both directions.
+        "direction": "incoming" if is_incoming_timi_transfer else "outgoing",
+        "counterparty_name": (
+            sender_user.full_name
+            if is_incoming_timi_transfer and sender_user is not None
+            else transaction.payee_name
+        ),
+        "counterparty_account": (
+            sender_user.phone
+            if is_incoming_timi_transfer and sender_user is not None
+            else transaction.payee_account
+        ),
+        "bank_code": transaction.bank_code,
+        "amount": transaction.amount,
+        "currency": transaction.currency,
+        "transaction_status": transaction.transaction_status,
+        "created_at": transaction.created_at,
+        "completed_at": transaction.completed_at,
+        "cancelled_at": transaction.cancelled_at,
+        "risk_level": risk_level,
+    }
+
+
+@router.get("/history/summary", response_model=TransactionHistorySummary)
+def history_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> list[dict[str, object]]:
+) -> TransactionHistorySummary:
+    """Small indexed aggregate used for the transfer page's daily limit."""
+    local_now = datetime.now(_HISTORY_TIME_ZONE)
+    local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    completed_outgoing_today = db.scalar(
+        select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+            Transaction.user_id == current_user.id,
+            Transaction.transaction_status == TransactionStatus.COMPLETED,
+            Transaction.created_at >= local_start.astimezone(UTC),
+        )
+    )
+    return TransactionHistorySummary(
+        completed_outgoing_today=int(completed_outgoing_today or 0)
+    )
+
+
+@router.get("/history", response_model=TransactionHistoryPage)
+def history(
+    limit: int = _HISTORY_DEFAULT_PAGE_SIZE,
+    cursor: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TransactionHistoryPage:
+    """Read a stable transaction page without offset scans or N+1 queries."""
+    page_size = min(max(limit, 1), _HISTORY_MAX_PAGE_SIZE)
+    seek_created_at: datetime | None = None
+    seek_transaction_id: uuid.UUID | None = None
+    if cursor:
+        seek_created_at, seek_transaction_id = _decode_history_cursor(cursor)
+
+    seek_filter = (
+        or_(
+            Transaction.created_at < seek_created_at,
+            and_(
+                Transaction.created_at == seek_created_at,
+                Transaction.id < seek_transaction_id,
+            ),
+        )
+        if seek_created_at is not None and seek_transaction_id is not None
+        else None
+    )
+    outgoing = select(Transaction.id.label("transaction_id")).where(
+        Transaction.user_id == current_user.id
+    )
+    incoming = select(Transaction.id.label("transaction_id")).where(
+        Transaction.timi_recipient_user_id == current_user.id
+    )
+    if seek_filter is not None:
+        outgoing = outgoing.where(seek_filter)
+        incoming = incoming.where(seek_filter)
+    visible_transactions = union_all(outgoing, incoming).subquery("visible_transactions")
+
     sender = aliased(User)
+    latest_assessment = lateral(
+        select(TransactionRiskAssessment.risk_level.label("risk_level"))
+        .where(TransactionRiskAssessment.transaction_id == Transaction.id)
+        .order_by(desc(TransactionRiskAssessment.created_at))
+        .limit(1)
+    ).alias("latest_assessment")
     rows = db.execute(
-        select(Transaction, sender)
+        select(Transaction, sender, latest_assessment.c.risk_level)
+        .join(visible_transactions, visible_transactions.c.transaction_id == Transaction.id)
         .outerjoin(sender, Transaction.user_id == sender.id)
-        .where(
-            or_(
-                Transaction.user_id == current_user.id,
-                Transaction.timi_recipient_user_id == current_user.id,
-            )
-        )
-        .order_by(desc(Transaction.created_at))
-        .limit(min(max(limit, 1), 100))
+        .outerjoin(latest_assessment, true())
+        .order_by(desc(Transaction.created_at), desc(Transaction.id))
+        .limit(page_size + 1)
     ).all()
-    result: list[dict[str, object]] = []
-    for transaction, sender_user in rows:
-        is_incoming_timi_transfer = (
-            transaction.timi_recipient_user_id == current_user.id
-        )
-        latest_assessment = db.scalar(
-            select(TransactionRiskAssessment)
-            .where(TransactionRiskAssessment.transaction_id == transaction.id)
-            .order_by(desc(TransactionRiskAssessment.created_at))
-            .limit(1)
-        )
-        result.append({
-            "id": transaction.id,
-            "payee_account": transaction.payee_account,
-            "payee_name": transaction.payee_name,
-            # Kept for compatibility with older clients.  New clients should
-            # use counterparty_* because it works for both directions.
-            "direction": "incoming" if is_incoming_timi_transfer else "outgoing",
-            "counterparty_name": (
-                sender_user.full_name
-                if is_incoming_timi_transfer and sender_user is not None
-                else transaction.payee_name
-            ),
-            "counterparty_account": (
-                sender_user.phone
-                if is_incoming_timi_transfer and sender_user is not None
-                else transaction.payee_account
-            ),
-            "bank_code": transaction.bank_code,
-            "amount": transaction.amount,
-            "currency": transaction.currency,
-            "transaction_status": transaction.transaction_status,
-            "created_at": transaction.created_at,
-            "completed_at": transaction.completed_at,
-            "cancelled_at": transaction.cancelled_at,
-            "risk_level": latest_assessment.risk_level if latest_assessment else None,
-        })
-    return result
+    has_next_page = len(rows) > page_size
+    page_rows = rows[:page_size]
+    return TransactionHistoryPage(
+        items=[
+            _history_item(
+                transaction,
+                sender_user,
+                risk_level,
+                current_user_id=current_user.id,
+            )
+            for transaction, sender_user, risk_level in page_rows
+        ],
+        next_cursor=(
+            _encode_history_cursor(page_rows[-1][0])
+            if has_next_page and page_rows
+            else None
+        ),
+    )
 
 
 @router.post("/trusted-recipients", status_code=status.HTTP_201_CREATED)

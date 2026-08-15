@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     # Token proves that a recipient name came from the internal directory.
     recipient_lookup_token_expire_seconds: int = Field(default=300, ge=30, le=900)
 
+    # Separate HMAC secret for pseudonymizing transaction device/network data.
+    # It must be configured separately from JWT_SECRET_KEY in production.
+    risk_telemetry_hash_key: str = ""
+
     # ---- Local Hugging Face face verification ----
     face_model_id: str = "gaunernst/vit_tiny_patch8_112.arcface_ms1mv3"
     # Changes whenever preprocessing changes, so incompatible old embeddings are re-enrolled.
@@ -81,6 +85,11 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 "JWT_SECRET_KEY vẫn là giá trị mặc định. "
                 "Đặt một secret ngẫu nhiên trước khi chạy production."
+            )
+        if self.app_env == "production" and not self.risk_telemetry_hash_key:
+            raise RuntimeError(
+                "RISK_TELEMETRY_HASH_KEY chưa được cấu hình. "
+                "Đặt một secret ngẫu nhiên riêng cho dữ liệu telemetry."
             )
 
 

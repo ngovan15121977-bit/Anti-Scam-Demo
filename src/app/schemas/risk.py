@@ -12,6 +12,23 @@ InterventionAction = Literal[
 ]
 
 
+class RiskClientContextIn(BaseModel):
+    """Optional transaction telemetry; login subclasses require location."""
+
+    device_id: str | None = Field(default=None, min_length=16, max_length=128)
+    geo_latitude: float | None = Field(default=None, ge=-90, le=90)
+    geo_longitude: float | None = Field(default=None, ge=-180, le=180)
+    geo_accuracy_m: float | None = Field(default=None, ge=0, le=100_000)
+
+    def model_post_init(self, __context: object) -> None:
+        has_latitude = self.geo_latitude is not None
+        has_longitude = self.geo_longitude is not None
+        if has_latitude != has_longitude:
+            raise ValueError("Vị trí phải có cả vĩ độ và kinh độ")
+        if self.geo_accuracy_m is not None and not has_latitude:
+            raise ValueError("Độ chính xác vị trí yêu cầu vĩ độ và kinh độ")
+
+
 class AssessRequest(BaseModel):
     """Input cho một lệnh chuyển tiền trước khi user ra quyết định."""
 
@@ -23,6 +40,7 @@ class AssessRequest(BaseModel):
     amount: int = Field(..., gt=0, le=10_000_000_000)
     note: str | None = Field(default=None, max_length=500)
     currency: str = Field(default="VND", min_length=3, max_length=3)
+    client_context: RiskClientContextIn | None = None
 
 
 class RiskSignalOut(BaseModel):
@@ -91,6 +109,15 @@ class TransactionOut(BaseModel):
     completed_at: datetime | None
     cancelled_at: datetime | None
     risk_level: str | None = None
+
+
+class TransactionHistoryPage(BaseModel):
+    items: list[TransactionOut]
+    next_cursor: str | None = None
+
+
+class TransactionHistorySummary(BaseModel):
+    completed_outgoing_today: int = Field(..., ge=0)
 
 
 class TrustedRecipientCreate(BaseModel):

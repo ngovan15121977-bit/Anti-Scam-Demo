@@ -30,12 +30,18 @@ sequenceDiagram
     participant G as LangGraph
     participant D as Neon
     participant L as OpenAI
+    U->>F: email + password
+    F->>A: kiểm tra thông tin đăng nhập
+    A-->>F: access token + ứng dụng đã đăng nhập
+    F->>F: màn bắt buộc xác nhận vị trí gần đúng + device ID giả danh
+    F->>A: POST /login/location
+    A->>D: login security context + audit event
     U->>F: recipient + amount + note
     F->>A: recipient lookup
     A->>A: verify signed lookup token
     F->>A: POST /transactions/assess
     A->>G: assessment state
-    G->>D: blacklist/history/pattern evidence
+    G->>D: blacklist/history/pattern/behavior evidence
     G->>G: deterministic score
     opt LLM_EXPLANATION_ENABLED=true
       G->>L: evidence-only prompt
@@ -56,8 +62,9 @@ sequenceDiagram
 | Transaction graph | `src/agents/transaction_graph.py` | Guard, evidence, score, explanation |
 | HITL graph | `src/agents/intervention_graph.py` | Two-step verification |
 | API | `src/app/api/transactions.py` | Assess, decision, reports, audit |
-| Risk engine | `src/app/services/risk_rules.py` | Score and false-positive guard |
-| Persistence | `src/app/models/` | Assessment, signals, logs, blacklist, trusted recipients |
+| Risk engine | `src/app/services/risk_rules.py` | Deterministic score, behavioral amount, velocity, keywords, telemetry rules |
+| Telemetry boundary | `src/app/services/transaction_telemetry.py` | HMAC device/network; login stores only rounded mandatory location |
+| Persistence | `src/app/models/` | Assessment, signals, context, logs, blacklist, trusted recipients |
 
 ## Safety boundaries
 
@@ -66,6 +73,10 @@ sequenceDiagram
 - Prompt injection is treated as untrusted transaction text.
 - MEDIUM/HIGH remains `AWAITING_DECISION` until human choice.
 - PIN is hashed; raw PIN is never stored in audit logs.
+- Device ID and IP are HMAC-pseudonymized before persistence; precise location is never stored.
+- Sau khi đăng nhập thành công, vị trí gần đúng là bắt buộc ở màn setup trước khi tiếp tục vào các trang chức năng; bước thanh toán không yêu cầu popup vị trí.
+- Missing telemetry from a transaction cannot independently create a risk alert; login is fail-closed if location permission is denied.
+- Device/network changes are supporting signals; only high-confidence velocity and impossible-travel rules can independently make risk HIGH.
 - One alert does not automatically blacklist; promotion requires independent evidence.
 
 ## Deployment

@@ -29,6 +29,12 @@ export interface AssessRequest {
   amount: number;
   note?: string;
   currency?: string;
+  client_context?: {
+    device_id?: string;
+    geo_latitude?: number;
+    geo_longitude?: number;
+    geo_accuracy_m?: number;
+  };
 }
 
 export interface RecipientLookupResponse {
@@ -89,6 +95,15 @@ export interface Transaction {
   completed_at?: string | null;
   cancelled_at?: string | null;
   risk_level?: "safe" | "low" | "medium" | "high" | null;
+}
+
+export interface TransactionHistoryPage {
+  items: Transaction[];
+  next_cursor?: string | null;
+}
+
+export interface TransactionHistorySummary {
+  completed_outgoing_today: number;
 }
 
 export const transactionsApi = {
@@ -155,10 +170,23 @@ export const transactionsApi = {
     return result.data;
   },
 
-  getHistory: async (limit = 20): Promise<Transaction[]> => {
-    const response = await axiosInstance.get<Transaction[]>("/v1/transactions/history", {
-      params: { limit },
+  getHistory: async ({
+    limit = 20,
+    cursor,
+  }: {
+    limit?: number;
+    cursor?: string | null;
+  } = {}): Promise<TransactionHistoryPage> => {
+    const response = await axiosInstance.get<TransactionHistoryPage>("/v1/transactions/history", {
+      params: { limit, cursor: cursor ?? undefined },
     });
+    return response.data;
+  },
+
+  getHistorySummary: async (): Promise<TransactionHistorySummary> => {
+    const response = await axiosInstance.get<TransactionHistorySummary>(
+      "/v1/transactions/history/summary",
+    );
     return response.data;
   },
 };

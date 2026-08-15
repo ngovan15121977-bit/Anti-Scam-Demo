@@ -4,10 +4,10 @@ FintechGuard là ứng dụng React + FastAPI giúp kiểm tra giao dịch trư�
 
 ## User flow chính
 
-1. Đăng ký/đăng nhập và tạo PIN giao dịch.
+1. Tạo tài khoản hoặc đăng nhập bằng email/mật khẩu; sau khi vào ứng dụng, xác nhận vị trí gần đúng ở màn bắt buộc rồi tạo PIN giao dịch.
 2. Nhập tài khoản, ngân hàng, số tiền và nội dung chuyển khoản.
 3. Backend xác thực recipient lookup token rồi chạy `guard_input → collect_evidence → score → explain`.
-4. Evidence gồm blacklist, scam pattern/vector, người nhận mới, số tiền bất thường, note đáng ngờ, lịch sử và trusted recipient.
+4. Evidence gồm blacklist, scam pattern/vector, người nhận mới, baseline số tiền theo lịch sử hoàn tất, tốc độ giao dịch, note đáng ngờ, thiết bị/mạng giả danh và trusted recipient.
 5. LOW/SAFE vẫn cần PIN. MEDIUM/HIGH phải qua HITL 2 bước, countdown, xác minh độc lập và PIN.
 6. Backend ghi risk assessment, signals, intervention log và audit log.
 
@@ -38,6 +38,7 @@ Chi tiết migration, Neon schema và troubleshooting: [SETUP.md](SETUP.md).
 | `MODEL_NAME` | No | Mặc định `gpt-4o-mini` |
 | `LLM_EXPLANATION_ENABLED` | No | `true` để bật LLM thật |
 | `JWT_SECRET_KEY` | Production | Secret JWT riêng của môi trường deploy |
+| `RISK_TELEMETRY_HASH_KEY` | Production | Secret HMAC riêng để giả danh device/IP trước khi lưu; không dùng giá trị mặc định |
 
 Mặc định score vẫn deterministic để nhanh và an toàn. Demo LLM thật:
 
@@ -45,6 +46,8 @@ Mặc định score vẫn deterministic để nhanh và an toàn. Demo LLM thậ
 OPENAI_API_KEY=your-real-key
 LLM_EXPLANATION_ENABLED=true
 ```
+
+Sau khi đăng nhập thành công, ứng dụng hiển thị màn xác nhận vị trí bắt buộc trước khi người dùng tiếp tục vào các trang chức năng (trình duyệt phải cấp quyền; production cần HTTPS). Backend chỉ lưu vị trí đã làm tròn, cùng device/IP ở dạng HMAC; không lưu device ID hoặc IP gốc. Không có popup vị trí trong bước thanh toán hoặc ngoài trang đăng nhập.
 
 ## API sample
 

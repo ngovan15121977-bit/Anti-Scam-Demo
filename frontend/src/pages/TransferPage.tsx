@@ -25,6 +25,7 @@ import { transactionsApi } from "@/api/transactions";
 import { authApi } from "@/api/auth";
 import AIRiskModal, { type RiskAssessment } from "@/components/ai/AIRiskModal";
 import FaceVerificationModal from "@/components/auth/FaceVerificationModal";
+import { collectRiskClientContext } from "@/lib/riskTelemetry";
 import { useAuthStore } from "@/stores/authStore";
 
 interface TransferForm {
@@ -98,24 +99,13 @@ export default function TransferPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const fetchMe = useAuthStore((state) => state.fetchMe);
-  const historyQuery = useQuery({
-    queryKey: ["transaction-history"],
-    queryFn: () => transactionsApi.getHistory(100),
+  const dailySummaryQuery = useQuery({
+    queryKey: ["transaction-history-summary"],
+    queryFn: () => transactionsApi.getHistorySummary(),
     staleTime: 30_000,
   });
   const dailyTransferLimit = 100_000_000;
-  const today = new Date();
-  const completedToday = (historyQuery.data ?? []).reduce((total, transaction) => {
-    const createdAt = new Date(transaction.created_at);
-    const isToday = createdAt.getFullYear() === today.getFullYear()
-      && createdAt.getMonth() === today.getMonth()
-      && createdAt.getDate() === today.getDate();
-    return isToday
-      && transaction.direction === "outgoing"
-      && transaction.transaction_status === "completed"
-      ? total + transaction.amount
-      : total;
-  }, 0);
+  const completedToday = dailySummaryQuery.data?.completed_outgoing_today ?? 0;
   const remainingDailyLimit = Math.max(0, dailyTransferLimit - completedToday);
 
   useEffect(() => {
@@ -220,6 +210,7 @@ export default function TransferPage() {
       }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["transaction-history"] });
+      queryClient.invalidateQueries({ queryKey: ["transaction-history-summary"] });
       void fetchMe();
       if (data.transaction_status === "completed") setStep("success");
       else if (data.transaction_status === "cancelled") {
@@ -242,6 +233,7 @@ export default function TransferPage() {
         amount: Math.round(Number(data.amount)),
         note: data.note || undefined,
         currency: "VND",
+        client_context: await collectRiskClientContext(),
       }),
     onSuccess: (data) => {
       setTxId(data.transaction_id);

@@ -29,8 +29,11 @@ def get_current_user(
 
     try:
         payload = decode_access_token(credentials.credentials)
-        if payload.get("purpose") == "recipient_lookup":
-            raise ValueError("Recipient lookup tokens cannot authenticate requests")
+        # Only plain access tokens authenticate API calls. Short-lived proofs
+        # for recipient lookup, face verification, or pending login location
+        # must never be accepted as a user session.
+        if payload.get("purpose") is not None:
+            raise ValueError("Purpose-bound tokens cannot authenticate requests")
         user_id = uuid.UUID(payload["sub"])
     except (JWTError, KeyError, ValueError):
         raise _CREDENTIALS_ERROR from None

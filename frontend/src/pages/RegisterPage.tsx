@@ -45,7 +45,7 @@ export default function RegisterPage() {
       return;
     }
     const { confirmPassword, ...payload } = form;
-    registerMutation.mutate(payload as any);
+    registerMutation.mutate(payload);
   };
 
   const inputClass = "w-full pl-12 pr-4 py-3 bg-gray-50 rounded-2xl border-0 text-gray-800 placeholder-gray-400 focus:ring-2 focus:ring-momo-500 focus:bg-white transition-all outline-none";
@@ -58,7 +58,7 @@ export default function RegisterPage() {
         </div>
         <h1 className="text-2xl font-bold text-white mb-6">Tạo tài khoản</h1>
 
-        <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 space-y-4">
           {errors.general && (
             <div className="rounded-xl bg-red-50 p-3 text-sm text-red-600 border border-red-200 text-center">
               {errors.general}
@@ -102,7 +102,7 @@ export default function RegisterPage() {
           {errors.confirmPassword && <p className="text-xs text-red-500 ml-1">{errors.confirmPassword}</p>}
 
           <button
-            onClick={handleSubmit}
+            type="submit"
             disabled={registerMutation.isPending}
             className="w-full py-3.5 bg-momo-600 hover:bg-momo-700 text-white font-bold rounded-2xl shadow-lg shadow-momo-200 transition-all active:scale-95 disabled:opacity-70 mt-2"
           >
@@ -115,7 +115,7 @@ export default function RegisterPage() {
               Đăng nhập
             </Link>
           </p>
-        </div>
+        </form>
       </div>
     </div>
   );
