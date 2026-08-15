@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     # ---- LLM ----
     openai_api_key: str = ""
     model_name: str = "gpt-4o-mini"
+    # Timi's in-app assistant uses Groq through its OpenAI-compatible endpoint.
+    # Keep it separate so the optional transaction-explanation integration can
+    # continue using its own provider configuration.
+    groq_api_key: str = ""
+    groq_model_name: str = "openai/gpt-oss-20b"
+    groq_base_url: str = "https://api.groq.com/openai/v1"
     llm_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     llm_explanation_enabled: bool = False
 

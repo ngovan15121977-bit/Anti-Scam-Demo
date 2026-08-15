@@ -24,9 +24,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
 import { authApi } from "@/api/auth";
 import AIRiskModal, { type RiskAssessment } from "@/components/ai/AIRiskModal";
+import TransactionAnalysisScreen from "@/components/ai/TransactionAnalysisScreen";
 import FaceVerificationModal from "@/components/auth/FaceVerificationModal";
 import { collectRiskClientContext } from "@/lib/riskTelemetry";
 import { useAuthStore } from "@/stores/authStore";
+import { useTimiAssistantStore } from "@/stores/timiAssistantStore";
 
 interface TransferForm {
   recipient_account: string;
@@ -108,6 +110,7 @@ export default function TransferPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const fetchMe = useAuthStore((state) => state.fetchMe);
+  const setAssistantActivity = useTimiAssistantStore((state) => state.setActivity);
   const dailySummaryQuery = useQuery({
     queryKey: ["transaction-history-summary"],
     queryFn: () => transactionsApi.getHistorySummary(),
@@ -127,7 +130,7 @@ export default function TransferPage() {
   }, [fetchMe]);
 
   const [step, setStep] = useState<
-    "form" | "review" | "ai-check" | "pin" | "face" | "success"
+    "form" | "review" | "analyzing" | "ai-check" | "pin" | "face" | "success"
   >("form");
   const [pin, setPin] = useState("");
   const [form, setForm] = useState<TransferForm>({
@@ -226,8 +229,12 @@ export default function TransferPage() {
       queryClient.invalidateQueries({ queryKey: ["transaction-history"] });
       queryClient.invalidateQueries({ queryKey: ["transaction-history-summary"] });
       void fetchMe();
-      if (data.transaction_status === "completed") setStep("success");
+      if (data.transaction_status === "completed") {
+        setAssistantActivity({ status: "complete", message: "Giao dịch đã hoàn tất. Timi vui vì có thể đồng hành cùng bạn!" });
+        setStep("success");
+      }
       else if (data.transaction_status === "cancelled") {
+        setAssistantActivity({ status: "complete", message: "Bạn đã dừng giao dịch an toàn. Khi cần, Timi luôn ở đây nhé!" });
         setStep("review");
         setRiskData(null);
       }
@@ -253,13 +260,18 @@ export default function TransferPage() {
       setTxId(data.transaction_id);
       setRiskData(data);
       if (data.should_warn && data.warning) {
+        setAssistantActivity({ status: "warning", riskLevel: data.risk_level });
         setStep("ai-check");
         return;
       }
+      setAssistantActivity({ status: "complete", message: "Timi đã kiểm tra xong. Bạn có thể tiếp tục xác thực giao dịch nhé!" });
       setStep(data.requires_face_verification ? "face" : "pin");
     },
-    onError: (err: any) =>
-      alert(err.response?.data?.detail || "Có lỗi xảy ra khi phân tích rủi ro"),
+    onError: (err: any) => {
+      setAssistantActivity({ status: "idle" });
+      setStep("review");
+      alert(err.response?.data?.detail || "Có lỗi xảy ra khi phân tích rủi ro");
+    },
   });
 
   useEffect(() => {
@@ -367,7 +379,11 @@ export default function TransferPage() {
     if (!isFormValid) return;
     setStep("review");
   };
-  const handleRiskCheck = () => analyzeMutation.mutate(form);
+  const handleRiskCheck = () => {
+    setAssistantActivity({ status: "analyzing" });
+    setStep("analyzing");
+    analyzeMutation.mutate(form);
+  };
   const handleProceed = (transactionPin: string) => {
     if (!txId) return;
     if (requiresFaceVerification) {
@@ -862,6 +878,10 @@ export default function TransferPage() {
         />
       </div>
     );
+  }
+
+  if (step === "analyzing") {
+    return <TransactionAnalysisScreen />;
   }
 
   if (step === "face") {

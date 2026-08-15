@@ -1,6 +1,7 @@
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { Home, Send, History, User, LogOut, QrCode, ShieldCheck } from "lucide-react";
+import MiniTimiAssistant from "@/components/ai/MiniTimiAssistant";
 
 export default function MainLayout() {
   const navigate = useNavigate();
@@ -90,6 +91,7 @@ export default function MainLayout() {
       <main className="w-full pb-20 sm:pb-0">
         <Outlet />
       </main>
+      <MiniTimiAssistant />
     </div>
   );
 }

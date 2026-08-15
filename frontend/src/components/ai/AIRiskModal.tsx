@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
 import type { AssessResponse } from "@/api/transactions";
+import TimiChibi from "@/components/ai/TimiChibi";
 
 export type RiskAssessment = AssessResponse;
 
@@ -96,6 +97,14 @@ export default function AIRiskModal({
         </div>
 
         <div className="space-y-3 p-4">
+          <div className={`flex items-center gap-3 rounded-2xl border p-3 ${isHighRisk ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50"}`}>
+            <TimiChibi compact warning walking />
+            <p className={`text-xs font-medium leading-relaxed ${isHighRisk ? "text-rose-800" : "text-amber-800"}`}>
+              {isHighRisk
+                ? "Ôi, Timi thấy vài dấu hiệu chưa ổn. Mình dừng lại một nhịp nhé — đừng vội chuyển tiền!"
+                : "Timi thấy giao dịch này cần được kiểm tra kỹ hơn. Hãy bình tĩnh xem lại trước khi quyết định nhé."}
+            </p>
+          </div>
           <div>
             <div className="mb-1 flex justify-between text-sm">
               <span className="text-slate-600">Mức độ rủi ro</span>

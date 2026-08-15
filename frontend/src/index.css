@@ -21,3 +21,44 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+@keyframes timi-chibi-walk {
+  0%, 100% { transform: translateX(0) scaleX(1); }
+  46% { transform: translateX(-22px) scaleX(1); }
+  50% { transform: translateX(-22px) scaleX(-1); }
+  96% { transform: translateX(0) scaleX(-1); }
+}
+
+@keyframes timi-chibi-arm-left {
+  0%, 100% { transform: rotate(-34deg); }
+  50% { transform: rotate(-12deg); }
+}
+
+@keyframes timi-chibi-arm-right {
+  0%, 100% { transform: rotate(34deg); }
+  50% { transform: rotate(12deg); }
+}
+
+@keyframes timi-chibi-leg-left {
+  0%, 100% { transform: translateY(0) rotate(7deg); }
+  50% { transform: translateY(-3px) rotate(-7deg); }
+}
+
+@keyframes timi-chibi-leg-right {
+  0%, 100% { transform: translateY(-3px) rotate(-7deg); }
+  50% { transform: translateY(0) rotate(7deg); }
+}
+
+.timi-chibi-walking { animation: timi-chibi-walk 4.8s ease-in-out infinite; }
+.timi-chibi-arm-left { animation: timi-chibi-arm-left 0.7s ease-in-out infinite; }
+.timi-chibi-arm-right { animation: timi-chibi-arm-right 0.7s ease-in-out infinite; }
+.timi-chibi-leg-left { animation: timi-chibi-leg-left 0.7s ease-in-out infinite; }
+.timi-chibi-leg-right { animation: timi-chibi-leg-right 0.7s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .timi-chibi-walking,
+  .timi-chibi-arm-left,
+  .timi-chibi-arm-right,
+  .timi-chibi-leg-left,
+  .timi-chibi-leg-right { animation: none; }
+}
