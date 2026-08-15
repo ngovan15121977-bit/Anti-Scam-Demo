@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import axiosInstance from "@/api/axios";
 import { useNavigate } from "react-router-dom";
@@ -72,6 +72,20 @@ type AdminUser = {
   role: "user" | "admin";
   is_active: boolean;
   created_at: string;
+};
+
+type BlacklistEntry = {
+  id: string;
+  entity_type: string;
+  entity_value: string;
+  source: string;
+  evidence?: Record<string, unknown> | null;
+  created_at: string;
+};
+
+type BlacklistPage = {
+  items: BlacklistEntry[];
+  next_cursor: string | null;
 };
 
 function useAdminTransactions() {
@@ -631,12 +645,20 @@ function TransactionsTab({ transactionsQuery, searchQuery, setSearchQuery }: { t
 // ===== BLACKLIST TAB =====
 function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; setSearchQuery: (s: string) => void }) {
   const [showAddModal, setShowAddModal] = useState(false);
-  const blacklistQuery = useQuery({
+  const blacklistQuery = useInfiniteQuery({
     queryKey: ["admin-blacklist"],
-    queryFn: async () => (await axiosInstance.get<Array<{ id: string; entity_type: string; entity_value: string; source: string; evidence?: Record<string, unknown> | null; created_at: string }>>("/v1/admin/blacklist")).data,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) => (
+      await axiosInstance.get<BlacklistPage>("/v1/admin/blacklist", {
+        params: { limit: 20, cursor: pageParam ?? undefined },
+      })
+    ).data,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+    refetchOnMount: "always",
+    staleTime: 0,
   });
 
-  const entries = (blacklistQuery.data ?? []).map((entry) => ({
+  const entries = (blacklistQuery.data?.pages.flatMap((page) => page.items) ?? []).map((entry) => ({
     id: entry.id,
     type: entry.entity_type,
     value: entry.entity_value,
@@ -671,8 +693,9 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 divide-y divide-slate-50">
-        {blacklistQuery.isLoading && <p className="p-5 text-sm text-slate-500">Đang tải toàn bộ blacklist...</p>}
+        {blacklistQuery.isLoading && <p className="p-5 text-sm text-slate-500">Đang tải blacklist mới nhất...</p>}
         {blacklistQuery.isError && <p className="p-5 text-sm text-red-600">Không tải được blacklist từ máy chủ.</p>}
+        {!blacklistQuery.isLoading && !blacklistQuery.isError && filtered.length === 0 && <p className="p-5 text-sm text-slate-500">Không có bản ghi blacklist phù hợp.</p>}
         {filtered.map((entry) => (
           <div key={entry.id} className="p-4 hover:bg-slate-50 transition-colors">
             <div className="flex items-center justify-between mb-2">
@@ -692,6 +715,20 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
           </div>
         ))}
       </div>
+      {blacklistQuery.hasNextPage && !blacklistQuery.isError && (
+        <button
+          type="button"
+          onClick={() => blacklistQuery.fetchNextPage()}
+          disabled={blacklistQuery.isFetchingNextPage}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {blacklistQuery.isFetchingNextPage ? (
+            <><RefreshCw className="h-4 w-4 animate-spin" />Đang tải thêm...</>
+          ) : (
+            "Tải thêm bản ghi"
+          )}
+        </button>
+      )}
 
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">

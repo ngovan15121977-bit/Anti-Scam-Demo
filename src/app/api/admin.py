@@ -1,9 +1,13 @@
 """Minimal admin APIs backed by the same fraud-intelligence schema."""
 
+import base64
+import binascii
+import json
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from src.app.core.deps import require_admin
@@ -21,6 +25,7 @@ from src.app.schemas.admin import (
     AuditLogOut,
     BlacklistCreate,
     BlacklistOut,
+    BlacklistPage,
     ScamPatternCreate,
     ScamPatternOut,
     StatsOut,
@@ -31,6 +36,32 @@ from src.app.schemas.scam import ScamReportOut, ScamReportReview
 from src.app.services.audit import add_audit_log
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+
+_BLACKLIST_DEFAULT_PAGE_SIZE = 20
+_BLACKLIST_MAX_PAGE_SIZE = 50
+
+
+def _encode_blacklist_cursor(entry: Blacklist) -> str:
+    payload = {
+        "created_at": entry.created_at.astimezone(UTC).isoformat(),
+        "id": str(entry.id),
+    }
+    return base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+
+
+def _decode_blacklist_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
+    try:
+        decoded = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
+        payload = json.loads(decoded.decode("utf-8"))
+        created_at = datetime.fromisoformat(payload["created_at"])
+        entry_id = uuid.UUID(payload["id"])
+        if created_at.tzinfo is None:
+            raise ValueError("cursor timestamp has no timezone")
+        return created_at.astimezone(UTC), entry_id
+    except (binascii.Error, KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=422, detail="Cursor blacklist không hợp lệ") from None
 
 
 def _get_user_or_404(db: Session, user_id: uuid.UUID) -> User:
@@ -117,9 +148,46 @@ def update_user_status(
     return user
 
 
-@router.get("/blacklist", response_model=list[BlacklistOut])
-def list_blacklist(db: Session = Depends(get_db)) -> list[Blacklist]:
-    return list(db.scalars(select(Blacklist).order_by(Blacklist.created_at.desc())).all())
+@router.get("/blacklist", response_model=BlacklistPage)
+def list_blacklist(
+    limit: int = Query(default=_BLACKLIST_DEFAULT_PAGE_SIZE, ge=1, le=_BLACKLIST_MAX_PAGE_SIZE),
+    cursor: str | None = None,
+    db: Session = Depends(get_db),
+) -> BlacklistPage:
+    """Return a newest-first keyset page instead of the whole blacklist."""
+    seek_created_at: datetime | None = None
+    seek_entry_id: uuid.UUID | None = None
+    if cursor:
+        seek_created_at, seek_entry_id = _decode_blacklist_cursor(cursor)
+
+    seek_filter = (
+        or_(
+            Blacklist.created_at < seek_created_at,
+            and_(
+                Blacklist.created_at == seek_created_at,
+                Blacklist.id < seek_entry_id,
+            ),
+        )
+        if seek_created_at is not None and seek_entry_id is not None
+        else None
+    )
+    query = select(Blacklist)
+    if seek_filter is not None:
+        query = query.where(seek_filter)
+    rows = list(
+        db.scalars(
+            query.order_by(desc(Blacklist.created_at), desc(Blacklist.id)).limit(limit + 1)
+        ).all()
+    )
+    page_rows = rows[:limit]
+    return BlacklistPage(
+        items=page_rows,
+        next_cursor=(
+            _encode_blacklist_cursor(page_rows[-1])
+            if len(rows) > limit and page_rows
+            else None
+        ),
+    )
 
 
 @router.post("/blacklist", response_model=BlacklistOut, status_code=status.HTTP_201_CREATED)
