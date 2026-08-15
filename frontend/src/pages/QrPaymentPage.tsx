@@ -8,7 +8,6 @@ import {
   Building2,
   Camera,
   CheckCircle2,
-  ChevronRight,
   Copy,
   Download,
   ExternalLink,
@@ -31,18 +30,13 @@ import {
   type DecodedQrContent,
   type PaymentQrData,
 } from "@/lib/paymentQr";
-import { transactionsApi } from "@/api/transactions";
 import { urlSafetyApi } from "@/api/urlSafety";
+import { useAuthStore } from "@/stores/authStore";
 
 const CAMERA_READER_ID = "timi-qr-camera";
 
 type Mode = "scan" | "create";
 type ScannerState = "idle" | "starting" | "scanning";
-type RecipientLookupState =
-  | { status: "idle"; message?: string }
-  | { status: "loading" }
-  | { status: "success"; accountName: string }
-  | { status: "error"; message: string };
 type UrlSafetyState =
   | { status: "idle" }
   | { status: "checking" }
@@ -73,6 +67,7 @@ function getInitialMode(search: string): Mode {
 export default function QrPaymentPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const user = useAuthStore((state) => state.user);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const urlSafetyRequestRef = useRef(0);
@@ -82,23 +77,19 @@ export default function QrPaymentPage() {
   const [decodedContent, setDecodedContent] = useState<DecodedQrContent | null>(null);
   const [urlSafetyState, setUrlSafetyState] = useState<UrlSafetyState>({ status: "idle" });
   const [form, setForm] = useState({
-    accountNumber: "",
-    bankCode: "",
     amount: "",
     note: "",
-    accountName: "",
   });
-  const [recipientLookupState, setRecipientLookupState] = useState<RecipientLookupState>({ status: "idle" });
-  const [isBankPickerOpen, setBankPickerOpen] = useState(false);
-  const [bankSearch, setBankSearch] = useState("");
   const [generatedQr, setGeneratedQr] = useState<{ image: string; payload: string; payment: PaymentQrData } | null>(null);
   const [createError, setCreateError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const selectedBank = paymentBanks.find((bank) => bank.code === form.bankCode);
-  const normalizedBankSearch = bankSearch.trim().toLocaleLowerCase("vi-VN");
-  const filteredBanks = paymentBanks.filter((bank) => (
-    `${bank.name} ${bank.code}`.toLocaleLowerCase("vi-VN").includes(normalizedBankSearch)
-  ));
+  const ownAccountNumber = user?.phone?.trim() ?? "";
+  const ownAccountName = user?.full_name.trim() ?? "";
+  const canCreateOwnQr = Boolean(
+    user?.timi_bank_enabled
+    && /^\d{10}$/.test(ownAccountNumber)
+    && ownAccountName,
+  );
 
   const stopScanner = useCallback(async () => {
     const scanner = scannerRef.current;
@@ -148,50 +139,6 @@ export default function QrPaymentPage() {
     }
   }, []);
 
-  useEffect(() => {
-    const accountNumber = form.accountNumber.replace(/\s+/g, "");
-    if (!form.bankCode || !accountNumber) {
-      setRecipientLookupState({ status: "idle" });
-      return;
-    }
-    if (!/^\d{6,19}$/.test(accountNumber)) {
-      setRecipientLookupState({ status: "idle", message: "Số tài khoản cần từ 6 đến 19 chữ số." });
-      return;
-    }
-
-    let cancelled = false;
-    setRecipientLookupState({ status: "loading" });
-    const timeoutId = window.setTimeout(() => {
-      void transactionsApi.lookupRecipient({ account_number: accountNumber, bank_code: form.bankCode })
-        .then((recipient) => {
-          if (cancelled) return;
-          setForm((current) => (
-            current.accountNumber.replace(/\s+/g, "") === accountNumber && current.bankCode === form.bankCode
-              ? { ...current, accountName: recipient.account_name }
-              : current
-          ));
-          setRecipientLookupState({ status: "success", accountName: recipient.account_name });
-        })
-        .catch((error: unknown) => {
-          if (cancelled) return;
-          const detail = typeof error === "object" && error !== null && "response" in error
-            ? (error as { response?: { data?: { detail?: string } } }).response?.data?.detail
-            : undefined;
-          setForm((current) => (
-            current.accountNumber.replace(/\s+/g, "") === accountNumber && current.bankCode === form.bankCode
-              ? { ...current, accountName: "" }
-              : current
-          ));
-          setRecipientLookupState({ status: "error", message: detail || "Không thể xác minh tên chủ tài khoản. Vui lòng kiểm tra lại." });
-        });
-    }, 450);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-    };
-  }, [form.accountNumber, form.bankCode]);
-
   const switchMode = async (nextMode: Mode) => {
     await stopScanner();
     setScannerState("idle");
@@ -199,27 +146,6 @@ export default function QrPaymentPage() {
     setDecodedContent(null);
     resetUrlSafety();
     setMode(nextMode);
-  };
-
-  const handleBankChange = (bankCode: string) => {
-    setForm((current) => ({ ...current, bankCode, accountName: "" }));
-    setBankSearch(paymentBanks.find((bank) => bank.code === bankCode)?.name ?? "");
-    setBankPickerOpen(false);
-    setRecipientLookupState({ status: "idle" });
-  };
-
-  const handleBankSearchChange = (value: string) => {
-    setBankSearch(value);
-    setBankPickerOpen(true);
-    if (form.bankCode) {
-      setForm((current) => ({ ...current, bankCode: "", accountName: "" }));
-      setRecipientLookupState({ status: "idle" });
-    }
-  };
-
-  const handleBankFocus = () => {
-    setBankPickerOpen(true);
-    if (form.bankCode) setBankSearch("");
   };
 
   const handleDecodedText = useCallback((decodedText: string) => {
@@ -331,17 +257,17 @@ export default function QrPaymentPage() {
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
     setCreateError("");
-    if (recipientLookupState.status !== "success") {
-      setCreateError("Cần xác minh số tài khoản và ngân hàng trước khi tạo QR.");
+    if (!canCreateOwnQr) {
+      setCreateError("Tài khoản Timi Bank chưa sẵn sàng. Hãy cập nhật số điện thoại gồm đúng 10 chữ số trong hồ sơ.");
       return;
     }
     const amount = form.amount.trim() ? Number(form.amount) : undefined;
     const payment: PaymentQrData = {
-      accountNumber: form.accountNumber,
-      bankCode: form.bankCode,
+      accountNumber: ownAccountNumber,
+      bankCode: "TIMI",
       ...(amount ? { amount } : {}),
       ...(form.note.trim() ? { note: form.note.trim() } : {}),
-      accountName: recipientLookupState.accountName,
+      accountName: ownAccountName,
     };
     const payload = createPaymentQr(payment);
     if (!payload) {
@@ -372,8 +298,6 @@ export default function QrPaymentPage() {
     link.download = "timi-qr-thanh-toan-.png";
     link.click();
   };
-
-  const verifiedRecipientName = recipientLookupState.status === "success" ? recipientLookupState.accountName : "";
 
   return (
     <div className="min-h-screen bg-gray-50 w-full">
@@ -439,72 +363,18 @@ export default function QrPaymentPage() {
               <form onSubmit={handleCreate} className="space-y-4">
                 <div>
                   <h2 className="text-xl font-bold text-gray-900">Tạo QR nhận tiền </h2>
-                  <p className="mt-1 text-sm text-gray-500">Chọn thông tin sẽ được điền khi người khác quét mã.</p>
+                  <p className="mt-1 text-sm text-gray-500">QR luôn nhận tiền về tài khoản Timi Bank của bạn.</p>
                 </div>
-                <div>
-                  <label htmlFor="payment-qr-bank" className="block text-sm font-semibold text-gray-700">Ngân hàng</label>
-                  <div className="relative mt-1.5">
-                    <Building2 className="absolute left-3.5 top-3 w-5 h-5 text-gray-400 pointer-events-none" />
-                    <input
-                      id="payment-qr-bank"
-                      type="text"
-                      role="combobox"
-                      aria-autocomplete="list"
-                      aria-controls="payment-qr-bank-options"
-                      aria-expanded={isBankPickerOpen}
-                      placeholder="Nhập tên hoặc mã ngân hàng"
-                      value={isBankPickerOpen || !form.bankCode ? bankSearch : selectedBank?.name ?? ""}
-                      onFocus={handleBankFocus}
-                      onBlur={() => setBankPickerOpen(false)}
-                      onChange={(event) => handleBankSearchChange(event.target.value)}
-                      className="w-full pl-11 pr-10 py-2.5 rounded-xl bg-gray-50 outline-none focus:ring-2 focus:ring-rose-500"
-                    />
-                    <ChevronRight className="absolute right-3.5 top-3 w-5 h-5 text-gray-400 rotate-90 pointer-events-none" />
-                    {isBankPickerOpen && (
-                      <div id="payment-qr-bank-options" role="listbox" className="absolute left-0 top-full z-30 mt-2 max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl">
-                        {filteredBanks.length === 0 ? (
-                          <p className="px-3 py-2 text-sm text-gray-500">Không tìm thấy ngân hàng phù hợp.</p>
-                        ) : (
-                          filteredBanks.map((bank) => (
-                            <button
-                              key={bank.code}
-                              type="button"
-                              role="option"
-                              aria-selected={bank.code === form.bankCode}
-                              onMouseDown={(event) => {
-                                event.preventDefault();
-                                handleBankChange(bank.code);
-                              }}
-                              className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-rose-50"
-                            >
-                              <span className="font-medium text-gray-800">{bank.name}</span>
-                              <span className="text-xs font-semibold text-gray-400">{bank.code}</span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
+                <div className="rounded-2xl border border-rose-100 bg-rose-50/60 p-4">
+                  <div className="flex items-center gap-2 text-sm font-bold text-gray-800">
+                    <Building2 className="h-5 w-5 text-rose-500" />Tài khoản nhận tiền của bạn
                   </div>
-                </div>
-                <label className="block text-sm font-semibold text-gray-700">Số tài khoản
-                  <input required inputMode="numeric" maxLength={19} value={form.accountNumber} onChange={(event) => {
-                    setForm((current) => ({ ...current, accountNumber: event.target.value.replace(/\D/g, ""), accountName: "" }));
-                    setRecipientLookupState({ status: "idle" });
-                  }} placeholder="Nhập 6–19 chữ số" className="mt-1.5 w-full rounded-xl bg-gray-50 px-3 py-2.5 outline-none focus:ring-2 focus:ring-rose-500" />
-                </label>
-                <div>
-                  <p className="text-sm font-semibold text-gray-700">Tên chủ tài khoản</p>
-                  <div className="mt-1.5 min-h-11 rounded-xl bg-gray-50 px-3 py-2.5 flex items-center text-sm">
-                    {recipientLookupState.status === "loading" ? (
-                      <span className="flex items-center gap-2 text-gray-500"><Loader2 className="w-4 h-4 animate-spin" />Đang đối chiếu tài khoản...</span>
-                    ) : verifiedRecipientName ? (
-                      <span className="flex items-center gap-2 font-bold text-gray-800"><CheckCircle2 className="w-4 h-4 text-emerald-500" />{verifiedRecipientName}</span>
-                    ) : (
-                      <span className="text-gray-400">Sẽ hiện sau khi đối chiếu</span>
-                    )}
+                  <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                    <div><p className="text-gray-500">Ngân hàng</p><p className="font-semibold text-gray-900">Timi Bank</p></div>
+                    <div><p className="text-gray-500">Số tài khoản</p><p className="font-mono font-bold text-gray-900">{ownAccountNumber || "Chưa cập nhật"}</p></div>
                   </div>
-                  {recipientLookupState.status === "error" && <p className="mt-1.5 text-xs text-rose-600">{recipientLookupState.message}</p>}
-                  {recipientLookupState.status === "idle" && recipientLookupState.message && <p className="mt-1.5 text-xs text-gray-500">{recipientLookupState.message}</p>}
+                  <p className="mt-2 text-sm text-gray-500">Chủ tài khoản: <span className="font-semibold text-gray-800">{ownAccountName || "Chưa cập nhật"}</span></p>
+                  {!canCreateOwnQr && <p className="mt-3 text-xs font-medium text-rose-700">Cần số điện thoại gồm đúng 10 chữ số và tài khoản Timi Bank đang hoạt động để tạo QR.</p>}
                 </div>
                 <label className="block text-sm font-semibold text-gray-700">Số tiền <span className="font-normal text-gray-400">(tùy chọn)</span>
                   <input inputMode="numeric" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value.replace(/\D/g, "") })} placeholder="Để trống nếu người quét tự nhập" className="mt-1.5 w-full rounded-xl bg-gray-50 px-3 py-2.5 outline-none focus:ring-2 focus:ring-rose-500" />
@@ -513,7 +383,7 @@ export default function QrPaymentPage() {
                   <input maxLength={500} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} placeholder="Ví dụ: Thanh toán đơn hàng" className="mt-1.5 w-full rounded-xl bg-gray-50 px-3 py-2.5 outline-none focus:ring-2 focus:ring-rose-500" />
                 </label>
                 {createError && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{createError}</p>}
-                <button disabled={isCreating || recipientLookupState.status !== "success"} className="w-full py-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold hover:shadow-lg disabled:opacity-60 flex items-center justify-center gap-2">
+                <button disabled={isCreating || !canCreateOwnQr} className="w-full py-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold hover:shadow-lg disabled:opacity-60 flex items-center justify-center gap-2">
                   {isCreating ? <Loader2 className="w-5 h-5 animate-spin" /> : <QrCode className="w-5 h-5" />}
                   {isCreating ? "Đang tạo QR..." : "Tạo QR"}
                 </button>
@@ -536,7 +406,7 @@ export default function QrPaymentPage() {
                 <div>
                   <div className="mx-auto grid place-items-center w-16 h-16 rounded-2xl bg-rose-50"><QrCode className="w-8 h-8 text-rose-500" /></div>
                   <h2 className="mt-5 text-xl font-bold text-gray-900">{mode === "scan" ? "Sẵn sàng quét QR" : "QR sẽ hiển thị ở đây"}</h2>
-                  <p className="mt-2 text-sm leading-relaxed text-gray-500">{mode === "scan" ? "Mở camera hoặc chọn ảnh QR. Link sẽ được phân tích trước khi bạn có thể mở." : "Điền thông tin người nhận để tạo một mã dùng trong luồng Timi."}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-gray-500">{mode === "scan" ? "Mở camera hoặc chọn ảnh QR. Link sẽ được phân tích trước khi bạn có thể mở." : "Nhập số tiền hoặc nội dung để tạo QR nhận tiền cho chính bạn."}</p>
                 </div>
               </div>
             )}
