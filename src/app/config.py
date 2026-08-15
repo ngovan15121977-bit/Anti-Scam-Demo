@@ -76,6 +76,9 @@ class Settings(BaseSettings):
 
     # ---- Local Hugging Face face verification ----
     face_model_id: str = "gaunernst/vit_tiny_patch8_112.arcface_ms1mv3"
+    # Keep production startup light on small containers; the model is loaded
+    # lazily on the first face-enrollment or face-verification request.
+    face_model_preload: bool = False
     # Changes whenever preprocessing changes, so incompatible old embeddings are re-enrolled.
     face_embedding_version: str = "arcface-face-crop-v1"
     face_similarity_threshold: float = Field(default=0.65, ge=0.0, le=1.0)

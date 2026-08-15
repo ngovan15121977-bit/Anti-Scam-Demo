@@ -34,7 +34,9 @@ app.include_router(assistant.router, prefix="/api/v1")
 
 @app.on_event("startup")
 def preload_face_ai() -> None:
-    """Warm the cached Hugging Face model before the API starts serving users."""
+    """Optionally warm face AI; lazy loading is safer on small deployments."""
+    if not settings.face_model_preload:
+        return
     try:
         warm_face_model()
     except Exception:
