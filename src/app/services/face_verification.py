@@ -87,15 +87,28 @@ def _crop_primary_face(image):
     grayscale = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
     faces = detector.detectMultiScale(
         grayscale,
-        scaleFactor=1.12,
-        minNeighbors=6,
-        minSize=(64, 64),
+        # A browser frame is compressed before upload. These settings retain
+        # the single-face safeguard while accepting a face at normal webcam
+        # distance instead of requiring it to fill most of a 256px frame.
+        scaleFactor=1.10,
+        minNeighbors=5,
+        minSize=(48, 48),
     )
     if len(faces) == 0:
-        raise HTTPException(
-            status_code=422,
-            detail="Hãy đưa đúng một khuôn mặt nhìn thẳng, đủ sáng vào khung hình rồi thử lại.",
-        )
+        # Haar Cascade is intentionally used as a lightweight quality check,
+        # but it is unreliable for some browser webcam frames (backlight,
+        # autofocus and wide-angle cameras). The UI guides the user to centre
+        # their face, so keep the flow usable by falling back to a centred
+        # square crop. ArcFace still produces the actual embedding comparison.
+        side = min(image.width, image.height)
+        if side < 128:
+            raise HTTPException(
+                status_code=422,
+                detail="Ảnh camera quá nhỏ. Hãy mở lại camera và thử lại.",
+            )
+        left = (image.width - side) // 2
+        top = (image.height - side) // 2
+        return image.crop((left, top, left + side, top + side))
 
     # Ignore distant background faces, but reject photos containing two people
     # standing equally close to the camera.

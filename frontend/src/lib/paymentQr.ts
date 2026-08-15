@@ -7,6 +7,27 @@ export type PaymentQrData = {
   accountName?: string;
 };
 
+export type LinkRiskLevel = "safe" | "caution" | "danger";
+
+export type LinkRiskSignal = {
+  code: string;
+  message: string;
+  weight: number;
+};
+
+export type DecodedQrContent =
+  | { kind: "payment"; rawValue: string; payment: PaymentQrData }
+  | {
+      kind: "url";
+      rawValue: string;
+      normalizedUrl: string | null;
+      hostname: string | null;
+      riskLevel: LinkRiskLevel;
+      riskScore: number;
+      signals: LinkRiskSignal[];
+    }
+  | { kind: "wifi" | "contact" | "phone" | "email" | "sms" | "text"; rawValue: string };
+
 type BankDefinition = {
   code: string;
   name: string;
@@ -57,6 +78,15 @@ export const paymentBanks: BankDefinition[] = [
 
 const PREFIX = "TIMI--PAYMENT:1:";
 const MAX_QR_LENGTH = 2048;
+const MAX_GENERIC_QR_LENGTH = 4096;
+
+const SUSPICIOUS_TLDS = new Set([
+  "click", "country", "gdn", "help", "icu", "link", "live", "monster",
+  "online", "quest", "rest", "sbs", "shop", "site", "support", "top", "vip", "xyz",
+]);
+const URL_SHORTENERS = new Set([
+  "bit.ly", "cutt.ly", "is.gd", "rebrand.ly", "shorturl.at", "tinyurl.com", "t.ly", "rb.gy",
+]);
 
 type EncodedPayment = {
   version: 1;
@@ -154,4 +184,124 @@ export function parsePaymentQr(rawValue: string): PaymentQrData | null {
   } catch {
     return null;
   }
+}
+
+function isIpAddress(hostname: string): boolean {
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) || hostname.includes(":");
+}
+
+function isSuspiciousTld(hostname: string): boolean {
+  const labels = hostname.split(".");
+  return labels.length > 1 && SUSPICIOUS_TLDS.has(labels[labels.length - 1] ?? "");
+}
+
+function urlRiskLevel(signals: LinkRiskSignal[]): LinkRiskLevel {
+  const score = signals.reduce((total, signal) => total + signal.weight, 0);
+  if (score >= 0.6 || signals.some((signal) => signal.code === "unsafe_scheme")) return "danger";
+  if (score >= 0.2) return "caution";
+  return "safe";
+}
+
+/**
+ * Analyse a web link entirely on-device. This is a transparent first-pass
+ * heuristic: it warns about obfuscation and does not claim a site is fraudulent.
+ */
+export function analyzeQrLink(rawValue: string): Extract<DecodedQrContent, { kind: "url" }> | null {
+  const raw = rawValue.trim();
+  if (!raw || raw.length > MAX_GENERIC_QR_LENGTH) return null;
+
+  const hasWebPrefix = /^https?:\/\//i.test(raw) || /^www\./i.test(raw);
+  const hasNonWebScheme = /^[a-z][a-z\d+.-]*:/i.test(raw);
+  if (!hasWebPrefix && !hasNonWebScheme) return null;
+
+  if (hasNonWebScheme && !hasWebPrefix) {
+    return {
+      kind: "url",
+      rawValue: raw,
+      normalizedUrl: null,
+      hostname: null,
+      riskLevel: "danger",
+      riskScore: 1,
+      signals: [{
+        code: "unsafe_scheme",
+        message: "QR dùng giao thức không phải HTTP/HTTPS nên ứng dụng sẽ không mở tự động.",
+        weight: 1,
+      }],
+    };
+  }
+
+  try {
+    const parsed = new URL(/^www\./i.test(raw) ? `https://${raw}` : raw);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+    const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
+    if (!hostname) return null;
+
+    const signals: LinkRiskSignal[] = [];
+    if (parsed.protocol === "http:") {
+      signals.push({ code: "http", message: "Link không dùng HTTPS nên dữ liệu có thể bị can thiệp trên đường truyền.", weight: 0.25 });
+    }
+    if (parsed.username || parsed.password) {
+      signals.push({ code: "embedded_credentials", message: "Link chứa thông tin đăng nhập ẩn trước tên miền.", weight: 0.65 });
+    }
+    if (hostname.includes("xn--")) {
+      signals.push({ code: "punycode", message: "Tên miền dùng Punycode, có thể được dùng để giả dạng ký tự.", weight: 0.55 });
+    }
+    if (isIpAddress(hostname)) {
+      signals.push({ code: "ip_address", message: "Link dùng địa chỉ IP thay vì tên miền quen thuộc.", weight: 0.45 });
+    }
+    if (URL_SHORTENERS.has(hostname)) {
+      signals.push({ code: "shortened_url", message: "Link rút gọn che địa chỉ đích; hãy kiểm tra kỹ trước khi mở.", weight: 0.35 });
+    }
+    if (isSuspiciousTld(hostname)) {
+      signals.push({ code: "uncommon_tld", message: "Tên miền cấp cao ít phổ biến trong các dịch vụ tài chính/chính thức.", weight: 0.25 });
+    }
+    if (hostname.length > 60 || hostname.split(".").length > 4) {
+      signals.push({ code: "complex_hostname", message: "Tên miền dài hoặc có nhiều phần, dễ làm người dùng nhìn nhầm địa chỉ thật.", weight: 0.20 });
+    }
+    if (parsed.port && !["80", "443"].includes(parsed.port)) {
+      signals.push({ code: "unusual_port", message: "Link dùng cổng mạng không thông dụng.", weight: 0.20 });
+    }
+
+    const riskScore = Math.min(1, Number(signals.reduce((total, signal) => total + signal.weight, 0).toFixed(2)));
+    return {
+      kind: "url",
+      rawValue: raw,
+      normalizedUrl: parsed.toString(),
+      hostname,
+      riskLevel: urlRiskLevel(signals),
+      riskScore,
+      signals,
+    };
+  } catch {
+    return {
+      kind: "url",
+      rawValue: raw,
+      normalizedUrl: null,
+      hostname: null,
+      riskLevel: "danger",
+      riskScore: 1,
+      signals: [{
+        code: "invalid_url",
+        message: "Nội dung trông giống link nhưng địa chỉ không hợp lệ; ứng dụng sẽ không mở.",
+        weight: 1,
+      }],
+    };
+  }
+}
+
+/** Classifies QR text so the scanner can safely handle common non-payment QR codes. */
+export function parseQrContent(rawValue: string): DecodedQrContent {
+  const raw = rawValue.trim();
+  const payment = parsePaymentQr(raw);
+  if (payment) return { kind: "payment", rawValue: raw, payment };
+
+  const link = analyzeQrLink(raw);
+  if (link) return link;
+
+  if (/^WIFI:/i.test(raw)) return { kind: "wifi", rawValue: raw };
+  if (/^BEGIN:VCARD/i.test(raw)) return { kind: "contact", rawValue: raw };
+  if (/^mailto:/i.test(raw)) return { kind: "email", rawValue: raw };
+  if (/^tel:/i.test(raw)) return { kind: "phone", rawValue: raw };
+  if (/^(sms:|smsto:)/i.test(raw)) return { kind: "sms", rawValue: raw };
+  return { kind: "text", rawValue: raw.length <= MAX_GENERIC_QR_LENGTH ? raw : raw.slice(0, MAX_GENERIC_QR_LENGTH) };
 }

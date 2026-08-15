@@ -3,26 +3,36 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import QRCode from "qrcode";
 import {
+  AlertTriangle,
   ArrowLeft,
   Building2,
   Camera,
   CheckCircle2,
   ChevronRight,
+  Copy,
   Download,
+  ExternalLink,
+  FileText,
   ImageUp,
+  Link2,
   Loader2,
   QrCode,
   ScanLine,
+  ShieldAlert,
+  ShieldCheck,
+  Wifi,
   X,
 } from "lucide-react";
 
 import {
   createPaymentQr,
-  parsePaymentQr,
+  parseQrContent,
   paymentBanks,
+  type DecodedQrContent,
   type PaymentQrData,
 } from "@/lib/paymentQr";
 import { transactionsApi } from "@/api/transactions";
+import { urlSafetyApi } from "@/api/urlSafety";
 
 const CAMERA_READER_ID = "timi-qr-camera";
 
@@ -33,6 +43,12 @@ type RecipientLookupState =
   | { status: "loading" }
   | { status: "success"; accountName: string }
   | { status: "error"; message: string };
+type UrlSafetyState =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "clear"; hostname: string | null }
+  | { status: "blocked"; hostname: string | null; reason: string }
+  | { status: "unavailable" };
 
 const formatMoney = (amount?: number) => (
   amount ? `${new Intl.NumberFormat("vi-VN").format(amount)} đ` : "Không cố định"
@@ -59,9 +75,12 @@ export default function QrPaymentPage() {
   const location = useLocation();
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const urlSafetyRequestRef = useRef(0);
   const [mode, setMode] = useState<Mode>(() => getInitialMode(location.search));
   const [scannerState, setScannerState] = useState<ScannerState>("idle");
   const [scanError, setScanError] = useState("");
+  const [decodedContent, setDecodedContent] = useState<DecodedQrContent | null>(null);
+  const [urlSafetyState, setUrlSafetyState] = useState<UrlSafetyState>({ status: "idle" });
   const [form, setForm] = useState({
     accountNumber: "",
     bankCode: "",
@@ -99,6 +118,35 @@ export default function QrPaymentPage() {
   }, []);
 
   useEffect(() => () => { void stopScanner(); }, [stopScanner]);
+
+  const resetUrlSafety = useCallback(() => {
+    urlSafetyRequestRef.current += 1;
+    setUrlSafetyState({ status: "idle" });
+  }, []);
+
+  const checkUrlSafety = useCallback(async (url: string) => {
+    const requestId = urlSafetyRequestRef.current + 1;
+    urlSafetyRequestRef.current = requestId;
+    setUrlSafetyState({ status: "checking" });
+
+    try {
+      const result = await urlSafetyApi.check(url);
+      if (requestId !== urlSafetyRequestRef.current) return;
+      setUrlSafetyState(result.blocked
+        ? {
+            status: "blocked",
+            hostname: result.hostname,
+            reason: result.reason ?? "Tên miền này nằm trong blacklist URL lừa đảo.",
+          }
+        : { status: "clear", hostname: result.hostname });
+    } catch {
+      if (requestId === urlSafetyRequestRef.current) {
+        // A link must not become openable merely because the safety service is
+        // unavailable or the user's session has expired.
+        setUrlSafetyState({ status: "unavailable" });
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const accountNumber = form.accountNumber.replace(/\s+/g, "");
@@ -148,6 +196,8 @@ export default function QrPaymentPage() {
     await stopScanner();
     setScannerState("idle");
     setScanError("");
+    setDecodedContent(null);
+    resetUrlSafety();
     setMode(nextMode);
   };
 
@@ -173,25 +223,35 @@ export default function QrPaymentPage() {
   };
 
   const handleDecodedText = useCallback((decodedText: string) => {
-    const payment = parsePaymentQr(decodedText);
-    if (!payment) {
-      // The scanner did decode a QR. It is intentionally not used as transfer
-      // data because only the app's  payload has a defined, validated shape.
-      setScanError("Đã đọc được mã QR, nhưng đây không phải QR của Timi. Hãy quét mã được tạo từ mục “Tạo QR”.");
-      return false;
-    }
+    const content = parseQrContent(decodedText);
     setScanError("");
     setScannerState("idle");
     void stopScanner();
-    // A successful  QR goes straight to the transfer form. The transfer
-    // page deliberately performs a fresh recipient lookup before it can send.
-    navigate("/transfer", { state: { QrPayment: payment } });
+
+    if (content.kind === "payment") {
+      resetUrlSafety();
+      // A successful payment QR goes straight to the transfer form. The
+      // transfer page deliberately performs a fresh recipient lookup first.
+      navigate("/transfer", { state: { QrPayment: content.payment } });
+      return true;
+    }
+
+    // Never open URLs, call phone numbers, or join Wi-Fi automatically. The
+    // result panel makes the scanned content and link risk signals explicit.
+    setDecodedContent(content);
+    if (content.kind === "url" && content.normalizedUrl) {
+      void checkUrlSafety(content.normalizedUrl);
+    } else {
+      resetUrlSafety();
+    }
     return true;
-  }, [navigate, stopScanner]);
+  }, [checkUrlSafety, navigate, resetUrlSafety, stopScanner]);
 
   const startScanner = async () => {
     if (scannerRef.current) return;
     setScanError("");
+    setDecodedContent(null);
+    resetUrlSafety();
     setScannerState("starting");
 
     try {
@@ -249,6 +309,8 @@ export default function QrPaymentPage() {
   const scanImageFile = async (file: File) => {
     await stopScanner();
     setScanError("");
+    setDecodedContent(null);
+    resetUrlSafety();
     setScannerState("starting");
     try {
       const scanner = new Html5Qrcode(CAMERA_READER_ID, {
@@ -341,7 +403,7 @@ export default function QrPaymentPage() {
             {mode === "scan" ? (
               <div>
                 <h2 className="text-xl font-bold text-gray-900">Quét QR bằng camera</h2>
-                <p className="mt-1 text-sm text-gray-500">Hướng camera vào QR được tạo từ Timi.</p>
+                <p className="mt-1 text-sm text-gray-500">Quét QR thanh toán, đường dẫn, Wi-Fi, danh thiếp hoặc nội dung văn bản.</p>
                 <div className="relative mt-5 overflow-hidden rounded-2xl bg-gray-950 aspect-square grid place-items-center">
                   <div id={CAMERA_READER_ID} className="w-full [&_video]:w-full [&_video]:h-full [&_video]:object-cover" />
                   {scannerState !== "scanning" && (
@@ -467,12 +529,14 @@ export default function QrPaymentPage() {
                 <PaymentSummary payment={generatedQr.payment} compact />
                 <button type="button" onClick={downloadQr} className="mt-auto pt-6 w-full py-3 rounded-xl bg-gray-100 text-gray-700 font-bold hover:bg-gray-200 flex items-center justify-center gap-2"><Download className="w-5 h-5" />Tải ảnh QR</button>
               </div>
+            ) : mode === "scan" && decodedContent ? (
+              <DecodedQrSummary content={decodedContent} urlSafetyState={urlSafetyState} onScanAgain={() => void startScanner()} />
             ) : (
               <div className="h-full min-h-[440px] grid place-items-center text-center px-6">
                 <div>
                   <div className="mx-auto grid place-items-center w-16 h-16 rounded-2xl bg-rose-50"><QrCode className="w-8 h-8 text-rose-500" /></div>
                   <h2 className="mt-5 text-xl font-bold text-gray-900">{mode === "scan" ? "Sẵn sàng quét QR" : "QR sẽ hiển thị ở đây"}</h2>
-                  <p className="mt-2 text-sm leading-relaxed text-gray-500">{mode === "scan" ? "Mở camera, đưa QR vào khung và xác nhận lại thông tin trước khi chuyển tiền." : "Điền thông tin người nhận để tạo một mã dùng trong luồng  Timi."}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-gray-500">{mode === "scan" ? "Mở camera hoặc chọn ảnh QR. Link sẽ được phân tích trước khi bạn có thể mở." : "Điền thông tin người nhận để tạo một mã dùng trong luồng Timi."}</p>
                 </div>
               </div>
             )}
@@ -494,6 +558,178 @@ function PaymentSummary({ payment, compact = false }: { payment: PaymentQrData; 
         {payment.accountName && <div className="flex justify-between gap-4"><span className="text-gray-500">Người nhận</span><span className="font-semibold text-gray-800 text-right">{payment.accountName}</span></div>}
         <div className="flex justify-between gap-4"><span className="text-gray-500">Số tiền</span><span className="font-bold text-rose-600 text-right">{formatMoney(payment.amount)}</span></div>
         {payment.note && <div className="flex justify-between gap-4"><span className="text-gray-500">Nội dung</span><span className="font-medium text-gray-800 text-right break-words">{payment.note}</span></div>}
+      </div>
+    </div>
+  );
+}
+
+function DecodedQrSummary({
+  content,
+  urlSafetyState,
+  onScanAgain,
+}: {
+  content: DecodedQrContent;
+  urlSafetyState: UrlSafetyState;
+  onScanAgain: () => void;
+}) {
+  const [copyStatus, setCopyStatus] = useState("");
+
+  if (content.kind === "payment") return null;
+
+  const copyRawValue = async () => {
+    try {
+      await navigator.clipboard.writeText(content.rawValue);
+      setCopyStatus("Đã sao chép nội dung QR.");
+    } catch {
+      setCopyStatus("Không thể sao chép tự động. Hãy chọn và sao chép nội dung bên dưới.");
+    }
+  };
+
+  if (content.kind === "url") {
+    const localRiskPresentation = {
+      safe: {
+        title: "Chưa thấy dấu hiệu bất thường",
+        description: "Đây chỉ là kiểm tra cục bộ, không phải xác nhận website an toàn.",
+        className: "border-emerald-100 bg-emerald-50 text-emerald-800",
+        icon: ShieldCheck,
+      },
+      caution: {
+        title: "Link cần kiểm tra thêm",
+        description: "Link có một số đặc điểm thường dùng để che giấu địa chỉ đích.",
+        className: "border-amber-100 bg-amber-50 text-amber-900",
+        icon: AlertTriangle,
+      },
+      danger: {
+        title: "Không mở tự động",
+        description: "Link không hợp lệ hoặc có tín hiệu rủi ro cao. Timi đã chặn thao tác mở từ màn hình này.",
+        className: "border-rose-100 bg-rose-50 text-rose-800",
+        icon: ShieldAlert,
+      },
+    }[content.riskLevel];
+    const isBlacklisted = urlSafetyState.status === "blocked";
+    const riskPresentation = isBlacklisted
+      ? {
+          title: "Đã chặn link lừa đảo",
+          description: urlSafetyState.reason,
+          className: "border-rose-200 bg-rose-50 text-rose-800",
+          icon: ShieldAlert,
+        }
+      : localRiskPresentation;
+    const RiskIcon = riskPresentation.icon;
+    const mayOpen = content.normalizedUrl !== null
+      && content.riskLevel !== "danger"
+      && urlSafetyState.status === "clear";
+    const mayCopy = !isBlacklisted;
+    const safetyStatus = urlSafetyState.status === "checking"
+      ? "Đang đối chiếu tên miền với blacklist URL…"
+      : urlSafetyState.status === "unavailable"
+        ? "Không thể đối chiếu blacklist URL. Timi sẽ không mở link này."
+        : urlSafetyState.status === "clear"
+          ? "Tên miền không nằm trong blacklist URL hiện tại."
+          : null;
+
+    return (
+      <div className="h-full min-h-[440px] flex flex-col">
+        <div className="flex items-center gap-2 text-gray-800">
+          <Link2 className="w-6 h-6 text-rose-500" />
+          <span className="font-bold">QR chứa đường dẫn</span>
+        </div>
+
+        <div className={`mt-5 rounded-2xl border p-4 ${riskPresentation.className}`}>
+          <div className="flex items-start gap-3">
+            <RiskIcon className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <p className="font-bold">{riskPresentation.title}</p>
+              <p className="mt-1 text-sm leading-relaxed">{riskPresentation.description}</p>
+            </div>
+          </div>
+        </div>
+
+        {safetyStatus && (
+          <p className={`mt-3 rounded-xl px-3 py-2 text-sm ${urlSafetyState.status === "unavailable" ? "bg-amber-50 text-amber-800" : "bg-gray-50 text-gray-600"}`}>
+            {urlSafetyState.status === "checking" && <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />}
+            {safetyStatus}
+          </p>
+        )}
+
+        <div className="mt-5 rounded-2xl bg-gray-50 p-4">
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Tên miền nhận diện</p>
+          <p className="mt-1.5 break-all font-semibold text-gray-900">{content.hostname ?? "Không xác định được tên miền"}</p>
+          <p className="mt-4 text-xs font-bold uppercase tracking-wider text-gray-400">Nội dung QR</p>
+          <p className="mt-1.5 max-h-28 overflow-y-auto break-all rounded-lg bg-white px-3 py-2 font-mono text-xs leading-relaxed text-gray-700">{content.rawValue}</p>
+        </div>
+
+        {content.signals.length > 0 && (
+          <div className="mt-4">
+            <p className="text-sm font-bold text-gray-800">Tín hiệu cần lưu ý</p>
+            <ul className="mt-2 space-y-2">
+              {content.signals.map((signal) => (
+                <li key={signal.code} className="flex gap-2 text-sm leading-relaxed text-gray-600">
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" />
+                  {signal.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="mt-auto space-y-3 pt-6">
+          {copyStatus && <p className="text-center text-xs text-gray-500">{copyStatus}</p>}
+          <div className={`grid gap-3 ${mayCopy ? "grid-cols-2" : "grid-cols-1"}`}>
+            {mayCopy && (
+              <button type="button" onClick={() => void copyRawValue()} className="rounded-xl bg-gray-100 py-3 font-bold text-gray-700 hover:bg-gray-200 flex items-center justify-center gap-2">
+                <Copy className="w-4 h-4" />Sao chép
+              </button>
+            )}
+            <button type="button" onClick={onScanAgain} className="rounded-xl bg-gray-100 py-3 font-bold text-gray-700 hover:bg-gray-200">
+              Quét mã khác
+            </button>
+          </div>
+          {mayOpen && (
+            <button
+              type="button"
+              onClick={() => window.open(content.normalizedUrl!, "_blank", "noopener,noreferrer")}
+              className={`w-full rounded-xl py-3 font-bold text-white flex items-center justify-center gap-2 ${content.riskLevel === "caution" ? "bg-amber-600 hover:bg-amber-700" : "bg-rose-500 hover:bg-rose-600"}`}
+            >
+              <ExternalLink className="w-4 h-4" />
+              {content.riskLevel === "caution" ? "Tôi hiểu rủi ro, mở link" : "Mở link trong tab mới"}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const nonLinkContent = {
+    wifi: { title: "Thông tin Wi-Fi", description: "Timi không tự kết nối vào mạng Wi-Fi từ QR này.", icon: Wifi },
+    contact: { title: "Danh thiếp", description: "Timi không tự thêm liên hệ từ QR này.", icon: FileText },
+    phone: { title: "Số điện thoại", description: "Timi không tự gọi số điện thoại từ QR này.", icon: FileText },
+    email: { title: "Địa chỉ email", description: "Timi không tự tạo email từ QR này.", icon: FileText },
+    sms: { title: "Tin nhắn", description: "Timi không tự gửi tin nhắn từ QR này.", icon: FileText },
+    text: { title: "Nội dung văn bản", description: "Nội dung được đọc từ mã QR.", icon: FileText },
+  }[content.kind];
+  const ContentIcon = nonLinkContent.icon;
+
+  return (
+    <div className="h-full min-h-[440px] flex flex-col">
+      <div className="flex items-center gap-2 text-gray-800">
+        <ContentIcon className="w-6 h-6 text-rose-500" />
+        <span className="font-bold">{nonLinkContent.title}</span>
+      </div>
+      <p className="mt-3 text-sm leading-relaxed text-gray-500">{nonLinkContent.description}</p>
+      <div className="mt-5 max-h-72 overflow-y-auto rounded-2xl bg-gray-50 p-4">
+        <p className="break-all whitespace-pre-wrap font-mono text-sm leading-relaxed text-gray-700">{content.rawValue}</p>
+      </div>
+      <div className="mt-auto space-y-3 pt-6">
+        {copyStatus && <p className="text-center text-xs text-gray-500">{copyStatus}</p>}
+        <div className="grid grid-cols-2 gap-3">
+          <button type="button" onClick={() => void copyRawValue()} className="rounded-xl bg-gray-100 py-3 font-bold text-gray-700 hover:bg-gray-200 flex items-center justify-center gap-2">
+            <Copy className="w-4 h-4" />Sao chép
+          </button>
+          <button type="button" onClick={onScanAgain} className="rounded-xl bg-gray-100 py-3 font-bold text-gray-700 hover:bg-gray-200">
+            Quét mã khác
+          </button>
+        </div>
       </div>
     </div>
   );

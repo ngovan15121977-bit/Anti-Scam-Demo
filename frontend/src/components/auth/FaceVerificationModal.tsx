@@ -86,18 +86,25 @@ export default function FaceVerificationModal({
   const verify = async () => {
     if (isSubmitting || isLoading) return;
     const video = videoRef.current;
-    if (!video?.videoWidth || !video.videoHeight) {
+    if (!videoLoaded || !video?.videoWidth || !video.videoHeight) {
       setError("Camera chưa sẵn sàng. Vui lòng thử lại.");
       return;
     }
     const canvas = document.createElement("canvas");
     const scale = Math.min(
       1,
-      256 / Math.max(video.videoWidth, video.videoHeight),
+      // 256px made a face in a normal webcam frame too small for the server
+      // detector. 512px remains well below the 5 MB API limit at JPEG 0.82.
+      512 / Math.max(video.videoWidth, video.videoHeight),
     );
     canvas.width = Math.round(video.videoWidth * scale);
     canvas.height = Math.round(video.videoHeight * scale);
-    canvas.getContext("2d")?.drawImage(video, 0, 0);
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setError("Không thể chuẩn bị ảnh từ camera. Hãy thử mở lại camera.");
+      return;
+    }
+    context.drawImage(video, 0, 0);
     const imageData = canvas.toDataURL("image/jpeg", 0.82);
     setError("");
     setResult(null);
@@ -263,7 +270,7 @@ export default function FaceVerificationModal({
           ) : (
             <button
               onClick={() => void verify()}
-              disabled={isBusy}
+              disabled={isBusy || !videoLoaded}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-3 font-semibold text-white disabled:opacity-50"
             >
               {isBusy && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -275,7 +282,7 @@ export default function FaceVerificationModal({
                   ? "Đăng ký khuôn mặt"
                   : videoLoaded
                     ? "Xác thực khuôn mặt"
-                    : "Xác thực khuôn mặt"}
+                    : "Đang chuẩn bị camera..."}
             </button>
           )}
         </div>
