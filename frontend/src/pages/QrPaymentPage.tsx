@@ -457,7 +457,7 @@ function DecodedQrSummary({
     const localRiskPresentation = {
       safe: {
         title: "Chưa thấy dấu hiệu bất thường",
-        description: "Đây chỉ là kiểm tra cục bộ, không phải xác nhận website an toàn.",
+        description: "",
         className: "border-emerald-100 bg-emerald-50 text-emerald-800",
         icon: ShieldCheck,
       },
