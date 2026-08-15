@@ -9,6 +9,7 @@ export interface User {
   role: "user" | "admin";
   is_active: boolean;
   balance: number;
+  timi_bank_enabled: boolean;
   created_at: string;
 }
 
@@ -44,7 +45,7 @@ export interface LoginRequest {
 export interface RegisterRequest {
   full_name: string;
   email: string;
-  phone?: string;
+  phone: string;
   password: string;
 }
 

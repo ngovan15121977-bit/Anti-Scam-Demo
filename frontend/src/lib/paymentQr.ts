@@ -67,6 +67,7 @@ export const paymentBanks: BankDefinition[] = [
   { code: "STB", name: "Sacombank" },
   { code: "TCB", name: "Techcombank" },
   { code: "TIMO", name: "Timo" },
+  { code: "TIMI", name: "Timi Bank" },
   { code: "TPB", name: "TPBank" },
   { code: "UBANK", name: "Ubank by VPBank" },
   { code: "UOB", name: "UOB Vietnam" },
@@ -79,6 +80,7 @@ export const paymentBanks: BankDefinition[] = [
 const PREFIX = "TIMI--PAYMENT:1:";
 const MAX_QR_LENGTH = 2048;
 const MAX_GENERIC_QR_LENGTH = 4096;
+const TIMI_BANK_CODE = "TIMI";
 
 const SUSPICIOUS_TLDS = new Set([
   "click", "country", "gdn", "help", "icu", "link", "live", "monster",
@@ -126,6 +128,7 @@ function normalizePayment(input: PaymentQrData): EncodedPayment | null {
   const accountName = input.accountName?.trim();
 
   if (!bank || !/^\d{6,19}$/.test(accountNumber)) return null;
+  if (bank.code === TIMI_BANK_CODE && !/^\d{10}$/.test(accountNumber)) return null;
   if (amount !== undefined && (!Number.isSafeInteger(amount) || amount <= 0 || amount > 10_000_000_000)) return null;
   if (note && note.length > 500) return null;
   if (accountName && accountName.length > 255) return null;
@@ -169,6 +172,7 @@ export function parsePaymentQr(rawValue: string): PaymentQrData | null {
     const note = candidate.note;
     const accountName = candidate.accountName;
     if (!bank || !/^\d{6,19}$/.test(candidate.accountNumber)) return null;
+    if (bank.code === TIMI_BANK_CODE && !/^\d{10}$/.test(candidate.accountNumber)) return null;
     if (amount !== undefined && (!Number.isSafeInteger(amount) || amount <= 0 || amount > 10_000_000_000)) return null;
     if (note !== undefined && (typeof note !== "string" || note.length > 500)) return null;
     if (accountName !== undefined && (typeof accountName !== "string" || accountName.length > 255)) return null;

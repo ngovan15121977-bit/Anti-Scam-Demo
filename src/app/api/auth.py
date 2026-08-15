@@ -7,6 +7,7 @@ import cloudinary
 import cloudinary.uploader
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.app.config import get_settings
@@ -48,9 +49,34 @@ def _data_url_bytes(value: str) -> bytes:
 def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenResponse:
     if db.scalar(select(User).where(User.email == payload.email)):
         raise HTTPException(status_code=409, detail="Email đã được sử dụng")
-    user = User(email=payload.email, full_name=payload.full_name.strip(), phone=payload.phone.strip() if payload.phone else None, hashed_password=hash_password(payload.password), role=UserRole.USER.value)
-    db.add(user); db.commit(); db.refresh(user)
-    return TokenResponse(access_token=create_access_token(subject=str(user.id), role=user.role), user=UserOut.model_validate(user))
+    if db.scalar(
+        select(User.id).where(
+            User.phone == payload.phone,
+            User.timi_bank_enabled.is_(True),
+        )
+    ):
+        raise HTTPException(status_code=409, detail="Số điện thoại này đã là tài khoản Timi Bank")
+    user = User(
+        email=payload.email,
+        full_name=payload.full_name.strip(),
+        phone=payload.phone,
+        hashed_password=hash_password(payload.password),
+        role=UserRole.USER.value,
+        timi_bank_enabled=True,
+    )
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        # The partial unique index is the race-safe final authority when two
+        # registrations try to claim one phone number at the same time.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Số điện thoại này đã là tài khoản Timi Bank") from None
+    db.refresh(user)
+    return TokenResponse(
+        access_token=create_access_token(subject=str(user.id), role=user.role),
+        user=UserOut.model_validate(user),
+    )
 
 
 @router.post("/login", response_model=TokenResponse)

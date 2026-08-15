@@ -1,6 +1,7 @@
+import re
 import uuid
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from src.app.schemas.user import UserOut
 
@@ -9,7 +10,15 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     full_name: str = Field(..., min_length=1, max_length=255)
     password: str = Field(..., min_length=8, max_length=128)
-    phone: str | None = Field(None, max_length=20)
+    phone: str = Field(..., min_length=10, max_length=10)
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def normalize_timi_account_phone(cls, value: object) -> str:
+        phone = re.sub(r"\s+", "", str(value or ""))
+        if not re.fullmatch(r"\d{10}", phone):
+            raise ValueError("Số điện thoại phải gồm đúng 10 chữ số")
+        return phone
 
 
 class LoginRequest(BaseModel):

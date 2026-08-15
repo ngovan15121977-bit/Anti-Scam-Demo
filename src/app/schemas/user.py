@@ -17,4 +17,5 @@ class UserOut(BaseModel):
     role: str
     is_active: bool
     balance: int
+    timi_bank_enabled: bool
     created_at: datetime

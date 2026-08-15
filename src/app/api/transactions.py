@@ -47,6 +47,14 @@ from src.app.services import risk_rules
 from src.app.services.audit import add_audit_log
 from src.app.services.bank_normalization import normalize_bank_name
 from src.app.services.blacklist_policy import promote_blacklist_if_eligible
+from src.app.services.timi_bank import (
+    InsufficientTimiBalance,
+    TimiSelfTransfer,
+    TimiTransferError,
+    apply_timi_transfer,
+    is_timi_bank,
+    lock_timi_transfer_parties,
+)
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -58,6 +66,10 @@ def _utcnow() -> datetime:
 def _sync_completed_recipient(db: Session, transaction: Transaction) -> None:
     """Add a successfully transferred recipient to the shared directory."""
     bank_code = normalize_bank_name(transaction.bank_code)
+    if is_timi_bank(bank_code):
+        # Timi recipients are always resolved from the live user account; do
+        # not keep a stale duplicate in the generic recipient directory.
+        return
     account_number = transaction.payee_account.replace(" ", "").strip()
     if not bank_code or not account_number:
         return
@@ -512,9 +524,23 @@ def submit_decision(
                 )
             except (JWTError, ValueError):
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Xác thực khuôn mặt không hợp lệ hoặc đã hết hạn.") from None
-        locked_user = db.scalar(
-            select(User).where(User.id == current_user.id).with_for_update()
-        )
+        is_internal_timi_transfer = is_timi_bank(transaction.bank_code)
+        if is_internal_timi_transfer:
+            try:
+                locked_user, timi_recipient = lock_timi_transfer_parties(
+                    db,
+                    sender_user_id=current_user.id,
+                    recipient_account_number=transaction.payee_account,
+                )
+            except TimiSelfTransfer as exc:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+            except TimiTransferError as exc:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        else:
+            locked_user = db.scalar(
+                select(User).where(User.id == current_user.id).with_for_update()
+            )
+            timi_recipient = None
         if not requires_face_verification and (locked_user is None or not locked_user.transaction_pin_hash):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -540,7 +566,22 @@ def submit_decision(
             db.commit()
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Số dư không đủ")
         transaction.transaction_status = TransactionStatus.PROCESSING
-        locked_user.balance -= transaction.amount
+        if is_internal_timi_transfer:
+            try:
+                apply_timi_transfer(
+                    db,
+                    transaction=transaction,
+                    sender=locked_user,
+                    recipient=timi_recipient,
+                )
+            except InsufficientTimiBalance:
+                # The precheck above normally catches this. Keeping the domain
+                # check here makes the service safe if this block is reused.
+                transaction.transaction_status = TransactionStatus.FAILED
+                db.commit()
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Số dư không đủ") from None
+        else:
+            locked_user.balance -= transaction.amount
         transaction.transaction_status = TransactionStatus.COMPLETED
         transaction.completed_at = now
         _sync_completed_recipient(db, transaction)
@@ -571,6 +612,7 @@ def submit_decision(
             "decision": payload.decision,
             "pin_verified": payload.decision == WarningDecision.PROCEEDED and not requires_face_verification,
             "face_verified": payload.decision == WarningDecision.PROCEEDED and requires_face_verification,
+            "internal_timi_transfer": payload.decision == WarningDecision.PROCEEDED and is_timi_bank(transaction.bank_code),
         },
     )
     db.commit()

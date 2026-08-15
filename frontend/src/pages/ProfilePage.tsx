@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
+  Building2,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/api/auth";
@@ -217,6 +218,19 @@ export default function ProfilePage() {
                 <p className="text-sm text-gray-500">Số điện thoại</p>
                 <p className="font-semibold text-gray-900 truncate">
                   {user?.phone || "Chưa cập nhật"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50/50 transition-colors">
+              <div className="w-11 h-11 bg-violet-50 rounded-xl flex items-center justify-center shrink-0">
+                <Building2 className="w-5 h-5 text-violet-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-gray-500">Tài khoản Timi Bank</p>
+                <p className="font-mono font-semibold text-gray-900 truncate">
+                  {user?.timi_bank_enabled && user.phone
+                    ? user.phone
+                    : "Chưa đủ điều kiện dùng Timi Bank"}
                 </p>
               </div>
             </div>

@@ -40,6 +40,10 @@ export default function RegisterPage() {
       setErrors({ confirmPassword: "Mật khẩu không khớp" });
       return;
     }
+    if (!/^\d{10}$/.test(form.phone)) {
+      setErrors({ phone: "Số điện thoại phải gồm đúng 10 chữ số; đây cũng là số tài khoản Timi Bank." });
+      return;
+    }
     const { confirmPassword, ...payload } = form;
     registerMutation.mutate(payload as any);
   };
@@ -69,9 +73,10 @@ export default function RegisterPage() {
 
           <div className="relative">
             <Phone className="absolute left-4 top-3.5 h-5 w-5 text-gray-400" />
-            <input type="tel" placeholder="Số điện thoại" className={inputClass}
-              value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            <input type="tel" inputMode="numeric" required maxLength={10} placeholder="Số điện thoại 10 số (cũng là STK Timi)" className={inputClass}
+              value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })} />
           </div>
+          {errors.phone && <p className="text-xs text-red-500 ml-1">{errors.phone}</p>}
 
           <div className="relative">
             <Mail className="absolute left-4 top-3.5 h-5 w-5 text-gray-400" />

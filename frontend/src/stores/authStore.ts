@@ -11,7 +11,7 @@ interface AuthState {
 
   setAuth: (token: string, user: User) => void;
   login: (email: string, password: string) => Promise<void>;
-  register: (data: { full_name: string; email: string; phone?: string; password: string }) => Promise<void>;
+  register: (data: { full_name: string; email: string; phone: string; password: string }) => Promise<void>;
   logout: () => Promise<void>;
   fetchMe: () => Promise<void>;
   updateUser: (partialUser: Partial<User>) => void;

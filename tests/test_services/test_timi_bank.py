@@ -1,0 +1,107 @@
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+
+from src.app.models.timi_ledger_entry import TimiLedgerEntryType
+from src.app.schemas.auth import RegisterRequest
+from src.app.services.timi_bank import (
+    InsufficientTimiBalance,
+    TimiSelfTransfer,
+    apply_timi_transfer,
+    is_timi_bank,
+)
+
+
+class RecordingSession:
+    def __init__(self) -> None:
+        self.added: list[object] = []
+
+    def add_all(self, rows: list[object]) -> None:
+        self.added.extend(rows)
+
+
+def test_timi_bank_code_is_unambiguous() -> None:
+    assert is_timi_bank("TIMI")
+    assert not is_timi_bank("TIMO")
+    assert not is_timi_bank(None)
+
+
+def test_registration_phone_must_have_exactly_ten_digits() -> None:
+    payload = RegisterRequest(
+        email="ten-digits@example.com",
+        full_name="Ten Digits",
+        password="password-123",
+        phone="0912345678",
+    )
+    assert payload.phone == "0912345678"
+
+    with pytest.raises(ValueError):
+        RegisterRequest(
+            email="nine-digits@example.com",
+            full_name="Nine Digits",
+            password="password-123",
+            phone="912345678",
+        )
+
+
+def test_internal_transfer_creates_balanced_debit_and_credit_entries() -> None:
+    sender = SimpleNamespace(id=uuid4(), balance=500_000)
+    recipient = SimpleNamespace(id=uuid4(), balance=125_000)
+    transaction = SimpleNamespace(
+        id=uuid4(), amount=200_000, timi_recipient_user_id=None
+    )
+    db = RecordingSession()
+
+    apply_timi_transfer(
+        db, transaction=transaction, sender=sender, recipient=recipient
+    )
+
+    assert sender.balance == 300_000
+    assert recipient.balance == 325_000
+    assert transaction.timi_recipient_user_id == recipient.id
+    assert len(db.added) == 2
+    debit, credit = db.added
+    assert debit.entry_type == TimiLedgerEntryType.DEBIT
+    assert debit.user_id == sender.id
+    assert debit.amount == 200_000
+    assert debit.balance_after == 300_000
+    assert credit.entry_type == TimiLedgerEntryType.CREDIT
+    assert credit.user_id == recipient.id
+    assert credit.amount == 200_000
+    assert credit.balance_after == 325_000
+
+
+def test_insufficient_balance_never_changes_either_account() -> None:
+    sender = SimpleNamespace(id=uuid4(), balance=199_999)
+    recipient = SimpleNamespace(id=uuid4(), balance=125_000)
+    transaction = SimpleNamespace(
+        id=uuid4(), amount=200_000, timi_recipient_user_id=None
+    )
+    db = RecordingSession()
+
+    with pytest.raises(InsufficientTimiBalance):
+        apply_timi_transfer(
+            db, transaction=transaction, sender=sender, recipient=recipient
+        )
+
+    assert sender.balance == 199_999
+    assert recipient.balance == 125_000
+    assert transaction.timi_recipient_user_id is None
+    assert db.added == []
+
+
+def test_self_transfer_is_rejected_before_any_balance_change() -> None:
+    account = SimpleNamespace(id=uuid4(), balance=500_000)
+    transaction = SimpleNamespace(
+        id=uuid4(), amount=200_000, timi_recipient_user_id=None
+    )
+    db = RecordingSession()
+
+    with pytest.raises(TimiSelfTransfer):
+        apply_timi_transfer(
+            db, transaction=transaction, sender=account, recipient=account
+        )
+
+    assert account.balance == 500_000
+    assert db.added == []

@@ -1,10 +1,12 @@
 """Alembic configuration for the canonical ``src/app`` application."""
 
 import sys
+from os import getenv
 from logging.config import fileConfig
 from pathlib import Path
 
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.engine import make_url
 
 from alembic import context
 
@@ -26,7 +28,19 @@ settings = get_settings()
 
 
 def get_url() -> str:
-    """Use DATABASE_URL from .env, preserving the synchronous psycopg2 driver."""
+    """Use a direct Neon connection for migrations whenever one is available."""
+    direct_url = getenv("DATABASE_URL_UNPOOLED")
+    if direct_url:
+        return direct_url
+
+    # The app correctly uses the PgBouncer pooler, but Alembic needs a direct
+    # connection for session/schema operations. Neon direct endpoints use the
+    # same hostname without the ``-pooler`` suffix.
+    parsed = make_url(settings.database_url)
+    if parsed.host and "-pooler" in parsed.host:
+        return parsed.set(host=parsed.host.replace("-pooler", "", 1)).render_as_string(
+            hide_password=False
+        )
     return settings.database_url
 
 

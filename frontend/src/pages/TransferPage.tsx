@@ -76,6 +76,7 @@ const banks = [
   { code: "STB", name: "Sacombank" },
   { code: "TCB", name: "Techcombank" },
   { code: "TIMO", name: "Timo" },
+  { code: "TIMI", name: "Timi Bank" },
   { code: "TPB", name: "TPBank" },
   { code: "UBANK", name: "Ubank by VPBank" },
   { code: "UOB", name: "UOB Vietnam" },
@@ -265,6 +266,13 @@ export default function TransferPage() {
       setRecipientLookupState({
         status: "idle",
         message: "Số tài khoản cần từ 6 đến 19 chữ số",
+      });
+      return;
+    }
+    if (form.bank_code === "TIMI" && !/^\d{10}$/.test(accountNumber)) {
+      setRecipientLookupState({
+        status: "idle",
+        message: "Số tài khoản Timi Bank chính là số điện thoại gồm đúng 10 chữ số.",
       });
       return;
     }

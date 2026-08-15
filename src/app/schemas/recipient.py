@@ -30,5 +30,5 @@ class RecipientLookupResponse(BaseModel):
     account_number: str
     bank_code: str
     account_name: str
-    source: Literal["directory", "blacklist", "trusted_recipient"]
+    source: Literal["directory", "blacklist", "trusted_recipient", "timi"]
     verification_token: str

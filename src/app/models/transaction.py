@@ -12,6 +12,7 @@ from src.app.db.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from src.app.models.risk_assessment import TransactionRiskAssessment, TransactionWarning
+    from src.app.models.timi_ledger_entry import TimiLedgerEntry
     from src.app.models.user import User
 
 
@@ -58,6 +59,12 @@ class Transaction(Base, TimestampMixin):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
+    timi_recipient_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     payee_account: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     payee_name: Mapped[str] = mapped_column(String(255), nullable=False)
     bank_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -73,7 +80,16 @@ class Transaction(Base, TimestampMixin):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    user: Mapped["User"] = relationship(back_populates="transactions")
+    user: Mapped["User"] = relationship(
+        back_populates="transactions", foreign_keys=[user_id]
+    )
+    timi_recipient: Mapped["User | None"] = relationship(
+        back_populates="timi_received_transactions",
+        foreign_keys=[timi_recipient_user_id],
+    )
+    timi_ledger_entries: Mapped[list["TimiLedgerEntry"]] = relationship(
+        back_populates="transaction", cascade="all, delete-orphan"
+    )
     assessments: Mapped[list["TransactionRiskAssessment"]] = relationship(
         back_populates="transaction", cascade="all, delete-orphan"
     )

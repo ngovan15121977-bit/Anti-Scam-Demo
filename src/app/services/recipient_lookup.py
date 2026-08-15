@@ -11,6 +11,7 @@ from src.app.models.blacklist import Blacklist
 from src.app.models.recipient_directory import RecipientDirectory
 from src.app.models.trusted_recipient import TrustedRecipient
 from src.app.services.bank_normalization import normalize_bank_name
+from src.app.services.timi_bank import TIMI_BANK_CODE, find_active_timi_recipient
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,10 @@ class RecipientLookupResult:
 
 class RecipientLookupNotFound(Exception):
     """Raised when no internal record contains the requested account name."""
+
+
+class RecipientLookupInvalid(Exception):
+    """Raised when an otherwise valid lookup is not a permitted transfer target."""
 
 
 def _name_from_blacklist(entry: Blacklist) -> str | None:
@@ -36,6 +41,14 @@ def lookup_recipient(
     db: Session, *, user_id: object, account_number: str, bank_code: str
 ) -> RecipientLookupResult:
     """Find an exact account-plus-bank match without calling an external API."""
+    if bank_code == TIMI_BANK_CODE:
+        timi_user = find_active_timi_recipient(db, account_number)
+        if timi_user is None:
+            raise RecipientLookupNotFound
+        if str(timi_user.id) == str(user_id):
+            raise RecipientLookupInvalid("Không thể chuyển tiền vào chính tài khoản Timi của bạn.")
+        return RecipientLookupResult(timi_user.full_name, "timi")
+
     directory_entry = db.scalar(
         select(RecipientDirectory).where(
             RecipientDirectory.account_number == account_number,
