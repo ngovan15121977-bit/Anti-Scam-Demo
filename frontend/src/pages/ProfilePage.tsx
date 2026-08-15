@@ -17,6 +17,8 @@ import {
   Eye,
   EyeOff,
   Building2,
+  X,
+  Loader2,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/api/auth";
@@ -36,6 +38,7 @@ export default function ProfilePage() {
   const [avatarError, setAvatarError] = useState("");
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [isAvatarPreviewOpen, setIsAvatarPreviewOpen] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const overviewQuery = useQuery({
     queryKey: ["account-overview"],
@@ -58,8 +61,27 @@ export default function ProfilePage() {
     try {
       const updatedUser = await authApi.uploadAvatar(avatar);
       updateUser(updatedUser);
+      setIsAvatarPreviewOpen(false);
     } catch {
       setAvatarError("Không thể tải ảnh lên. Vui lòng thử lại.");
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
+  const handleAvatarDelete = async () => {
+    if (!user?.avatar_url || isUploadingAvatar) return;
+    if (!window.confirm("Bạn có chắc muốn xóa ảnh đại diện không?")) return;
+
+    setAvatarError("");
+    setIsUploadingAvatar(true);
+    try {
+      const updatedUser = await authApi.deleteAvatar();
+      updateUser(updatedUser);
+      setAvatarFailed(false);
+      setIsAvatarPreviewOpen(false);
+    } catch {
+      setAvatarError("Không thể xóa ảnh đại diện. Vui lòng thử lại.");
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -115,7 +137,18 @@ export default function ProfilePage() {
         <div className="w-full bg-gradient-to-br from-rose-500 via-rose-600 to-pink-700 rounded-2xl p-6 sm:p-8 text-white shadow-xl shadow-rose-200">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
             <div className="relative shrink-0">
-              <div className="w-20 h-20 sm:w-24 sm:h-24 bg-white/20 backdrop-blur rounded-full flex items-center justify-center border-2 border-white/30 overflow-hidden">
+              <div
+                role={user?.avatar_url && !avatarFailed ? "button" : undefined}
+                tabIndex={user?.avatar_url && !avatarFailed ? 0 : undefined}
+                onClick={() => user?.avatar_url && !avatarFailed && setIsAvatarPreviewOpen(true)}
+                onKeyDown={(event) => {
+                  if ((event.key === "Enter" || event.key === " ") && user?.avatar_url && !avatarFailed) {
+                    event.preventDefault();
+                    setIsAvatarPreviewOpen(true);
+                  }
+                }}
+                className={`w-20 h-20 sm:w-24 sm:h-24 bg-white/20 backdrop-blur rounded-full flex items-center justify-center border-2 border-white/30 overflow-hidden ${user?.avatar_url && !avatarFailed ? "cursor-pointer" : ""}`}
+              >
                 {user?.avatar_url && !avatarFailed ? (
                   <img src={user.avatar_url} onError={() => setAvatarFailed(true)} alt="" className="h-full w-full object-cover" />
                 ) : (
@@ -123,7 +156,7 @@ export default function ProfilePage() {
                 )}
               </div>
               <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void handleAvatarChange(event)} className="hidden" />
-              <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={isUploadingAvatar} aria-label="Đổi ảnh đại diện" className="absolute bottom-0 right-0 w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform disabled:opacity-60">
+              <button type="button" onClick={() => user?.avatar_url && !avatarFailed ? setIsAvatarPreviewOpen(true) : avatarInputRef.current?.click()} disabled={isUploadingAvatar} aria-label="Đổi ảnh đại diện" title="Đổi ảnh đại diện" className="absolute bottom-0 right-0 w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform disabled:opacity-60">
                 <Camera className="w-4 h-4 text-rose-600" />
               </button>
             </div>
@@ -342,6 +375,28 @@ export default function ProfilePage() {
             <input value={transactionPin} onChange={(event) => setTransactionPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" type="password" autoComplete="new-password" placeholder="Nhập mã PIN" className="w-full rounded-xl border border-rose-200 bg-white p-3 text-center tracking-[0.4em] outline-none focus:ring-2 focus:ring-rose-400" />
             {pinMessage && <p className="mt-2 text-sm text-rose-700">{pinMessage}</p>}
             <div className="mt-5 flex gap-3"><button onClick={() => { setShowPinModal(false); setTransactionPin(""); setPinMessage(""); }} className="flex-1 rounded-xl bg-white px-4 py-3 font-semibold text-rose-700">Hủy</button><button onClick={() => void authApi.setTransactionPin(transactionPin).then(() => { setPinMessage("Đã cập nhật PIN"); setTransactionPin(""); void overviewQuery.refetch(); }).catch(() => setPinMessage("PIN không hợp lệ"))} disabled={!/^\d{4,6}$/.test(transactionPin)} className="flex-1 rounded-xl bg-rose-600 px-4 py-3 font-semibold text-white disabled:opacity-50">Lưu PIN</button></div>
+          </div>
+        </div>
+      )}
+      {isAvatarPreviewOpen && user?.avatar_url && !avatarFailed && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4" onClick={() => setIsAvatarPreviewOpen(false)}>
+          <div className="w-full max-w-lg rounded-3xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-900">Ảnh đại diện</h2>
+              <button type="button" onClick={() => setIsAvatarPreviewOpen(false)} aria-label="Đóng ảnh đại diện" className="rounded-full p-2 text-slate-500 hover:bg-slate-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <img src={user.avatar_url} alt="Ảnh đại diện phóng to" className="mx-auto max-h-[65vh] w-full rounded-2xl object-contain" />
+            <div className="mt-5 flex gap-3">
+              <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={isUploadingAvatar} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-3 font-semibold text-white disabled:opacity-60">
+                {isUploadingAvatar && <Loader2 className="h-4 w-4 animate-spin" />}
+                {isUploadingAvatar ? "Đang thay ảnh..." : "Thay ảnh"}
+              </button>
+              <button type="button" onClick={() => void handleAvatarDelete()} disabled={isUploadingAvatar} className="flex-1 rounded-xl bg-rose-50 px-4 py-3 font-semibold text-rose-700 disabled:opacity-60">
+                Xóa ảnh
+              </button>
+            </div>
           </div>
         </div>
       )}

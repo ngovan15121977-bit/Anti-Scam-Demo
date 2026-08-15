@@ -86,7 +86,13 @@ export const authApi = {
     formData.append("avatar", avatar);
     const response = await axiosInstance.put<User>("/v1/auth/avatar", formData, {
       headers: { "Content-Type": "multipart/form-data" },
+      timeout: 120_000,
     });
+    return response.data;
+  },
+
+  deleteAvatar: async (): Promise<User> => {
+    const response = await axiosInstance.delete<User>("/v1/auth/avatar");
     return response.data;
   },
 

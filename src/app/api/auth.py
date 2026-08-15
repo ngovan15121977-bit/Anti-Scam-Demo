@@ -189,6 +189,26 @@ def upload_avatar(avatar: UploadFile = File(...), db: Session = Depends(get_db),
     return UserOut.model_validate(current_user)
 
 
+@router.delete("/avatar", response_model=UserOut)
+def delete_avatar(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> UserOut:
+    """Remove the profile avatar without affecting the enrolled face data."""
+    if current_user.avatar_url:
+        _configure_cloudinary()
+        try:
+            cloudinary.uploader.destroy(
+                f"fintechguard/avatars/{current_user.id}",
+                invalidate=True,
+                resource_type="image",
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="KhÃ´ng thá»ƒ xÃ³a áº£nh Ä‘áº¡i diá»‡n") from exc
+
+    current_user.avatar_url = None
+    db.commit()
+    db.refresh(current_user)
+    return UserOut.model_validate(current_user)
+
+
 @router.put("/transaction-pin")
 def set_transaction_pin(payload: TransactionPinRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, bool]:
     current_user.transaction_pin_hash = hash_password(payload.pin); db.commit()

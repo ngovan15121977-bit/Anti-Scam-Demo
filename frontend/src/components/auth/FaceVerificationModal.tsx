@@ -91,20 +91,33 @@ export default function FaceVerificationModal({
       return;
     }
     const canvas = document.createElement("canvas");
-    const scale = Math.min(
-      1,
-      // 256px made a face in a normal webcam frame too small for the server
-      // detector. 512px remains well below the 5 MB API limit at JPEG 0.82.
-      512 / Math.max(video.videoWidth, video.videoHeight),
-    );
-    canvas.width = Math.round(video.videoWidth * scale);
-    canvas.height = Math.round(video.videoHeight * scale);
+    // The camera may return a 16:9 (or portrait) frame while the UI is square.
+    // Capture the same centered square that the user sees in the preview. This
+    // prevents the submitted face from appearing horizontally offset.
+    const cropSize = Math.min(video.videoWidth, video.videoHeight);
+    const cropX = (video.videoWidth - cropSize) / 2;
+    const cropY = (video.videoHeight - cropSize) / 2;
+    // 512px remains well below the 5 MB API limit at JPEG 0.82 while keeping
+    // the face large enough for the server detector.
+    const outputSize = Math.min(512, cropSize);
+    canvas.width = outputSize;
+    canvas.height = outputSize;
     const context = canvas.getContext("2d");
     if (!context) {
       setError("Không thể chuẩn bị ảnh từ camera. Hãy thử mở lại camera.");
       return;
     }
-    context.drawImage(video, 0, 0);
+    context.drawImage(
+      video,
+      cropX,
+      cropY,
+      cropSize,
+      cropSize,
+      0,
+      0,
+      outputSize,
+      outputSize,
+    );
     const imageData = canvas.toDataURL("image/jpeg", 0.82);
     setError("");
     setResult(null);
@@ -180,7 +193,7 @@ export default function FaceVerificationModal({
                 muted
                 playsInline
                 autoPlay
-                className="h-full w-full object-cover"
+                className="h-full w-full object-cover object-center"
               />
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-slate-300">
@@ -194,7 +207,7 @@ export default function FaceVerificationModal({
               <img
                 src={capturedImage}
                 alt="Ảnh khuôn mặt vừa chụp để xác thực"
-                className="absolute inset-0 h-full w-full object-cover"
+                className="absolute inset-0 h-full w-full object-cover object-center"
               />
             )}
             {cameraReady && (
