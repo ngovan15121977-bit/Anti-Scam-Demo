@@ -530,7 +530,7 @@ export default function QrPaymentPage() {
                 <button type="button" onClick={downloadQr} className="mt-auto pt-6 w-full py-3 rounded-xl bg-gray-100 text-gray-700 font-bold hover:bg-gray-200 flex items-center justify-center gap-2"><Download className="w-5 h-5" />Tải ảnh QR</button>
               </div>
             ) : mode === "scan" && decodedContent ? (
-              <DecodedQrSummary content={decodedContent} urlSafetyState={urlSafetyState} onScanAgain={() => void startScanner()} />
+              <DecodedQrSummary content={decodedContent} urlSafetyState={urlSafetyState} />
             ) : (
               <div className="h-full min-h-[440px] grid place-items-center text-center px-6">
                 <div>
@@ -566,11 +566,9 @@ function PaymentSummary({ payment, compact = false }: { payment: PaymentQrData; 
 function DecodedQrSummary({
   content,
   urlSafetyState,
-  onScanAgain,
 }: {
   content: DecodedQrContent;
   urlSafetyState: UrlSafetyState;
-  onScanAgain: () => void;
 }) {
   const [copyStatus, setCopyStatus] = useState("");
 
@@ -616,9 +614,10 @@ function DecodedQrSummary({
         }
       : localRiskPresentation;
     const RiskIcon = riskPresentation.icon;
-    const mayOpen = content.normalizedUrl !== null
-      && content.riskLevel !== "danger"
-      && urlSafetyState.status === "clear";
+    // The database blacklist is the access-control decision. Local signals
+    // remain visible to help the user judge a link, but a URL that is not
+    // blacklisted can be opened immediately once the API has confirmed it.
+    const mayOpen = content.normalizedUrl !== null && urlSafetyState.status === "clear";
     const mayCopy = !isBlacklisted;
     const safetyStatus = urlSafetyState.status === "checking"
       ? "Đang đối chiếu tên miền với blacklist URL…"
@@ -675,16 +674,11 @@ function DecodedQrSummary({
 
         <div className="mt-auto space-y-3 pt-6">
           {copyStatus && <p className="text-center text-xs text-gray-500">{copyStatus}</p>}
-          <div className={`grid gap-3 ${mayCopy ? "grid-cols-2" : "grid-cols-1"}`}>
-            {mayCopy && (
-              <button type="button" onClick={() => void copyRawValue()} className="rounded-xl bg-gray-100 py-3 font-bold text-gray-700 hover:bg-gray-200 flex items-center justify-center gap-2">
-                <Copy className="w-4 h-4" />Sao chép
-              </button>
-            )}
-            <button type="button" onClick={onScanAgain} className="rounded-xl bg-gray-100 py-3 font-bold text-gray-700 hover:bg-gray-200">
-              Quét mã khác
+          {mayCopy && (
+            <button type="button" onClick={() => void copyRawValue()} className="w-full rounded-xl bg-gray-100 py-3 font-bold text-gray-700 hover:bg-gray-200 flex items-center justify-center gap-2">
+              <Copy className="w-4 h-4" />Sao chép
             </button>
-          </div>
+          )}
           {mayOpen && (
             <button
               type="button"
@@ -692,7 +686,7 @@ function DecodedQrSummary({
               className={`w-full rounded-xl py-3 font-bold text-white flex items-center justify-center gap-2 ${content.riskLevel === "caution" ? "bg-amber-600 hover:bg-amber-700" : "bg-rose-500 hover:bg-rose-600"}`}
             >
               <ExternalLink className="w-4 h-4" />
-              {content.riskLevel === "caution" ? "Tôi hiểu rủi ro, mở link" : "Mở link trong tab mới"}
+              Truy cập website
             </button>
           )}
         </div>
@@ -722,14 +716,9 @@ function DecodedQrSummary({
       </div>
       <div className="mt-auto space-y-3 pt-6">
         {copyStatus && <p className="text-center text-xs text-gray-500">{copyStatus}</p>}
-        <div className="grid grid-cols-2 gap-3">
-          <button type="button" onClick={() => void copyRawValue()} className="rounded-xl bg-gray-100 py-3 font-bold text-gray-700 hover:bg-gray-200 flex items-center justify-center gap-2">
-            <Copy className="w-4 h-4" />Sao chép
-          </button>
-          <button type="button" onClick={onScanAgain} className="rounded-xl bg-gray-100 py-3 font-bold text-gray-700 hover:bg-gray-200">
-            Quét mã khác
-          </button>
-        </div>
+        <button type="button" onClick={() => void copyRawValue()} className="w-full rounded-xl bg-gray-100 py-3 font-bold text-gray-700 hover:bg-gray-200 flex items-center justify-center gap-2">
+          <Copy className="w-4 h-4" />Sao chép
+        </button>
       </div>
     </div>
   );
