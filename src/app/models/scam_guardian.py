@@ -28,6 +28,10 @@ class ScamGuardianSession(Base, TimestampMixin):
             "final_risk_score IS NULL OR final_risk_score BETWEEN 0 AND 100",
             name="ck_scam_sessions_final_risk_score",
         ),
+        CheckConstraint(
+            "agent_action IN ('CONTINUE', 'MONITOR', 'PAUSE', 'STOP')",
+            name="ck_scam_sessions_agent_action",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -47,6 +51,12 @@ class ScamGuardianSession(Base, TimestampMixin):
         String(20), default="safe", nullable=False
     )
     scam_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Last action selected by the Guardian agent. This is the only value the
+    # transaction API uses for enforcement; it does not derive a threshold
+    # from max_risk_score.
+    agent_action: Mapped[str] = mapped_column(
+        String(20), default="CONTINUE", nullable=False
+    )
     final_recommendation: Mapped[str | None] = mapped_column(Text, nullable=True)
     retain_transcript: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
@@ -102,6 +112,12 @@ class ScamSignal(Base):
 
 class ScamRiskEvent(Base):
     __tablename__ = "risk_events"
+    __table_args__ = (
+        CheckConstraint(
+            "recommended_action IN ('CONTINUE', 'MONITOR', 'PAUSE', 'STOP')",
+            name="ck_risk_events_recommended_action",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -118,6 +134,9 @@ class ScamRiskEvent(Base):
     )
     risk_score: Mapped[int] = mapped_column(Integer, nullable=False)
     risk_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    recommended_action: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="CONTINUE"
+    )
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     signals: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, nullable=False, default=list
@@ -128,7 +147,7 @@ class ScamRiskEvent(Base):
 
 
 class ScamAlert(Base):
-    """A user-facing alert emitted when a Guardian risk threshold is crossed."""
+    """A user-facing alert emitted when the Guardian agent selects STOP."""
 
     __tablename__ = "scam_alerts"
 

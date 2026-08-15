@@ -55,15 +55,15 @@ Timi là ứng dụng ngân hàng mô phỏng tập trung vào việc phát hi�
 - Scam Guardian chạy ngầm trong MainLayout sau khi người dùng đăng nhập và chấp nhận quyền microphone; không cần mở một trang riêng.
 - Một WebSocket giữ trong suốt phiên; MediaRecorder phát data event theo timeslice, gom thành đoạn audio tự chứa khoảng 3 giây rồi chỉ gửi đoạn có voice để nhận transcript/risk realtime. Recorder tự phục hồi nếu trình duyệt chuyển sang trạng thái inactive.
 - Ưu tiên Groq Whisper server-side STT (`GUARDIAN_STT_ENABLED=true`, mặc định `whisper-large-v3`); metadata `verbose_json` và bộ lọc câu outro/quảng bá YouTube phổ biến được dùng để bỏ các đoạn im lặng/hallucination trước khi đưa vào risk engine. Nếu provider trả lỗi/rỗng, browser SpeechRecognition tự chuyển sang fallback khi trình duyệt hỗ trợ. Audio chunk chỉ tồn tại trong bộ nhớ xử lý và không được lưu.
-- Backend giữ conversation state trong session, chạy rule engine deterministic và phát sự kiện risk_update ngay sau từng đoạn final.
-- Khi có tín hiệu nguy hiểm, frontend mới hiển thị cảnh báo CRITICAL; nếu Guardian active từ 80 trở lên, giao dịch chuyển tiền bị chặn ở server.
+- Backend giữ conversation state trong session và gửi transcript vào Guardian Risk Agent (Groq). Agent tự quyết định `risk_score`, `risk_level`, danh sách tín hiệu, ngưỡng ngữ cảnh và `recommended_action` (`CONTINUE`, `MONITOR`, `PAUSE`, `STOP`) rồi trả về JSON có schema giới hạn.
+- Backend không tính lại ngưỡng và không để LLM gọi tool: backend chỉ validate/lưu quyết định, hiển thị cảnh báo và thực thi chặn giao dịch khi agent trả về `STOP`. Nếu agent/STT không khả dụng, hệ thống fail-closed bằng một quyết định tạm dừng rõ ràng để không bỏ lọt giao dịch nguy hiểm.
 - Mini Timi tự mở khung hội thoại và gửi cảnh báo có risk score, tín hiệu phát hiện và hướng dẫn dừng cuộc gọi.
 - Guardian chạy nền trong toàn bộ luồng sử dụng; trạng thái microphone, recorder, chunk/ACK, STT và risk được hiển thị dạng mini trong Timi ở góc màn hình để chẩn đoán mà không cần trang test riêng.
 - Transcript chỉ lưu vào conversation_segments khi người dùng bật consent; risk events/signals vẫn được lưu để audit nhưng không lưu text bằng chứng nếu chưa consent.
 - Critical alert được lưu vào scam_alerts cùng thời điểm gửi WebSocket để audit/hiển thị lại sau này.
 - Speaker diarization server là adapter kế tiếp; giao thức WebSocket hiện tại đã tách riêng để bổ sung mà không ảnh hưởng UI.
 
-Guardian signal catalog (deterministic)
+Guardian signal catalog (offline evaluator; production threshold belongs to the agent)
 
 | Signal | Tiêu chí chính | Mức cộng cơ sở |
 |---|---|---:|
@@ -141,9 +141,11 @@ Không commit .env. Các biến quan trọng:
 | DATABASE_SCHEMA | Có | Schema hiện dùng là antiscam |
 | JWT_SECRET_KEY | Có | Khóa ký JWT; production phải thay secret mặc định |
 | CORS_ORIGINS | Có | Origin frontend, phân tách bằng dấu phẩy, không có slash cuối |
-| GROQ_API_KEY | Cho chat | Key server-side cho Timi Assistant |
+| GROQ_API_KEY | Cho chat + Guardian | Key server-side cho Timi Assistant và Guardian Risk Agent |
 | GROQ_MODEL_NAME | Cho chat | Mặc định openai/gpt-oss-20b |
 | GROQ_BASE_URL | Không | Mặc định https://api.groq.com/openai/v1 |
+| GUARDIAN_AGENT_ENABLED | Không | Bật Guardian Risk Agent; mặc định true |
+| GUARDIAN_AGENT_MODEL | Không | Model Groq dùng chấm điểm/ngưỡng Guardian; mặc định `openai/gpt-oss-20b` |
 | GUARDIAN_STT_ENABLED | Không | Bật server-side Whisper STT cho Guardian; mặc định true |
 | GUARDIAN_STT_MODEL | Không | Mặc định whisper-large-v3; có thể đổi sang whisper-large-v3-turbo nếu ưu tiên tốc độ/chi phí |
 | OPENAI_API_KEY | Không | Nhánh giải thích transaction legacy khi bật LLM |
@@ -428,7 +430,7 @@ CORS_ORIGINS phải chứa đúng origin frontend, không có slash cuối. Khi 
 ## An toàn và giới hạn
 
 - Đây là demo; không dùng cho tiền thật hoặc dữ liệu production nếu chưa có kiểm thử, giám sát và compliance phù hợp.
-- Risk agent là deterministic-first: LLM chỉ viết giải thích bằng evidence, không có tool chuyển tiền và không được tự blacklist.
+- Guardian Risk Agent là thành phần quyết định realtime: agent chọn score/ngưỡng/tín hiệu/hành động từ transcript. Backend không cho agent gọi tool; backend chỉ validate kết quả và thực thi rào chắn `STOP` đối với giao dịch nguy hiểm.
 - PIN, JWT secret, API key và HMAC key phải nằm trong secret manager/environment.
 - Không gửi OTP, PIN, mật khẩu, private key hoặc API key vào Timi chat.
 - Face embedding và telemetry là dữ liệu nhạy cảm; giới hạn quyền truy cập DB, log và thời gian lưu giữ trước khi đưa lên production.

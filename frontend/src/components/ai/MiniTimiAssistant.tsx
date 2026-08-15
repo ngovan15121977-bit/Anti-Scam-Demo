@@ -243,7 +243,7 @@ export default function MiniTimiAssistant() {
                 <span>Bỏ qua {audioSkippedCount}</span>
               </div>
               <div className="mt-2 flex items-center gap-1 text-[10px] leading-4 text-slate-500"><Wifi className="h-3 w-3" />STT {transcriptionMode}</div>
-              <div className={`mt-1 text-[10px] font-bold ${risk.risk_score >= 80 ? "text-red-600" : risk.risk_score >= 30 ? "text-amber-600" : "text-emerald-600"}`}>Risk {risk.risk_score}/100 · {risk.recommended_action}</div>
+              <div className={`mt-1 text-[10px] font-bold ${risk.recommended_action === "STOP" ? "text-red-600" : risk.recommended_action === "PAUSE" || risk.recommended_action === "MONITOR" ? "text-amber-600" : "text-emerald-600"}`}>Risk {risk.risk_score}/100 · {risk.recommended_action} · {risk.decision_source === "fail_closed" ? "fail-closed" : "agent"}</div>
               {guardianError && <p className="mt-1 break-words text-[10px] leading-4 text-red-500">{guardianError}</p>}
             </div>
           </div>

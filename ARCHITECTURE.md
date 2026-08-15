@@ -20,6 +20,36 @@ flowchart TB
     API --> A[Audit log]
 ```
 
+## Realtime Scam Call Guardian
+
+```mermaid
+sequenceDiagram
+    participant F as Frontend MainLayout
+    participant A as FastAPI Guardian WebSocket
+    participant S as Groq Whisper STT
+    participant G as Guardian Risk Agent
+    participant D as Neon PostgreSQL
+    participant T as Transaction API
+    F->>A: audio chunks / transcript
+    A->>S: audio in memory (optional server STT)
+    S-->>A: final transcript
+    A->>G: bounded conversation context
+    G-->>A: strict JSON: score, agent threshold, signals, action
+    A->>A: schema validation + action authorization
+    A->>D: risk event, signal and current agent action
+    A-->>F: risk_update / alert
+    T->>D: read current agent action
+    T-->>T: execute STOP only when agent action = STOP
+```
+
+The Guardian agent owns the call-risk score, contextual threshold, signals and
+recommended action. The backend never recalculates a Guardian threshold and
+never grants the model database or transfer tools. It only validates bounded
+output, persists the audit record, displays the alert, and enforces the
+dangerous-action boundary (`STOP`). If the agent is unavailable, the backend
+uses an explicit fail-closed pause/stop result rather than silently allowing a
+transaction.
+
 ## Main transaction flow
 
 ```mermaid
@@ -68,8 +98,11 @@ sequenceDiagram
 
 ## Safety boundaries
 
-- Rule Engine/ML, not LLM, owns `risk_score` and `risk_level`.
-- LLM has no database or transfer tool and only receives bounded evidence.
+- The transaction graph continues to use its deterministic evidence rules for
+  transfer assessment; the realtime Guardian call path uses the Guardian Risk
+  Agent as the owner of its score, threshold, signals and action.
+- Both agents have no database or transfer tool. Backend validation and the
+  transaction API are the only components allowed to persist or block actions.
 - Prompt injection is treated as untrusted transaction text.
 - MEDIUM/HIGH remains `AWAITING_DECISION` until human choice.
 - PIN is hashed; raw PIN is never stored in audit logs.

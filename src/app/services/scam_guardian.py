@@ -1,6 +1,8 @@
-"""Deterministic-first realtime conversation risk analysis.
+"""Offline deterministic conversation evaluator for Guardian tests.
 
-The guardian never treats an isolated word such as "ngân hàng" as a scam.
+The production realtime path uses :mod:`scam_guardian_agent`; this evaluator
+is retained for local regression/evaluation and never owns production
+thresholds. It never treats an isolated word such as "ngân hàng" as a scam.
 Signals become meaningful when a caller combines identity impersonation with
 threats, secrecy, urgency, credentials, remote access, or money movement.
 """
@@ -223,7 +225,7 @@ def _has_authority_claim(text: str) -> str | None:
 
 
 def analyze_guardian_state(state: GuardianConversationState) -> GuardianRiskResult:
-    """Analyze all known final transcript segments and return bounded risk."""
+    """Analyze transcript for offline regression tests, not live enforcement."""
     transcript = " ".join(text for _speaker, text in state.segments)
     text = _normalize(transcript)
     signals: list[GuardianSignal] = []

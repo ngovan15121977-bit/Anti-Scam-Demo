@@ -12,6 +12,7 @@ export interface GuardianSession {
   final_risk_score: number | null;
   risk_level: GuardianRiskLevel;
   scam_type: string | null;
+  agent_action: "CONTINUE" | "MONITOR" | "PAUSE" | "STOP";
   final_recommendation: string | null;
   retain_transcript: boolean;
 }
@@ -31,6 +32,7 @@ export interface GuardianTranscriptEvent {
 
 export interface GuardianRiskEvent {
   type: "risk_update";
+  decision_source?: "guardian_agent" | "fail_closed";
   risk_score: number;
   risk_level: GuardianRiskLevel;
   scenario: string | null;

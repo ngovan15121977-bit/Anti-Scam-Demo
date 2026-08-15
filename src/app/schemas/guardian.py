@@ -24,6 +24,7 @@ class GuardianSessionOut(BaseModel):
     final_risk_score: int | None = None
     risk_level: str
     scam_type: str | None = None
+    agent_action: Literal["CONTINUE", "MONITOR", "PAUSE", "STOP"] = "CONTINUE"
     final_recommendation: str | None = None
     retain_transcript: bool
 
@@ -54,3 +55,28 @@ class GuardianAudioMessage(BaseModel):
 class GuardianAuthMessage(BaseModel):
     type: Literal["auth"] = "auth"
     token: str = Field(min_length=20, max_length=4096)
+
+
+class GuardianAgentSignalDecision(BaseModel):
+    """One signal proposed by the Guardian decision agent.
+
+    The API deliberately accepts signal names as data rather than mapping a
+    score in the backend.  This keeps the agent responsible for deciding
+    which evidence matters and how much it contributes to the decision.
+    """
+
+    signal_type: str = Field(min_length=1, max_length=60)
+    weight: int = Field(ge=0, le=100)
+    confidence: float = Field(ge=0, le=1)
+    evidence: str = Field(default="", max_length=500)
+
+
+class GuardianAgentDecision(BaseModel):
+    """Strict, bounded JSON contract returned by the risk decision agent."""
+
+    risk_score: int = Field(ge=0, le=100)
+    risk_level: Literal["safe", "warning", "high", "critical"]
+    scenario: str | None = Field(default=None, max_length=80)
+    recommended_action: Literal["CONTINUE", "MONITOR", "PAUSE", "STOP"]
+    explanation: str = Field(min_length=1, max_length=1000)
+    signals: list[GuardianAgentSignalDecision] = Field(default_factory=list, max_length=20)

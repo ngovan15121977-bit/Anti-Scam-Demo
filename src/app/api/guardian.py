@@ -7,6 +7,7 @@ import base64
 import binascii
 import logging
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -38,7 +39,11 @@ from src.app.schemas.guardian import (
 from src.app.services.scam_guardian import (
     GuardianConversationState,
     GuardianRiskResult,
-    analyze_guardian_state,
+)
+from src.app.services.scam_guardian_agent import (
+    GuardianAgentUnavailableError,
+    analyze_with_guardian_agent,
+    fail_closed_guardian_result,
 )
 from src.app.services.scam_guardian_stt import (
     is_probable_ad_hallucination,
@@ -47,6 +52,17 @@ from src.app.services.scam_guardian_stt import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/scam-guardian", tags=["scam-guardian"])
+
+
+def _recommendation_for_action(action: str) -> str:
+    """Human-readable copy derived from the agent action, never a score."""
+
+    return {
+        "STOP": "Dừng cuộc gọi và không chuyển tiền.",
+        "PAUSE": "Tạm dừng và tự xác minh qua kênh chính thức.",
+        "MONITOR": "Tiếp tục thận trọng, không cung cấp thông tin bảo mật.",
+        "CONTINUE": "Chưa cần chặn; vẫn giữ cảnh giác với yêu cầu bất thường.",
+    }.get(action, "Tạm dừng để chờ Guardian Risk Agent đánh giá.")
 
 
 def _get_owned_session(
@@ -135,13 +151,7 @@ def finish_guardian_session(
         session.status = payload.status
         session.ended_at = datetime.now(UTC)
         session.final_risk_score = session.max_risk_score
-        session.final_recommendation = (
-            "Dừng cuộc gọi và không chuyển tiền."
-            if session.max_risk_score >= 80
-            else "Tự xác minh qua kênh chính thức trước khi giao dịch."
-            if session.max_risk_score >= 60
-            else "Tiếp tục thận trọng và không cung cấp thông tin bảo mật."
-        )
+        session.final_recommendation = _recommendation_for_action(session.agent_action)
         db.commit()
         db.refresh(session)
     return _session_out(session)
@@ -162,16 +172,32 @@ def _persist_risk_result(
     session: ScamGuardianSession,
     result: GuardianRiskResult,
     segment_id: uuid.UUID | None,
-) -> None:
+) -> GuardianRiskResult:
+    # A STOP decision is a backend enforcement latch: a later, less severe
+    # model response cannot silently re-enable transfers during the same call.
+    # This is action execution, not a backend score/threshold calculation.
+    if session.agent_action == "STOP" and result.recommended_action != "STOP":
+        result = replace(
+            result,
+            risk_level="critical",
+            recommended_action="STOP",
+            explanation=(
+                f"{result.explanation} Guardian đã giữ lệnh STOP trước đó "
+                "cho đến khi phiên gọi kết thúc."
+            ),
+        )
+
     session.max_risk_score = max(session.max_risk_score, result.risk_score)
     session.risk_level = result.risk_level
     session.scam_type = result.scenario
+    session.agent_action = result.recommended_action
     db.add(
         ScamRiskEvent(
             session_id=session.id,
             segment_id=segment_id,
             risk_score=result.risk_score,
             risk_level=result.risk_level,
+            recommended_action=result.recommended_action,
             reason=result.explanation,
             signals=[
                 {
@@ -200,11 +226,17 @@ def _persist_risk_result(
             )
         )
     db.commit()
+    return result
 
 
 def _risk_payload(result: GuardianRiskResult) -> dict[str, Any]:
     return {
         "type": "risk_update",
+        "decision_source": (
+            "fail_closed"
+            if result.scenario == "agent_unavailable"
+            else "guardian_agent"
+        ),
         "risk_score": result.risk_score,
         "risk_level": result.risk_level,
         "scenario": result.scenario,
@@ -233,7 +265,7 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
     db = SessionLocal()
     state = GuardianConversationState()
     session: ScamGuardianSession | None = None
-    last_score = 0
+    last_action = "CONTINUE"
     settings = get_settings()
 
     try:
@@ -241,6 +273,7 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
         if session is None or session.status != "active":
             await websocket.close(code=4404, reason="Guardian session is not active")
             return
+        last_action = session.agent_action
 
         try:
             auth_raw = await asyncio.wait_for(websocket.receive_json(), timeout=5)
@@ -269,13 +302,14 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
                     else "browser_speech_recognition"
                 ),
                 "audio_persistence": "discarded",
+                "risk_decision_mode": "guardian_agent",
                 "risk_score": 0,
                 "risk_level": "safe",
             }
         )
 
         async def process_final_transcript(transcript: GuardianTranscriptMessage) -> None:
-            nonlocal last_score
+            nonlocal last_action
             # Browser SpeechRecognition can produce the same stock YouTube
             # outro text as Whisper when the microphone is silent. Discard it
             # before persistence, UI delivery, and risk scoring regardless of
@@ -304,8 +338,28 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
                 db.flush()
                 segment_id = segment.id
 
-            result = analyze_guardian_state(state)
-            _persist_risk_result(db, session, result, segment_id)
+            try:
+                # LLM inference is blocking; keep the WebSocket event loop
+                # responsive while the agent evaluates the conversation.
+                result = await asyncio.to_thread(
+                    analyze_with_guardian_agent,
+                    state,
+                    transcript.text,
+                )
+            except GuardianAgentUnavailableError as exc:
+                # Fail closed without pretending that a backend threshold made
+                # the decision. The synthetic action only protects the user
+                # until the agent is available again.
+                logger.warning("Guardian agent unavailable: %s", exc)
+                result = fail_closed_guardian_result(str(exc))
+                await websocket.send_json(
+                    {
+                        "type": "agent_status",
+                        "status": "unavailable",
+                        "message": str(exc),
+                    }
+                )
+            result = _persist_risk_result(db, session, result, segment_id)
             await websocket.send_json(
                 {
                     "type": "transcript",
@@ -315,7 +369,7 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
                 }
             )
             await websocket.send_json(_risk_payload(result))
-            if last_score < 80 <= result.risk_score:
+            if last_action != "STOP" and result.recommended_action == "STOP":
                 alert = ScamAlert(
                     session_id=session.id,
                     severity="critical",
@@ -333,7 +387,7 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
                         "message": "Dừng cuộc gọi. Không chuyển tiền và không cung cấp OTP/PIN.",
                     }
                 )
-            last_score = result.risk_score
+            last_action = result.recommended_action
 
         while True:
             raw: Any = await websocket.receive_json()
@@ -426,12 +480,8 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
                 session.status = "completed"
                 session.ended_at = datetime.now(UTC)
                 session.final_risk_score = session.max_risk_score
-                session.final_recommendation = (
-                    "Dừng cuộc gọi và không chuyển tiền."
-                    if session.max_risk_score >= 80
-                    else "Tự xác minh qua kênh chính thức trước khi giao dịch."
-                    if session.max_risk_score >= 60
-                    else "Tiếp tục thận trọng và không cung cấp thông tin bảo mật."
+                session.final_recommendation = _recommendation_for_action(
+                    session.agent_action
                 )
                 db.commit()
                 await websocket.send_json(
@@ -453,6 +503,7 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
             session.status = "interrupted"
             session.ended_at = datetime.now(UTC)
             session.final_risk_score = session.max_risk_score
+            session.final_recommendation = _recommendation_for_action(session.agent_action)
             db.commit()
     except Exception:
         logger.exception("Scam Guardian WebSocket failed")
@@ -460,6 +511,7 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
             session.status = "interrupted"
             session.ended_at = datetime.now(UTC)
             session.final_risk_score = session.max_risk_score
+            session.final_recommendation = _recommendation_for_action(session.agent_action)
             db.commit()
         try:
             await websocket.send_json(
