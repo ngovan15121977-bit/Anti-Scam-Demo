@@ -35,7 +35,7 @@ export interface RecipientLookupResponse {
   account_number: string;
   bank_code: string;
   account_name: string;
-  source: "directory" | "blacklist" | "trusted_recipient";
+  source: "directory" | "blacklist" | "trusted_recipient" | "timi";
   verification_token: string;
 }
 
@@ -78,6 +78,9 @@ export interface Transaction {
   id: string;
   payee_account: string;
   payee_name: string;
+  direction: "outgoing" | "incoming";
+  counterparty_name: string;
+  counterparty_account: string;
   bank_code?: string | null;
   amount: number;
   currency: string;

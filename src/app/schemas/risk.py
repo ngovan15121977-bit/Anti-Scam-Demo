@@ -80,6 +80,9 @@ class TransactionOut(BaseModel):
     id: uuid.UUID
     payee_account: str
     payee_name: str
+    direction: Literal["outgoing", "incoming"]
+    counterparty_name: str
+    counterparty_account: str
     bank_code: str | None
     amount: int
     currency: str

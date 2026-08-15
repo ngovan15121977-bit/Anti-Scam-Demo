@@ -110,7 +110,9 @@ export default function TransferPage() {
     const isToday = createdAt.getFullYear() === today.getFullYear()
       && createdAt.getMonth() === today.getMonth()
       && createdAt.getDate() === today.getDate();
-    return isToday && transaction.transaction_status === "completed"
+    return isToday
+      && transaction.direction === "outgoing"
+      && transaction.transaction_status === "completed"
       ? total + transaction.amount
       : total;
   }, 0);

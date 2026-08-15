@@ -97,9 +97,9 @@ export default function HistoryPage() {
 
   const transactions: Transaction[] = (historyQuery.data ?? []).map((transaction: ApiTransaction) => ({
     id: transaction.id,
-    type: "transfer",
-    recipient_name: transaction.payee_name,
-    recipient_account: `${transaction.payee_account}${transaction.bank_code ? ` • ${transaction.bank_code}` : ""}`,
+    type: transaction.direction === "incoming" ? "receive" : "transfer",
+    recipient_name: transaction.counterparty_name,
+    recipient_account: `${transaction.counterparty_account}${transaction.bank_code ? ` • ${transaction.bank_code}` : ""}`,
     amount: transaction.amount,
     status: transaction.transaction_status === "completed"
       ? "success"
@@ -112,7 +112,13 @@ export default function HistoryPage() {
       ? "low"
       : transaction.risk_level === "medium" ? "medium" : transaction.risk_level === "high" ? "high" : "critical",
     created_at: transaction.created_at,
-    description: transaction.transaction_status === "completed" ? "Giao dịch đã hoàn tất" : "Giao dịch chuyển khoản",
+    description: transaction.direction === "incoming"
+      ? transaction.transaction_status === "completed"
+        ? "Đã nhận tiền qua Timi Bank"
+        : "Giao dịch nhận tiền Timi Bank"
+      : transaction.transaction_status === "completed"
+        ? "Giao dịch đã hoàn tất"
+        : "Giao dịch chuyển khoản",
   }));
 
   const filteredTransactions = transactions.filter((tx) => {

@@ -8,8 +8,8 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from jose import JWTError
-from sqlalchemy import desc, select
-from sqlalchemy.orm import Session
+from sqlalchemy import desc, or_, select
+from sqlalchemy.orm import Session, aliased
 
 from src.agents.intervention_graph import intervention_graph
 from src.agents.transaction_graph import transaction_graph
@@ -630,15 +630,24 @@ def history(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[dict[str, object]]:
-    rows = db.scalars(
-        select(Transaction)
-        .where(Transaction.user_id == current_user.id)
+    sender = aliased(User)
+    rows = db.execute(
+        select(Transaction, sender)
+        .outerjoin(sender, Transaction.user_id == sender.id)
+        .where(
+            or_(
+                Transaction.user_id == current_user.id,
+                Transaction.timi_recipient_user_id == current_user.id,
+            )
+        )
         .order_by(desc(Transaction.created_at))
         .limit(min(max(limit, 1), 100))
     ).all()
-    transactions = list(rows)
     result: list[dict[str, object]] = []
-    for transaction in transactions:
+    for transaction, sender_user in rows:
+        is_incoming_timi_transfer = (
+            transaction.timi_recipient_user_id == current_user.id
+        )
         latest_assessment = db.scalar(
             select(TransactionRiskAssessment)
             .where(TransactionRiskAssessment.transaction_id == transaction.id)
@@ -649,6 +658,19 @@ def history(
             "id": transaction.id,
             "payee_account": transaction.payee_account,
             "payee_name": transaction.payee_name,
+            # Kept for compatibility with older clients.  New clients should
+            # use counterparty_* because it works for both directions.
+            "direction": "incoming" if is_incoming_timi_transfer else "outgoing",
+            "counterparty_name": (
+                sender_user.full_name
+                if is_incoming_timi_transfer and sender_user is not None
+                else transaction.payee_name
+            ),
+            "counterparty_account": (
+                sender_user.phone
+                if is_incoming_timi_transfer and sender_user is not None
+                else transaction.payee_account
+            ),
             "bank_code": transaction.bank_code,
             "amount": transaction.amount,
             "currency": transaction.currency,
