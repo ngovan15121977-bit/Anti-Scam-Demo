@@ -26,6 +26,7 @@ import {
   Pause,
   Play,
   Users,
+  Trash2,
 } from "lucide-react";
 
 type TabType = "overview" | "transactions" | "users" | "blacklist" | "audit" | "settings";
@@ -78,6 +79,7 @@ type BlacklistEntry = {
   id: string;
   entity_type: string;
   entity_value: string;
+  bank?: string | null;
   source: string;
   evidence?: Record<string, unknown> | null;
   created_at: string;
@@ -315,6 +317,9 @@ function AuditTab() {
 // ===== USERS TAB =====
 function UsersTab({ searchQuery, setSearchQuery }: { searchQuery: string; setSearchQuery: (value: string) => void }) {
   const queryClient = useQueryClient();
+  const [confirmUser, setConfirmUser] = useState<AdminUser | null>(null);
+  const [deleteNotice, setDeleteNotice] = useState("");
+  const [undeletableUserIds, setUndeletableUserIds] = useState<Set<string>>(new Set());
   const usersQuery = useQuery({
     queryKey: ["admin-users"],
     queryFn: async () => (await axiosInstance.get<AdminUser[]>("/v1/admin/users")).data,
@@ -323,6 +328,20 @@ function UsersTab({ searchQuery, setSearchQuery }: { searchQuery: string; setSea
     mutationFn: async ({ id, path, body }: { id: string; path: "role" | "status"; body: object }) =>
       axiosInstance.patch(`/v1/admin/users/${id}/${path}`, body),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
+  });
+  const deleteUser = useMutation({
+    mutationFn: async (id: string) => axiosInstance.delete(`/v1/admin/users/${id}`),
+    onSuccess: () => {
+      setDeleteNotice("Đã xóa user thành công.");
+      setConfirmUser(null);
+      void queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+    },
+    onError: (error: any, userId: string) => {
+      setUndeletableUserIds((current) => new Set(current).add(userId));
+      setConfirmUser(null);
+      const detail = error?.response?.data?.detail;
+      setDeleteNotice(typeof detail === "string" ? detail : "Không thể xóa user vì tài khoản đang có dữ liệu cần giữ lại.");
+    },
   });
   const users = (usersQuery.data ?? []).filter((user) =>
     `${user.full_name} ${user.email}`.toLowerCase().includes(searchQuery.toLowerCase()),
@@ -336,6 +355,14 @@ function UsersTab({ searchQuery, setSearchQuery }: { searchQuery: string; setSea
       </div>
       {usersQuery.isError && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-600">Không tải được danh sách người dùng.</p>}
       {updateUser.isError && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-600">Không thể cập nhật quyền hoặc trạng thái. Hãy kiểm tra lại quyền admin.</p>}
+      {deleteNotice && (
+        <div className={`rounded-xl p-3 text-sm ${deleteUser.isError ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-700"}`}>
+          <div className="flex items-center justify-between gap-3">
+            <span>{deleteNotice}</span>
+            <button type="button" onClick={() => setDeleteNotice("")} className="font-bold">×</button>
+          </div>
+        </div>
+      )}
       <div className="divide-y divide-slate-100 rounded-2xl border border-slate-100 bg-white shadow-sm">
         {usersQuery.isLoading && <p className="p-4 text-sm text-slate-500">Đang tải người dùng...</p>}
         {users.map((user) => (
@@ -346,12 +373,48 @@ function UsersTab({ searchQuery, setSearchQuery }: { searchQuery: string; setSea
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className={`rounded-full px-2 py-1 text-xs font-semibold ${user.role === "admin" ? "bg-violet-50 text-violet-700" : "bg-slate-100 text-slate-600"}`}>{user.role}</span>
-              <button disabled={updateUser.isPending} onClick={() => updateUser.mutate({ id: user.id, path: "role", body: { role: user.role === "admin" ? "user" : "admin" } })} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">{user.role === "admin" ? "Gỡ admin" : "Cấp admin"}</button>
-              <button disabled={updateUser.isPending} onClick={() => updateUser.mutate({ id: user.id, path: "status", body: { is_active: !user.is_active } })} className={`rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${user.is_active ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"}`}>{user.is_active ? "Khóa" : "Mở khóa"}</button>
+              <button disabled={updateUser.isPending || deleteUser.isPending} onClick={() => updateUser.mutate({ id: user.id, path: "role", body: { role: user.role === "admin" ? "user" : "admin" } })} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">{user.role === "admin" ? "Gỡ admin" : "Cấp admin"}</button>
+              <button disabled={updateUser.isPending || deleteUser.isPending} onClick={() => updateUser.mutate({ id: user.id, path: "status", body: { is_active: !user.is_active } })} className={`rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${user.is_active ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"}`}>{user.is_active ? "Khóa" : "Mở khóa"}</button>
+              {!undeletableUserIds.has(user.id) && (
+                <button
+                  disabled={updateUser.isPending || deleteUser.isPending}
+                  onClick={() => {
+                    setDeleteNotice("");
+                    setConfirmUser(user);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Xóa
+                </button>
+              )}
             </div>
           </div>
         ))}
       </div>
+      {confirmUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Xóa user?</h3>
+                <p className="mt-1 text-sm leading-relaxed text-slate-600">
+                  Bạn chắc chắn muốn xóa vĩnh viễn <strong>{confirmUser.email}</strong>? Hành động này không thể hoàn tác.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button type="button" onClick={() => setConfirmUser(null)} disabled={deleteUser.isPending} className="flex-1 rounded-xl bg-slate-100 px-4 py-3 font-semibold text-slate-700 disabled:opacity-50">Hủy</button>
+              <button type="button" onClick={() => deleteUser.mutate(confirmUser.id)} disabled={deleteUser.isPending} className="flex-1 rounded-xl bg-red-600 px-4 py-3 font-semibold text-white disabled:opacity-50">
+                {deleteUser.isPending ? "Đang xóa..." : "Xóa user"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -645,12 +708,18 @@ function TransactionsTab({ transactionsQuery, searchQuery, setSearchQuery }: { t
 // ===== BLACKLIST TAB =====
 function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; setSearchQuery: (s: string) => void }) {
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const [blacklistType, setBlacklistType] = useState<"all" | "account" | "url">("all");
   const blacklistQuery = useInfiniteQuery({
-    queryKey: ["admin-blacklist"],
+    queryKey: ["admin-blacklist", showAll, blacklistType],
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => (
       await axiosInstance.get<BlacklistPage>("/v1/admin/blacklist", {
-        params: { limit: 20, cursor: pageParam ?? undefined },
+        params: {
+          limit: showAll ? 20 : 10,
+          cursor: pageParam ?? undefined,
+          ...(blacklistType !== "all" ? { entity_type: blacklistType } : {}),
+        },
       })
     ).data,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
@@ -662,11 +731,22 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
     id: entry.id,
     type: entry.entity_type,
     value: entry.entity_value,
+    bank: entry.bank,
     reason: entry.source,
     addedAt: new Date(entry.created_at).toLocaleString("vi-VN"),
     reports: entry.evidence && typeof entry.evidence.reports === "number" ? entry.evidence.reports : 0,
   }));
-  const filtered = entries.filter((entry) => {
+  const urlKey = (value: string) => value
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/$/, "");
+  const uniqueEntries = entries.filter((entry, index, all) =>
+    entry.type !== "url" || all.findIndex((candidate) => candidate.type === "url" && urlKey(candidate.value) === urlKey(entry.value)) === index,
+  );
+  const filtered = uniqueEntries.filter((entry) => {
+    if (blacklistType !== "all" && entry.type !== blacklistType) return false;
     if (searchQuery && !entry.value.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
@@ -691,9 +771,25 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
           + Thêm mới
         </button>
       </div>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {[
+          { value: "all" as const, label: "Tất cả" },
+          { value: "account" as const, label: "Tài khoản / STK" },
+          { value: "url" as const, label: "URL" },
+        ].map((filter) => (
+          <button
+            key={filter.value}
+            type="button"
+            onClick={() => setBlacklistType(filter.value)}
+            className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold ${blacklistType === filter.value ? "bg-rose-500 text-white" : "border border-slate-200 bg-white text-slate-600"}`}
+          >
+            {filter.label}
+          </button>
+        ))}
+      </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 divide-y divide-slate-50">
-        {blacklistQuery.isLoading && <p className="p-5 text-sm text-slate-500">Đang tải blacklist mới nhất...</p>}
+        {blacklistQuery.isLoading && <p className="p-5 text-sm text-slate-500">{showAll ? "Đang tải toàn bộ blacklist..." : "Đang tải blacklist mới nhất..."}</p>}
         {blacklistQuery.isError && <p className="p-5 text-sm text-red-600">Không tải được blacklist từ máy chủ.</p>}
         {!blacklistQuery.isLoading && !blacklistQuery.isError && filtered.length === 0 && <p className="p-5 text-sm text-slate-500">Không có bản ghi blacklist phù hợp.</p>}
         {filtered.map((entry) => (
@@ -705,7 +801,9 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
                 </div>
                 <div>
                   <p className="max-w-[min(70vw,32rem)] break-all whitespace-normal font-semibold text-slate-800 text-sm">{entry.value}</p>
-                  <p className="text-xs text-slate-400 capitalize">{entry.type}</p>
+                  <p className="text-xs text-slate-400 capitalize">
+                    {entry.type === "account" ? `Tài khoản / STK${entry.bank ? ` · ${entry.bank}` : ""}` : "URL"}
+                  </p>
                 </div>
               </div>
               <span className="text-xs text-red-500 font-medium">{entry.reports} báo cáo</span>
@@ -718,12 +816,20 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
       {blacklistQuery.hasNextPage && !blacklistQuery.isError && (
         <button
           type="button"
-          onClick={() => blacklistQuery.fetchNextPage()}
+          onClick={() => {
+            if (!showAll) {
+              setShowAll(true);
+              return;
+            }
+            void blacklistQuery.fetchNextPage();
+          }}
           disabled={blacklistQuery.isFetchingNextPage}
           className="flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {blacklistQuery.isFetchingNextPage ? (
             <><RefreshCw className="h-4 w-4 animate-spin" />Đang tải thêm...</>
+          ) : !showAll ? (
+            "Xem toàn bộ blacklist"
           ) : (
             "Tải thêm bản ghi"
           )}

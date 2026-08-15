@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Lock, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Lock, ShieldCheck } from "lucide-react";
 import { authApi } from "@/api/auth";
+
+const PIN_REVEAL_DURATION_MS = 500;
 
 export default function PinSetupPage() {
   const navigate = useNavigate();
@@ -11,6 +13,17 @@ export default function PinSetupPage() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [visiblePin, setVisiblePin] = useState<"pin" | "confirm" | null>(null);
+  const hidePinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const revealPin = (field: "pin" | "confirm") => {
+    if (hidePinTimer.current) clearTimeout(hidePinTimer.current);
+    setVisiblePin(field);
+    hidePinTimer.current = setTimeout(
+      () => setVisiblePin(null),
+      PIN_REVEAL_DURATION_MS,
+    );
+  };
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -65,12 +78,24 @@ export default function PinSetupPage() {
             onChange={(event) =>
               setPin(event.target.value.replace(/\D/g, "").slice(0, 6))
             }
-            type="password"
+            type={visiblePin === "pin" ? "text" : "password"}
             inputMode="numeric"
             autoComplete="new-password"
             className="w-full rounded-xl border border-gray-200 py-3 pl-10 pr-3 text-center tracking-[0.4em] outline-none focus:ring-2 focus:ring-indigo-400"
             placeholder="4–6 số"
           />
+          <button
+            type="button"
+            onClick={() => revealPin("pin")}
+            className="absolute right-3 top-3 text-gray-400"
+            aria-label="Hiện PIN trong 0.5 giây"
+          >
+            {visiblePin === "pin" ? (
+              <EyeOff className="h-5 w-5" />
+            ) : (
+              <Eye className="h-5 w-5" />
+            )}
+          </button>
         </div>
         <label className="mt-4 block text-sm font-medium text-gray-700">
           Nhập lại mã PIN
@@ -80,17 +105,36 @@ export default function PinSetupPage() {
           onChange={(event) =>
             setConfirm(event.target.value.replace(/\D/g, "").slice(0, 6))
           }
-          type="password"
+          type={visiblePin === "confirm" ? "text" : "password"}
           inputMode="numeric"
           autoComplete="new-password"
           className="mt-2 w-full rounded-xl border border-gray-200 p-3 text-center tracking-[0.4em] outline-none focus:ring-2 focus:ring-indigo-400"
           placeholder="Nhập lại PIN"
         />
         <button
+          type="button"
+          onClick={() => revealPin("confirm")}
+          className="relative float-right -mt-9 mr-3 text-gray-400"
+          aria-label="Hiện PIN xác nhận trong 0.5 giây"
+        >
+          {visiblePin === "confirm" ? (
+            <EyeOff className="h-5 w-5" />
+          ) : (
+            <Eye className="h-5 w-5" />
+          )}
+        </button>
+        <button
           disabled={saving || !/^\d{4,6}$/.test(pin) || pin !== confirm}
           className="mt-6 w-full rounded-xl bg-rose-600 py-3 font-bold text-white disabled:opacity-50"
         >
           {saving ? "Đang lưu..." : "Tạo PIN và tiếp tục"}
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate("/dashboard")}
+          className="mt-3 w-full rounded-xl bg-gray-100 py-3 font-semibold text-gray-700"
+        >
+          Quay lại Dashboard
         </button>
       </form>
     </div>

@@ -8,7 +8,6 @@ import RegisterPage from "@/pages/RegisterPage";
 import HomePage from "@/pages/HomePage";
 import MainLayout from "@/components/layout/MainLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
-import PinRequiredRoute from "@/components/auth/PinRequiredRoute";
 import LocationRequiredRoute from "@/components/auth/LocationRequiredRoute";
 
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
@@ -95,20 +94,18 @@ function App() {
                 <Route path="/setup-pin" element={<PinSetupPage />} />
                 <Route path="/setup-face" element={<FaceEnrollmentPage />} />
                 <Route path="/dashboard" element={<DashboardPage />} />
-                <Route element={<PinRequiredRoute />}>
-                  <Route path="/transfer" element={<TransferPage />} />
-                  <Route path="/history" element={<HistoryPage />} />
-                  <Route path="/me" element={<ProfilePage />} />
-                  <Route path="/qr" element={<QrPaymentPage />} />
-                  <Route
-                    path="/admin"
-                    element={
-                      <ProtectedRoute requireAdmin>
-                        <AdminPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                </Route>
+                <Route path="/transfer" element={<TransferPage />} />
+                <Route path="/history" element={<HistoryPage />} />
+                <Route path="/me" element={<ProfilePage />} />
+                <Route path="/qr" element={<QrPaymentPage />} />
+                <Route
+                  path="/admin"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <AdminPage />
+                    </ProtectedRoute>
+                  }
+                />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.app.core.deps import require_admin
@@ -148,10 +149,31 @@ def update_user_status(
     return user
 
 
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    user_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> None:
+    """Permanently delete a user when no protected ledger reference exists."""
+    user = _get_user_or_404(db, user_id)
+    if user.id == admin.id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Không thể tự xóa tài khoản admin hiện tại")
+    _ensure_not_last_active_admin(db, user, becoming_admin=False)
+    add_audit_log(db, action="user.deleted", actor_id=admin.id, resource_type="user", resource_id=user.id, metadata={"deleted_email": user.email})
+    db.delete(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Không thể xóa user vì tài khoản đang có dữ liệu giao dịch hoặc sổ cái cần được giữ lại") from None
+
+
 @router.get("/blacklist", response_model=BlacklistPage)
 def list_blacklist(
     limit: int = Query(default=_BLACKLIST_DEFAULT_PAGE_SIZE, ge=1, le=_BLACKLIST_MAX_PAGE_SIZE),
     cursor: str | None = None,
+    entity_type: str | None = Query(default=None, pattern="^(account|phone|email|url)$"),
     db: Session = Depends(get_db),
 ) -> BlacklistPage:
     """Return a newest-first keyset page instead of the whole blacklist."""
@@ -171,7 +193,9 @@ def list_blacklist(
         if seek_created_at is not None and seek_entry_id is not None
         else None
     )
-    query = select(Blacklist)
+    query = select(Blacklist).where(Blacklist.is_active.is_(True))
+    if entity_type is not None:
+        query = query.where(Blacklist.entity_type == entity_type)
     if seek_filter is not None:
         query = query.where(seek_filter)
     rows = list(

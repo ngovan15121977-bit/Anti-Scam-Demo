@@ -3,11 +3,9 @@ import { Link, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { Shield, Mail, Lock, User, Eye, EyeOff, Phone } from "lucide-react";
 import { authApi } from "@/api/auth";
-import { useAuthStore } from "@/stores/authStore";
 
 export default function RegisterPage() {
   const navigate = useNavigate();
-  const setAuth = useAuthStore((s) => s.setAuth);
   const [form, setForm] = useState({
     email: "",
     full_name: "",
@@ -16,16 +14,39 @@ export default function RegisterPage() {
     confirmPassword: "",
   });
   const [showPass, setShowPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const registerMutation = useMutation({
     mutationFn: authApi.register,
-    onSuccess: (data) => {
-      setAuth(data.access_token, data.user);
-      navigate("/setup-pin", { replace: true });
+    onSuccess: () => {
+      navigate("/login", {
+        replace: true,
+        state: { registrationEmail: form.email },
+      });
     },
     onError: (err: any) => {
-      setErrors({ general: err.response?.data?.detail || "Đăng ký thất bại" });
+      const detail = err.response?.data?.detail;
+      const translateValidationMessage = (value: string) => {
+        if (/valid email address|special-use|reserved name/i.test(value)) {
+          return "Địa chỉ email không hợp lệ. Vui lòng sử dụng email thật, ví dụ: tenban@gmail.com.";
+        }
+        return value;
+      };
+      const message = Array.isArray(detail)
+        ? detail
+            .map((item: unknown) => {
+              if (typeof item === "string") return translateValidationMessage(item);
+              if (item && typeof item === "object" && "msg" in item) {
+                return translateValidationMessage(String((item as { msg: unknown }).msg));
+              }
+              return "Dữ liệu đăng ký không hợp lệ";
+            })
+            .join("; ")
+        : typeof detail === "string"
+          ? translateValidationMessage(detail)
+          : "Đăng ký thất bại";
+      setErrors({ general: message });
     },
   });
 
@@ -96,8 +117,11 @@ export default function RegisterPage() {
 
           <div className="relative">
             <Lock className="absolute left-4 top-3.5 h-5 w-5 text-gray-400" />
-            <input type="password" placeholder="Xác nhận mật khẩu" className={inputClass}
+            <input type={showConfirmPass ? "text" : "password"} placeholder="Xác nhận mật khẩu" className={inputClass + " pr-12"}
               value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} />
+            <button type="button" onClick={() => setShowConfirmPass(!showConfirmPass)} className="absolute right-4 top-3.5 text-gray-400" aria-label={showConfirmPass ? "Ẩn mật khẩu xác nhận" : "Hiện mật khẩu xác nhận"}>
+              {showConfirmPass ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+            </button>
           </div>
           {errors.confirmPassword && <p className="text-xs text-red-500 ml-1">{errors.confirmPassword}</p>}
 

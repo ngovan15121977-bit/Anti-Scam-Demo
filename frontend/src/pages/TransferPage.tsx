@@ -113,6 +113,11 @@ export default function TransferPage() {
     queryFn: () => transactionsApi.getHistorySummary(),
     staleTime: 30_000,
   });
+  const pinStatus = useQuery({
+    queryKey: ["transaction-pin-status"],
+    queryFn: authApi.transactionPinStatus,
+    staleTime: 0,
+  });
   const dailyTransferLimit = 100_000_000;
   const completedToday = dailySummaryQuery.data?.completed_outgoing_today ?? 0;
   const remainingDailyLimit = Math.max(0, dailyTransferLimit - completedToday);
@@ -407,6 +412,26 @@ export default function TransferPage() {
     form.bank_code,
   );
   const requiresFaceVerification = Boolean(riskData?.requires_face_verification);
+
+  if (pinStatus.isLoading) {
+    return <div className="flex min-h-screen items-center justify-center bg-gray-50 text-sm text-slate-500">Đang kiểm tra mã PIN...</div>;
+  }
+
+  if (pinStatus.isError || !pinStatus.data?.configured) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
+        <div className="w-full max-w-md rounded-3xl bg-white p-7 text-center shadow-xl">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-rose-100">
+            <Lock className="h-8 w-8 text-rose-600" />
+          </div>
+          <h1 className="mt-5 text-2xl font-bold text-slate-900">Bạn chưa cài mã PIN</h1>
+          <p className="mt-3 text-sm leading-relaxed text-slate-600">Bạn cần tạo mã PIN giao dịch trước khi thực hiện chuyển tiền.</p>
+          <button onClick={() => navigate("/setup-pin")} className="mt-6 w-full rounded-xl bg-rose-600 py-3 font-bold text-white">Đăng ký mã PIN</button>
+          <button onClick={() => navigate("/dashboard")} className="mt-3 w-full rounded-xl bg-slate-100 py-3 font-semibold text-slate-700">Quay lại Dashboard</button>
+        </div>
+      </div>
+    );
+  }
 
   if (step === "form") {
     return (

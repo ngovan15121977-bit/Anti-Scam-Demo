@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { Shield, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { authApi } from "@/api/auth";
@@ -8,8 +8,10 @@ import FaceVerificationModal, { type FaceMatchResult } from "@/components/auth/F
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const setAuth = useAuthStore((s) => s.setAuth);
-  const [form, setForm] = useState({ email: "", password: "" });
+  const registrationEmail = (location.state as { registrationEmail?: string } | null)?.registrationEmail;
+  const [form, setForm] = useState({ email: registrationEmail ?? "", password: "" });
   const [showPass, setShowPass] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [faceStep, setFaceStep] = useState(false);
@@ -57,6 +59,11 @@ export default function LoginPage() {
           {errors.general && (
             <div className="rounded-xl bg-red-50 p-3 text-sm text-red-600 border border-red-200 text-center">
               {errors.general}
+            </div>
+          )}
+          {registrationEmail && !errors.general && (
+            <div className="rounded-xl bg-emerald-50 p-3 text-center text-sm text-emerald-700 border border-emerald-200">
+              Đăng ký tài khoản thành công. Hãy sử dụng email vừa đăng ký để đăng nhập.
             </div>
           )}
 
