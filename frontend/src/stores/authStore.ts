@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { authApi, type TokenResponse, User } from "@/api/auth";
+import { authApi, User } from "@/api/auth";
 
 interface AuthState {
   user: User | null;
@@ -39,11 +39,8 @@ export const useAuthStore = create<AuthState>()(
       login: async (email, password) => {
         set({ isLoading: true });
         try {
-          const res = await authApi.login({ email, password });
-          if (!("access_token" in res)) {
-            throw new Error("Cần hoàn tất xác thực PIN và khuôn mặt.");
-          }
-          const { access_token, user } = res as unknown as TokenResponse;
+          const response = await authApi.login({ email, password });
+          const { access_token, user } = response;
           localStorage.setItem("token", access_token);
           set({
             token: access_token,

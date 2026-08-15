@@ -9,6 +9,7 @@ import HomePage from "@/pages/HomePage";
 import MainLayout from "@/components/layout/MainLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import PinRequiredRoute from "@/components/auth/PinRequiredRoute";
+import LocationRequiredRoute from "@/components/auth/LocationRequiredRoute";
 
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const TransferPage = lazy(() => import("@/pages/TransferPage"));
@@ -16,6 +17,7 @@ const HistoryPage = lazy(() => import("@/pages/HistoryPage"));
 const AdminPage = lazy(() => import("@/pages/AdminPage"));
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const PinSetupPage = lazy(() => import("@/pages/PinSetupPage"));
+const LocationSetupPage = lazy(() => import("@/pages/LocationSetupPage"));
 const FaceEnrollmentPage = lazy(() => import("@/pages/FaceEnrollmentPage"));
 const QrPaymentPage = lazy(() => import("@/pages/QrPaymentPage"));
 
@@ -83,10 +85,13 @@ function App() {
               <Route
                 element={
                   <ProtectedRoute>
-                    <MainLayout />
+                    <LocationRequiredRoute>
+                      <MainLayout />
+                    </LocationRequiredRoute>
                   </ProtectedRoute>
                 }
               >
+                <Route path="/confirm-location" element={<LocationSetupPage />} />
                 <Route path="/setup-pin" element={<PinSetupPage />} />
                 <Route path="/setup-face" element={<FaceEnrollmentPage />} />
                 <Route path="/dashboard" element={<DashboardPage />} />

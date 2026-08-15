@@ -5,23 +5,44 @@ from datetime import UTC, datetime
 
 import cloudinary
 import cloudinary.uploader
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.app.config import get_settings
 from src.app.core.deps import get_current_user
-from src.app.core.security import create_access_token, create_face_verification_token, hash_password, verify_password
+from src.app.core.security import (
+    create_access_token,
+    create_face_verification_token,
+    hash_password,
+    verify_password,
+)
 from src.app.db.session import get_db
 from src.app.models.face_enrollment import FaceEnrollment
 from src.app.models.face_verification_log import FaceVerificationLog
 from src.app.models.transaction import Transaction
 from src.app.models.user import User, UserRole
-from src.app.schemas.auth import AccountOverview, FaceEnrollmentRequest, FaceLoginRequest, FaceLoginResponse, FaceVerificationRequest, FaceVerificationResponse, LoginRequest, RegisterRequest, SecurityCheck, TokenResponse, TransactionPinRequest
+from src.app.schemas.auth import (
+    AccountOverview,
+    FaceEnrollmentRequest,
+    FaceLoginRequest,
+    FaceLoginResponse,
+    FaceVerificationRequest,
+    FaceVerificationResponse,
+    LoginLocationRequest,
+    LoginLocationResponse,
+    LoginRequest,
+    RegisterRequest,
+    SecurityCheck,
+    TokenResponse,
+    TransactionPinRequest,
+)
 from src.app.schemas.user import UserOut
 from src.app.services.audit import add_audit_log
 from src.app.services.face_verification import embedding_from_data_url, similarity_from_embedding
+from src.app.services import risk_rules
+from src.app.services.transaction_telemetry import build_risk_telemetry, persist_risk_telemetry
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 _AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -45,8 +66,43 @@ def _data_url_bytes(value: str) -> bytes:
     return raw
 
 
+def _record_login_context(
+    db: Session,
+    *,
+    user: User,
+    payload: LoginLocationRequest,
+    request: Request,
+) -> None:
+    """Persist mandatory login context and audit only derived risk evidence."""
+    peer_ip = request.client.host if request.client is not None else None
+    telemetry = build_risk_telemetry(payload.client_context, client_ip=peer_ip)
+    security_signals = risk_rules.collect_telemetry_signals(db, user.id, telemetry)
+    persist_risk_telemetry(
+        db,
+        user_id=user.id,
+        transaction_id=None,
+        telemetry=telemetry,
+        event_type="login",
+    )
+    add_audit_log(
+        db,
+        action="auth.login_succeeded",
+        actor_id=user.id,
+        resource_type="user",
+        resource_id=user.id,
+        metadata={
+            "security_signal_types": [signal.signal_type for signal in security_signals],
+            "security_signal_count": len(security_signals),
+            "coarse_location_required": True,
+        },
+    )
+
+
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def register(
+    payload: RegisterRequest,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
     if db.scalar(select(User).where(User.email == payload.email)):
         raise HTTPException(status_code=409, detail="Email đã được sử dụng")
     if db.scalar(
@@ -80,18 +136,40 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenRe
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    """Issue a dashboard session; sensitive actions remain PIN/face protected."""
+def login(
+    payload: LoginRequest,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    """Issue the app session; UI immediately enforces location setup."""
     user = db.scalar(select(User).where(User.email == payload.email))
     if user is None or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Email hoặc mật khẩu không đúng")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Tài khoản đã bị vô hiệu hóa")
-    return TokenResponse(access_token=create_access_token(subject=str(user.id), role=user.role), user=UserOut.model_validate(user))
+    return TokenResponse(
+        access_token=create_access_token(subject=str(user.id), role=user.role),
+        user=UserOut.model_validate(user),
+    )
+
+
+@router.post("/login/location", response_model=LoginLocationResponse)
+def record_login_location(
+    payload: LoginLocationRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> LoginLocationResponse:
+    """Store required coarse location from the post-login setup screen."""
+    _record_login_context(db, user=current_user, payload=payload, request=request)
+    db.commit()
+    return LoginLocationResponse()
 
 
 @router.post("/login/face", response_model=FaceLoginResponse)
-def login_with_face(payload: FaceLoginRequest, db: Session = Depends(get_db)) -> FaceLoginResponse:
+def login_with_face(
+    payload: FaceLoginRequest,
+    db: Session = Depends(get_db),
+) -> FaceLoginResponse:
     settings = get_settings()
     user = db.scalar(select(User).where(User.email == payload.email))
     if user is None or not verify_password(payload.password, user.hashed_password):
@@ -111,7 +189,12 @@ def login_with_face(payload: FaceLoginRequest, db: Session = Depends(get_db)) ->
     db.add(FaceVerificationLog(user_id=user.id, enrollment_id=enrollment.id, purpose="login", similarity=similarity, threshold=float(enrollment.similarity_threshold), matched=True, model_id=enrollment.model_id, created_at=datetime.now(UTC)))
     add_audit_log(db, action="auth.face_login_verified", actor_id=user.id, resource_type="face_enrollment", resource_id=enrollment.id, metadata={"similarity": round(similarity, 4)})
     db.commit()
-    return FaceLoginResponse(access_token=create_access_token(subject=str(user.id), role=user.role), user=UserOut.model_validate(user), similarity=similarity, threshold=float(enrollment.similarity_threshold))
+    return FaceLoginResponse(
+        access_token=create_access_token(subject=str(user.id), role=user.role),
+        user=UserOut.model_validate(user),
+        similarity=similarity,
+        threshold=float(enrollment.similarity_threshold),
+    )
 
 
 @router.put("/face/enrollment", response_model=FaceVerificationResponse)

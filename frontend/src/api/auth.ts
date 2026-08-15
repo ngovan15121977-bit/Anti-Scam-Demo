@@ -1,4 +1,5 @@
 import axiosInstance from "./axios";
+import type { LoginRiskClientContext } from "@/lib/riskTelemetry";
 
 export interface User {
   id: string;
@@ -49,6 +50,14 @@ export interface RegisterRequest {
   password: string;
 }
 
+export interface LoginLocationRequest {
+  client_context: LoginRiskClientContext;
+}
+
+export interface LoginLocationResponse {
+  recorded: boolean;
+}
+
 export interface FaceVerificationResponse {
   matched: boolean;
   similarity: number;
@@ -63,6 +72,11 @@ export interface FaceLoginResponse extends TokenResponse { similarity: number; t
 export const authApi = {
   login: async (data: LoginRequest): Promise<TokenResponse> => {
     const response = await axiosInstance.post<TokenResponse>("/v1/auth/login", data);
+    return response.data;
+  },
+
+  recordLoginLocation: async (data: LoginLocationRequest): Promise<LoginLocationResponse> => {
+    const response = await axiosInstance.post<LoginLocationResponse>("/v1/auth/login/location", data);
     return response.data;
   },
 

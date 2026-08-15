@@ -3,7 +3,21 @@ import uuid
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from src.app.schemas.risk import RiskClientContextIn
 from src.app.schemas.user import UserOut
+
+
+class LoginRiskClientContextIn(RiskClientContextIn):
+    """Login requires a browser device ID and coarse location permission."""
+
+    device_id: str = Field(..., min_length=16, max_length=128)
+
+    def model_post_init(self, __context: object) -> None:
+        super().model_post_init(__context)
+        if self.geo_latitude is None or self.geo_longitude is None:
+            raise ValueError("Cần cấp vị trí gần đúng để đăng nhập")
+        if self.geo_accuracy_m is None:
+            raise ValueError("Thiếu độ chính xác của vị trí đăng nhập")
 
 
 class RegisterRequest(BaseModel):
@@ -11,7 +25,6 @@ class RegisterRequest(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=255)
     password: str = Field(..., min_length=8, max_length=128)
     phone: str = Field(..., min_length=10, max_length=10)
-
     @field_validator("phone", mode="before")
     @classmethod
     def normalize_timi_account_phone(cls, value: object) -> str:
@@ -26,6 +39,12 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=128)
 
 
+class LoginLocationRequest(BaseModel):
+    """Mandatory location submission immediately after an authenticated login."""
+
+    client_context: LoginRiskClientContextIn
+
+
 class TransactionPinRequest(BaseModel):
     pin: str = Field(..., pattern=r"^\d{4,6}$")
 
@@ -35,9 +54,7 @@ class FaceVerificationRequest(BaseModel):
     transaction_id: uuid.UUID | None = None
 
 
-class FaceLoginRequest(BaseModel):
-    email: EmailStr
-    password: str = Field(..., min_length=1, max_length=128)
+class FaceLoginRequest(LoginRequest):
     pin: str = Field(..., pattern=r"^\d{4,6}$")
     image_data: str = Field(..., min_length=20, max_length=7_000_000)
 
@@ -59,6 +76,10 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class LoginLocationResponse(BaseModel):
+    recorded: bool = True
 
 
 class FaceLoginResponse(TokenResponse):

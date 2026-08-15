@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, String, Text
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -51,6 +51,14 @@ class Transaction(Base, TimestampMixin):
             name="ck_transactions_environment",
         ),
         CheckConstraint("char_length(currency) = 3", name="ck_transactions_currency"),
+        # Matches the transfer-page aggregate exactly, without indexing drafts
+        # and cancelled transactions that can never count toward the limit.
+        Index(
+            "ix_transactions_user_completed_created",
+            "user_id",
+            "created_at",
+            postgresql_where=text("transaction_status = 'completed'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

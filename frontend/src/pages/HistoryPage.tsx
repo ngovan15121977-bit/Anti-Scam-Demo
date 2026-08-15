@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { transactionsApi, type Transaction as ApiTransaction } from "@/api/transactions";
 import { useNavigate } from "react-router-dom";
@@ -77,9 +77,14 @@ export default function HistoryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
-  const historyQuery = useQuery({
+  const historyQuery = useInfiniteQuery({
     queryKey: ["transaction-history"],
-    queryFn: () => transactionsApi.getHistory(100),
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => transactionsApi.getHistory({
+      limit: 20,
+      cursor: pageParam,
+    }),
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     refetchOnMount: "always",
     staleTime: 0,
   });
@@ -95,11 +100,12 @@ export default function HistoryPage() {
           : `Không tải được lịch sử giao dịch (HTTP ${historyError.response?.status ?? "không xác định"}).`
     : "Không thể kết nối tới máy chủ.";
 
-  const transactions: Transaction[] = (historyQuery.data ?? []).map((transaction: ApiTransaction) => ({
+  const apiTransactions = historyQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const transactions: Transaction[] = apiTransactions.map((transaction: ApiTransaction) => ({
     id: transaction.id,
-    type: "transfer",
-    recipient_name: transaction.payee_name,
-    recipient_account: `${transaction.payee_account}${transaction.bank_code ? ` • ${transaction.bank_code}` : ""}`,
+    type: transaction.direction === "incoming" ? "receive" : "transfer",
+    recipient_name: transaction.counterparty_name,
+    recipient_account: `${transaction.counterparty_account}${transaction.bank_code ? ` • ${transaction.bank_code}` : ""}`,
     amount: transaction.amount,
     status: transaction.transaction_status === "completed"
       ? "success"
@@ -112,7 +118,13 @@ export default function HistoryPage() {
       ? "low"
       : transaction.risk_level === "medium" ? "medium" : transaction.risk_level === "high" ? "high" : "critical",
     created_at: transaction.created_at,
-    description: transaction.transaction_status === "completed" ? "Giao dịch đã hoàn tất" : "Giao dịch chuyển khoản",
+    description: transaction.direction === "incoming"
+      ? transaction.transaction_status === "completed"
+        ? "Đã nhận tiền qua Timi Bank"
+        : "Giao dịch nhận tiền Timi Bank"
+      : transaction.transaction_status === "completed"
+        ? "Giao dịch đã hoàn tất"
+        : "Giao dịch chuyển khoản",
   }));
 
   const filteredTransactions = transactions.filter((tx) => {
@@ -332,6 +344,20 @@ export default function HistoryPage() {
                       </div>
                     );
                   })
+                )}
+                {historyQuery.hasNextPage && !historyQuery.isError && (
+                  <button
+                    type="button"
+                    onClick={() => historyQuery.fetchNextPage()}
+                    disabled={historyQuery.isFetchingNextPage}
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {historyQuery.isFetchingNextPage ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" />Đang tải thêm...</>
+                    ) : (
+                      "Tải thêm giao dịch"
+                    )}
+                  </button>
                 )}
               </div>
             </div>

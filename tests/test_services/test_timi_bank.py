@@ -4,13 +4,25 @@ from uuid import uuid4
 import pytest
 
 from src.app.models.timi_ledger_entry import TimiLedgerEntryType
-from src.app.schemas.auth import RegisterRequest
+from src.app.schemas.auth import (
+    LoginLocationRequest,
+    LoginRequest,
+    RegisterRequest,
+)
 from src.app.services.timi_bank import (
     InsufficientTimiBalance,
     TimiSelfTransfer,
     apply_timi_transfer,
     is_timi_bank,
 )
+
+
+LOCATION_CONTEXT = {
+    "device_id": "test-browser-device-0001",
+    "geo_latitude": 10.7769,
+    "geo_longitude": 106.7009,
+    "geo_accuracy_m": 500,
+}
 
 
 class RecordingSession:
@@ -43,6 +55,21 @@ def test_registration_phone_must_have_exactly_ten_digits() -> None:
             password="password-123",
             phone="912345678",
         )
+
+
+def test_location_is_required_on_the_post_login_setup_screen() -> None:
+    credentials = LoginRequest(
+        email="location-flow@example.com",
+        password="password-123",
+    )
+    assert credentials.email == "location-flow@example.com"
+
+    with pytest.raises(ValueError, match="client_context"):
+        LoginLocationRequest()
+    location_request = LoginLocationRequest(
+        client_context=LOCATION_CONTEXT,
+    )
+    assert location_request.client_context.geo_latitude == 10.7769
 
 
 def test_internal_transfer_creates_balanced_debit_and_credit_entries() -> None:

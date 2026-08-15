@@ -20,6 +20,7 @@ from src.app.models.risk_assessment import (
 from src.app.models.scam_pattern import ScamPattern
 from src.app.models.scam_report import ScamReport
 from src.app.models.transaction import Transaction, TransactionEnvironment, TransactionStatus
+from src.app.models.transaction_risk_context import TransactionRiskContext
 from src.app.models.timi_ledger_entry import TimiLedgerEntry, TimiLedgerEntryType
 from src.app.models.trusted_recipient import TrustedRecipient
 from src.app.models.user import User, UserRole
@@ -42,6 +43,7 @@ __all__ = [
     "Transaction",
     "TransactionEnvironment",
     "TransactionRiskAssessment",
+    "TransactionRiskContext",
     "TransactionStatus",
     "TimiLedgerEntry",
     "TimiLedgerEntryType",
