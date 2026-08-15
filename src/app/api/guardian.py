@@ -1,0 +1,474 @@
+"""REST and WebSocket gateway for the realtime Scam Call Guardian MVP."""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import binascii
+import logging
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
+from jose import JWTError
+from pydantic import ValidationError
+from sqlalchemy.orm import Session
+
+from src.app.config import get_settings
+from src.app.core.deps import get_current_user
+from src.app.core.security import decode_access_token
+from src.app.db.session import SessionLocal, get_db
+from src.app.models.scam_guardian import (
+    ScamAlert,
+    ScamConversationSegment,
+    ScamGuardianSession,
+    ScamRiskEvent,
+    ScamSignal,
+)
+from src.app.models.user import User
+from src.app.schemas.guardian import (
+    GuardianAudioMessage,
+    GuardianAuthMessage,
+    GuardianFinishRequest,
+    GuardianSessionCreate,
+    GuardianSessionOut,
+    GuardianTranscriptMessage,
+)
+from src.app.services.scam_guardian import (
+    GuardianConversationState,
+    GuardianRiskResult,
+    analyze_guardian_state,
+)
+from src.app.services.scam_guardian_stt import (
+    is_probable_ad_hallucination,
+    transcribe_guardian_audio,
+)
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/scam-guardian", tags=["scam-guardian"])
+
+
+def _get_owned_session(
+    db: Session, session_id: uuid.UUID, user_id: uuid.UUID
+) -> ScamGuardianSession:
+    session = db.get(ScamGuardianSession, session_id)
+    if session is None or session.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phiên Scam Guardian")
+    return session
+
+
+def _session_out(session: ScamGuardianSession) -> GuardianSessionOut:
+    return GuardianSessionOut.model_validate(session)
+
+
+@router.post(
+    "/sessions",
+    response_model=GuardianSessionOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_guardian_session(
+    payload: GuardianSessionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> GuardianSessionOut:
+    active = (
+        db.query(ScamGuardianSession)
+        .filter(
+            ScamGuardianSession.user_id == current_user.id,
+            ScamGuardianSession.status == "active",
+        )
+        .first()
+    )
+    if active is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Tài khoản đang có một phiên Scam Guardian hoạt động",
+        )
+
+    session = ScamGuardianSession(
+        user_id=current_user.id,
+        retain_transcript=payload.retain_transcript,
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return _session_out(session)
+
+
+@router.get("/sessions/active", response_model=GuardianSessionOut | None)
+def get_active_guardian_session(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> GuardianSessionOut | None:
+    """Return the current background session so a refreshed tab can resume it."""
+    session = (
+        db.query(ScamGuardianSession)
+        .filter(
+            ScamGuardianSession.user_id == current_user.id,
+            ScamGuardianSession.status == "active",
+        )
+        .order_by(ScamGuardianSession.started_at.desc())
+        .first()
+    )
+    return _session_out(session) if session is not None else None
+
+
+@router.get("/sessions/{session_id}", response_model=GuardianSessionOut)
+def get_guardian_session(
+    session_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> GuardianSessionOut:
+    return _session_out(_get_owned_session(db, session_id, current_user.id))
+
+
+@router.post("/sessions/{session_id}/finish", response_model=GuardianSessionOut)
+def finish_guardian_session(
+    session_id: uuid.UUID,
+    payload: GuardianFinishRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> GuardianSessionOut:
+    session = _get_owned_session(db, session_id, current_user.id)
+    if session.status == "active":
+        session.status = payload.status
+        session.ended_at = datetime.now(UTC)
+        session.final_risk_score = session.max_risk_score
+        session.final_recommendation = (
+            "Dừng cuộc gọi và không chuyển tiền."
+            if session.max_risk_score >= 80
+            else "Tự xác minh qua kênh chính thức trước khi giao dịch."
+            if session.max_risk_score >= 60
+            else "Tiếp tục thận trọng và không cung cấp thông tin bảo mật."
+        )
+        db.commit()
+        db.refresh(session)
+    return _session_out(session)
+
+
+def _user_id_from_token(token: str) -> uuid.UUID:
+    try:
+        payload = decode_access_token(token)
+        if payload.get("purpose") is not None:
+            raise ValueError("purpose-bound token")
+        return uuid.UUID(str(payload["sub"]))
+    except (JWTError, KeyError, TypeError, ValueError):
+        raise ValueError("invalid access token") from None
+
+
+def _persist_risk_result(
+    db: Session,
+    session: ScamGuardianSession,
+    result: GuardianRiskResult,
+    segment_id: uuid.UUID | None,
+) -> None:
+    session.max_risk_score = max(session.max_risk_score, result.risk_score)
+    session.risk_level = result.risk_level
+    session.scam_type = result.scenario
+    db.add(
+        ScamRiskEvent(
+            session_id=session.id,
+            segment_id=segment_id,
+            risk_score=result.risk_score,
+            risk_level=result.risk_level,
+            reason=result.explanation,
+            signals=[
+                {
+                    "signal_type": signal.signal_type,
+                    "weight": signal.weight,
+                    "confidence": signal.confidence,
+                }
+                for signal in result.signals
+            ],
+        )
+    )
+    for signal in result.signals:
+        db.add(
+            ScamSignal(
+                session_id=session.id,
+                segment_id=segment_id,
+                signal_type=signal.signal_type,
+                confidence=signal.confidence,
+                weight=signal.weight,
+                # Never persist transcript-derived text without explicit consent.
+                evidence=(
+                    {"text": signal.evidence}
+                    if session.retain_transcript
+                    else {"matched": True}
+                ),
+            )
+        )
+    db.commit()
+
+
+def _risk_payload(result: GuardianRiskResult) -> dict[str, Any]:
+    return {
+        "type": "risk_update",
+        "risk_score": result.risk_score,
+        "risk_level": result.risk_level,
+        "scenario": result.scenario,
+        "recommended_action": result.recommended_action,
+        "explanation": result.explanation,
+        "signals": [
+            {
+                "type": signal.signal_type,
+                "weight": signal.weight,
+                "confidence": signal.confidence,
+            }
+            for signal in result.signals
+        ],
+    }
+
+
+@router.websocket("/ws/{session_id}")
+async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
+    """Receive audio/transcript events and stream risk updates immediately.
+
+    When GROQ_API_KEY is configured, short self-contained audio segments are
+    transcribed by Groq Whisper. Raw audio remains in memory only and is never
+    written to disk or persisted in the database.
+    """
+    await websocket.accept()
+    db = SessionLocal()
+    state = GuardianConversationState()
+    session: ScamGuardianSession | None = None
+    last_score = 0
+    settings = get_settings()
+
+    try:
+        session = db.get(ScamGuardianSession, session_id)
+        if session is None or session.status != "active":
+            await websocket.close(code=4404, reason="Guardian session is not active")
+            return
+
+        try:
+            auth_raw = await asyncio.wait_for(websocket.receive_json(), timeout=5)
+            auth = GuardianAuthMessage.model_validate(auth_raw)
+            user_id = _user_id_from_token(auth.token)
+        except (TimeoutError, ValueError, TypeError):
+            await websocket.close(code=4401, reason="Authentication required")
+            return
+
+        if session.user_id != user_id:
+            await websocket.close(code=4403, reason="Session does not belong to user")
+            return
+        user = db.get(User, user_id)
+        if user is None or not user.is_active:
+            await websocket.close(code=4401, reason="User is not active")
+            return
+
+        server_stt_enabled = settings.guardian_stt_enabled and bool(settings.groq_api_key)
+        await websocket.send_json(
+            {
+                "type": "ready",
+                "session_id": str(session.id),
+                "transcription_mode": (
+                    "server_groq_whisper"
+                    if server_stt_enabled
+                    else "browser_speech_recognition"
+                ),
+                "audio_persistence": "discarded",
+                "risk_score": 0,
+                "risk_level": "safe",
+            }
+        )
+
+        async def process_final_transcript(transcript: GuardianTranscriptMessage) -> None:
+            nonlocal last_score
+            # Browser SpeechRecognition can produce the same stock YouTube
+            # outro text as Whisper when the microphone is silent. Discard it
+            # before persistence, UI delivery, and risk scoring regardless of
+            # which STT path produced the transcript.
+            if is_probable_ad_hallucination(transcript.text):
+                await websocket.send_json(
+                    {
+                        "type": "transcript_ignored",
+                        "reason": "probable_stt_hallucination",
+                    }
+                )
+                return
+            state.append(transcript.speaker, transcript.text)
+            segment_id: uuid.UUID | None = None
+            if session.retain_transcript:
+                segment = ScamConversationSegment(
+                    session_id=session.id,
+                    speaker=transcript.speaker,
+                    text=transcript.text,
+                    start_ms=transcript.start_ms,
+                    end_ms=transcript.end_ms,
+                    confidence=transcript.confidence,
+                    source=transcript.source,
+                )
+                db.add(segment)
+                db.flush()
+                segment_id = segment.id
+
+            result = analyze_guardian_state(state)
+            _persist_risk_result(db, session, result, segment_id)
+            await websocket.send_json(
+                {
+                    "type": "transcript",
+                    "status": "final",
+                    "speaker": transcript.speaker,
+                    "text": transcript.text,
+                }
+            )
+            await websocket.send_json(_risk_payload(result))
+            if last_score < 80 <= result.risk_score:
+                alert = ScamAlert(
+                    session_id=session.id,
+                    severity="critical",
+                    title="Nguy cơ lừa đảo rất cao",
+                    message="Dừng cuộc gọi. Không chuyển tiền và không cung cấp OTP/PIN.",
+                    delivered_at=datetime.now(UTC),
+                )
+                db.add(alert)
+                db.commit()
+                await websocket.send_json(
+                    {
+                        "type": "alert",
+                        "severity": "critical",
+                        "title": "Nguy cơ lừa đảo rất cao",
+                        "message": "Dừng cuộc gọi. Không chuyển tiền và không cung cấp OTP/PIN.",
+                    }
+                )
+            last_score = result.risk_score
+
+        while True:
+            raw: Any = await websocket.receive_json()
+            event_type = raw.get("type") if isinstance(raw, dict) else None
+
+            if event_type == "heartbeat":
+                await websocket.send_json({"type": "heartbeat_ack"})
+                continue
+
+            if event_type == "audio_chunk":
+                try:
+                    audio = GuardianAudioMessage.model_validate(raw)
+                except ValidationError:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "code": "audio_invalid",
+                            "message": "Audio chunk không hợp lệ hoặc vượt quá kích thước cho phép.",
+                        }
+                    )
+                    continue
+                await websocket.send_json(
+                    {
+                        "type": "audio_ack",
+                        "accepted": audio.speech_detected,
+                        "bytes_estimate": (len(audio.data) * 3) // 4,
+                    }
+                )
+                if not audio.speech_detected:
+                    continue
+                if server_stt_enabled:
+                    try:
+                        audio_bytes = base64.b64decode(audio.data, validate=True)
+                    except (binascii.Error, ValueError):
+                        await websocket.send_json(
+                            {"type": "error", "message": "Audio chunk không hợp lệ."}
+                        )
+                        continue
+                    try:
+                        text = await asyncio.to_thread(
+                            transcribe_guardian_audio,
+                            audio_bytes,
+                            audio.mime_type,
+                        )
+                    except Exception:
+                        logger.exception("Guardian server-side STT failed")
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "code": "audio_stt_failed",
+                                "message": "Không thể chuyển audio thành văn bản; phiên vẫn tiếp tục nhận chunk.",
+                            }
+                        )
+                        text = ""
+                    if text:
+                        await process_final_transcript(
+                            GuardianTranscriptMessage(
+                                text=text[:2000],
+                                speaker="unknown",
+                                confidence=None,
+                                source="server",
+                            )
+                        )
+                    else:
+                        await websocket.send_json(
+                            {
+                                "type": "audio_stt_empty",
+                                "message": "Server STT chưa tạo được transcript cho audio chunk này.",
+                            }
+                        )
+                continue
+
+            if event_type == "transcript":
+                transcript = GuardianTranscriptMessage.model_validate(raw)
+                if transcript.status == "partial":
+                    await websocket.send_json(
+                        {
+                            "type": "transcript",
+                            "status": "partial",
+                            "speaker": transcript.speaker,
+                            "text": transcript.text,
+                        }
+                    )
+                    continue
+
+                await process_final_transcript(transcript)
+                continue
+
+            if event_type == "stop":
+                session.status = "completed"
+                session.ended_at = datetime.now(UTC)
+                session.final_risk_score = session.max_risk_score
+                session.final_recommendation = (
+                    "Dừng cuộc gọi và không chuyển tiền."
+                    if session.max_risk_score >= 80
+                    else "Tự xác minh qua kênh chính thức trước khi giao dịch."
+                    if session.max_risk_score >= 60
+                    else "Tiếp tục thận trọng và không cung cấp thông tin bảo mật."
+                )
+                db.commit()
+                await websocket.send_json(
+                    {
+                        "type": "session_finished",
+                        "session_id": str(session.id),
+                        "final_risk_score": session.final_risk_score,
+                        "risk_level": session.risk_level,
+                        "scenario": session.scam_type,
+                    }
+                )
+                break
+
+            await websocket.send_json(
+                {"type": "error", "message": "Guardian event không được hỗ trợ"}
+            )
+    except WebSocketDisconnect:
+        if session is not None and session.status == "active":
+            session.status = "interrupted"
+            session.ended_at = datetime.now(UTC)
+            session.final_risk_score = session.max_risk_score
+            db.commit()
+    except Exception:
+        logger.exception("Scam Guardian WebSocket failed")
+        if session is not None and session.status == "active":
+            session.status = "interrupted"
+            session.ended_at = datetime.now(UTC)
+            session.final_risk_score = session.max_risk_score
+            db.commit()
+        try:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": "Guardian tạm thời không thể phân tích phiên này.",
+                }
+            )
+        except Exception:
+            pass
+    finally:
+        db.close()

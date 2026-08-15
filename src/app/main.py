@@ -4,7 +4,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from src.app.api import admin, assistant, auth, health, recipients, transactions, url_safety
+from src.app.api import (
+    admin,
+    assistant,
+    auth,
+    guardian,
+    health,
+    recipients,
+    transactions,
+    url_safety,
+)
 from src.app.config import get_settings
 from src.app.services.face_verification import warm_face_model
 
@@ -30,6 +39,7 @@ app.include_router(transactions.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(url_safety.router, prefix="/api/v1")
 app.include_router(assistant.router, prefix="/api/v1")
+app.include_router(guardian.router, prefix="/api/v1")
 
 
 @app.on_event("startup")

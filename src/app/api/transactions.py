@@ -60,6 +60,7 @@ from src.app.services.timi_bank import (
     is_timi_bank,
     lock_timi_transfer_parties,
 )
+from src.app.models.scam_guardian import ScamGuardianSession
 from src.app.services.transaction_telemetry import (
     RiskTelemetry,
     build_risk_telemetry,
@@ -224,6 +225,42 @@ def _persist_assessment(
     score, level = graph_result["risk_score"], graph_result["risk_level"]
     explanation = graph_result["explanation"]
     should_warn = level in {RiskLevel.MEDIUM, RiskLevel.HIGH}
+    active_guardian = db.scalar(
+        select(ScamGuardianSession)
+        .where(
+            ScamGuardianSession.user_id == current_user.id,
+            ScamGuardianSession.status == "active",
+            ScamGuardianSession.max_risk_score >= 60,
+        )
+        .order_by(desc(ScamGuardianSession.max_risk_score))
+        .limit(1)
+    )
+    if active_guardian is not None:
+        guardian_score = active_guardian.max_risk_score / 100
+        score = max(score, guardian_score)
+        level = RiskLevel.HIGH
+        should_warn = True
+        explanation = (
+            f"Scam Guardian đang theo dõi một cuộc gọi có mức nguy cơ "
+            f"{active_guardian.max_risk_score}/100. Hãy tạm dừng trước khi chuyển tiền. "
+            f"{explanation}"
+        )
+        candidates = [
+            *candidates,
+            risk_rules.RiskSignalCandidate(
+                signal_type="active_scam_guardian",
+                severity="high",
+                score=guardian_score,
+                explanation=(
+                    "Phiên Scam Guardian đang hoạt động và đã phát hiện tín hiệu "
+                    "đáng ngờ trong cuộc gọi."
+                ),
+                evidence={
+                    "session_id": str(active_guardian.id),
+                    "risk_score": active_guardian.max_risk_score,
+                },
+            ),
+        ]
 
     assessment = TransactionRiskAssessment(
         transaction_id=transaction.id,
@@ -241,6 +278,14 @@ def _persist_assessment(
             "agent": "langgraph",
             "llm_used": graph_result.get("llm_used", False),
             "prompt_injection_detected": graph_result.get("prompt_injection_detected", False),
+            "active_scam_guardian": (
+                {
+                    "session_id": str(active_guardian.id),
+                    "risk_score": active_guardian.max_risk_score,
+                }
+                if active_guardian is not None
+                else None
+            ),
             "telemetry": {
                 "device_context_available": bool(telemetry and telemetry.device_hash),
                 "network_context_available": bool(telemetry and telemetry.ip_hash),
@@ -512,6 +557,29 @@ def submit_decision(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Giao dịch này đã được xử lý hoặc không còn chờ quyết định",
+        )
+
+    active_guardian = db.scalar(
+        select(ScamGuardianSession)
+        .where(
+            ScamGuardianSession.user_id == current_user.id,
+            ScamGuardianSession.status == "active",
+            ScamGuardianSession.max_risk_score >= 80,
+        )
+        .order_by(desc(ScamGuardianSession.max_risk_score))
+        .limit(1)
+    )
+    if (
+        active_guardian is not None
+        and payload.decision == WarningDecision.PROCEEDED
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Giao dịch bị tạm chặn vì Scam Guardian đang phát hiện nguy cơ "
+                f"{active_guardian.max_risk_score}/100. Hãy kết thúc cuộc gọi, "
+                "tự xác minh qua kênh chính thức rồi thử lại."
+            ),
         )
 
     warning = db.scalar(

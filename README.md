@@ -50,6 +50,33 @@ Timi là ứng dụng ngân hàng mô phỏng tập trung vào việc phát hi�
 - Report scam, admin quản lý blacklist/report/user/audit log và xem dữ liệu theo trang.
 - Timi Chibi Assistant xuất hiện sau đăng nhập. Chat chỉ trả lời trong phạm vi tính năng Timi; key chỉ được dùng ở backend.
 
+### Scam Call Guardian realtime
+
+- Scam Guardian chạy ngầm trong MainLayout sau khi người dùng đăng nhập và chấp nhận quyền microphone; không cần mở một trang riêng.
+- Một WebSocket giữ trong suốt phiên; MediaRecorder phát data event theo timeslice, gom thành đoạn audio tự chứa khoảng 3 giây rồi chỉ gửi đoạn có voice để nhận transcript/risk realtime. Recorder tự phục hồi nếu trình duyệt chuyển sang trạng thái inactive.
+- Ưu tiên Groq Whisper server-side STT (`GUARDIAN_STT_ENABLED=true`, mặc định `whisper-large-v3`); metadata `verbose_json` và bộ lọc câu outro/quảng bá YouTube phổ biến được dùng để bỏ các đoạn im lặng/hallucination trước khi đưa vào risk engine. Nếu provider trả lỗi/rỗng, browser SpeechRecognition tự chuyển sang fallback khi trình duyệt hỗ trợ. Audio chunk chỉ tồn tại trong bộ nhớ xử lý và không được lưu.
+- Backend giữ conversation state trong session, chạy rule engine deterministic và phát sự kiện risk_update ngay sau từng đoạn final.
+- Khi có tín hiệu nguy hiểm, frontend mới hiển thị cảnh báo CRITICAL; nếu Guardian active từ 80 trở lên, giao dịch chuyển tiền bị chặn ở server.
+- Mini Timi tự mở khung hội thoại và gửi cảnh báo có risk score, tín hiệu phát hiện và hướng dẫn dừng cuộc gọi.
+- Guardian chạy nền trong toàn bộ luồng sử dụng; trạng thái microphone, recorder, chunk/ACK, STT và risk được hiển thị dạng mini trong Timi ở góc màn hình để chẩn đoán mà không cần trang test riêng.
+- Transcript chỉ lưu vào conversation_segments khi người dùng bật consent; risk events/signals vẫn được lưu để audit nhưng không lưu text bằng chứng nếu chưa consent.
+- Critical alert được lưu vào scam_alerts cùng thời điểm gửi WebSocket để audit/hiển thị lại sau này.
+- Speaker diarization server là adapter kế tiếp; giao thức WebSocket hiện tại đã tách riêng để bổ sung mà không ảnh hưởng UI.
+
+Guardian signal catalog (deterministic)
+
+| Signal | Tiêu chí chính | Mức cộng cơ sở |
+|---|---|---:|
+| `bank_impersonation` | Tự xưng nhân viên/cán bộ ngân hàng hoặc bộ phận bảo mật | 22 |
+| `urgency` | Ép làm ngay, giới hạn vài phút/giờ, đe dọa nếu chậm | 12 |
+| `account_lock_threat` | Dọa khóa, phong tỏa, vô hiệu hóa hoặc mất quyền truy cập tài khoản | 24 |
+| `otp_request` | Yêu cầu đọc/gửi OTP, mã xác thực hoặc mã bảo mật | 30 |
+| `credential_social_engineering` | Dẫn dụ cung cấp PIN, mật khẩu, tên đăng nhập hoặc mã bảo mật | 28 |
+| `prevent_external_verification` | Cấm gọi ngân hàng, tự xác minh, ngắt máy hoặc hỏi người khác | 25 |
+| `authority_claim` | Tự xưng công an, cơ quan điều tra, tòa án, ngân hàng hoặc cơ quan có thẩm quyền | 18 |
+
+Các signal tương đồng legacy vẫn được lưu để không mất khả năng audit, nhưng được gom nhóm khi tính điểm để tránh cộng hai lần cùng một bằng chứng. Tổ hợp authority + khóa tài khoản, OTP + credential, hoặc cấm xác minh bên ngoài sẽ cộng thêm bonus và có thể chuyển cảnh báo lên `STOP`.
+
 ## Kiến trúc và cấu trúc mã nguồn
 
 ~~~text
@@ -61,10 +88,11 @@ FastAPI (src/app)
   ├─ Transactions / Timi ledger / reports
   ├─ QR URL safety / blacklist
   ├─ Admin / audit
+  ├─ Scam Guardian WebSocket → transcript/risk/alert realtime
   └─ Timi Assistant → Groq (tuỳ chọn cấu hình)
         │ SQLAlchemy + Alembic
         ▼
-Neon PostgreSQL (schema antiscam, pgvector nếu bật)
+    Neon PostgreSQL (schema antiscam, scam_sessions + risk timeline)
 ~~~
 
 | Đường dẫn | Vai trò |
@@ -116,6 +144,8 @@ Không commit .env. Các biến quan trọng:
 | GROQ_API_KEY | Cho chat | Key server-side cho Timi Assistant |
 | GROQ_MODEL_NAME | Cho chat | Mặc định openai/gpt-oss-20b |
 | GROQ_BASE_URL | Không | Mặc định https://api.groq.com/openai/v1 |
+| GUARDIAN_STT_ENABLED | Không | Bật server-side Whisper STT cho Guardian; mặc định true |
+| GUARDIAN_STT_MODEL | Không | Mặc định whisper-large-v3; có thể đổi sang whisper-large-v3-turbo nếu ưu tiên tốc độ/chi phí |
 | OPENAI_API_KEY | Không | Nhánh giải thích transaction legacy khi bật LLM |
 | LLM_EXPLANATION_ENABLED | Không | Mặc định false; risk score vẫn chạy khi tắt |
 | RISK_TELEMETRY_HASH_KEY | Production | HMAC IP/device telemetry, phải khác JWT secret |
@@ -296,6 +326,9 @@ Các API dưới đây (trừ health/root) nằm dưới /api/v1 và thường y
 | POST | /transactions/{id}/scam-report | Report giao dịch đáng ngờ |
 | POST | /url-safety/check | Kiểm tra URL QR |
 | POST | /assistant/chat | Chat giới hạn phạm vi với Timi |
+| POST | /scam-guardian/sessions | Tạo phiên bảo vệ cuộc gọi nền |
+| WS | /scam-guardian/ws/{session_id} | Audio/transcript realtime và risk update |
+| POST | /scam-guardian/sessions/{id}/finish | Kết thúc phiên Guardian |
 | GET | /admin/blacklist | Admin xem blacklist theo trang |
 | GET | /admin/scam-reports | Admin xem report |
 | GET | /health, /health/ready | Health, không cần JWT |
@@ -327,6 +360,16 @@ Repository vẫn chứa một số test legacy trong tests/test_api và tests/te
 ### 503 tại /api/v1/assistant/chat
 
 Backend chưa đọc GROQ_API_KEY hoặc đang chạy tiến trình cũ trước khi .env được cập nhật. Dừng toàn bộ Uvicorn, kiểm tra key không rỗng rồi khởi động lại. Không đặt key ở frontend.
+
+### Scam Guardian không nhận audio
+
+Mở Timi Chibi ở góc màn hình trên layout để kiểm tra các chỉ số: `track live`, `WebAudio running`, `recorder recording`, `data event`, `Đã gửi`, `ACK`. Sau khi phiên chuyển sang active, các chỉ số data/chunk phải tăng mà không cần bấm dừng rồi khởi động lại; nếu không, tải lại trang một lần để tạo run mới và xem thông báo lỗi. Nếu trình duyệt chặn `getUserMedia` vì phiên được khởi động tự động sau login, chỉ cần click/phím một lần trên layout đã đăng nhập để Guardian tự retry. Kiểm tra log browser/backend và đảm bảo microphone được cấp quyền trên đúng origin. Backend phải chạy tại `http://localhost:8000`; WebSocket cần được proxy với header Upgrade. Khi thay đổi cấu hình proxy, khởi động lại frontend:
+
+~~~powershell
+npm --prefix frontend run dev
+~~~
+
+Trình duyệt trên laptop không tự lấy được âm thanh nội bộ của cuộc gọi di động. Muốn thử cuộc gọi, bật loa ngoài đặt gần microphone; trước hết nên nói trực tiếp vào microphone máy tính để xác nhận pipeline.
 
 ### env: sh\r: No such file or directory
 

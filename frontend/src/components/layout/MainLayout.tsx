@@ -2,6 +2,8 @@ import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { Home, Send, History, User, LogOut, QrCode, ShieldCheck } from "lucide-react";
 import MiniTimiAssistant from "@/components/ai/MiniTimiAssistant";
+import ScamGuardianAlert from "@/components/guardian/ScamGuardianAlert";
+import { ScamGuardianProvider } from "@/components/guardian/ScamGuardianProvider";
 
 export default function MainLayout() {
   const navigate = useNavigate();
@@ -23,7 +25,8 @@ export default function MainLayout() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 w-full">
+    <ScamGuardianProvider>
+      <div className="min-h-screen bg-gray-50 w-full">
       {/* Top Navbar — Full Width */}
       <header className="bg-white border-b border-gray-100 sticky top-0 z-50 w-full">
         <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 h-16 flex items-center justify-between">
@@ -92,6 +95,8 @@ export default function MainLayout() {
         <Outlet />
       </main>
       <MiniTimiAssistant />
-    </div>
+      <ScamGuardianAlert />
+      </div>
+    </ScamGuardianProvider>
   );
 }

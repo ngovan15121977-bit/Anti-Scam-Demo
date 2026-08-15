@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, MessageCircle, Minimize2, Send, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AudioLines, Loader2, MessageCircle, Mic, Minimize2, Send, ShieldCheck, Sparkles, Wifi } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 
 import { assistantApi, type AssistantChatTurn } from "@/api/assistant";
 import TimiChibi from "@/components/ai/TimiChibi";
+import { useScamGuardian } from "@/components/guardian/ScamGuardianProvider";
 import { useAuthStore } from "@/stores/authStore";
 import { useTimiAssistantStore } from "@/stores/timiAssistantStore";
 
@@ -64,6 +65,21 @@ export default function MiniTimiAssistant() {
   const user = useAuthStore((state) => state.user);
   const activity = useTimiAssistantStore((state) => state.activity);
   const clearActivity = useTimiAssistantStore((state) => state.clearActivity);
+  const {
+    criticalAlert,
+    risk,
+    status: guardianStatus,
+    error: guardianError,
+    audioLevel,
+    mediaTrackState,
+    audioContextState,
+    recorderState,
+    audioChunkCount,
+    audioAckCount,
+    audioDataEventCount,
+    audioSkippedCount,
+    transcriptionMode,
+  } = useScamGuardian();
   const [isOpen, setOpen] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const [tipIndex, setTipIndex] = useState(0);
@@ -75,6 +91,7 @@ export default function MiniTimiAssistant() {
       content: "Chào bạn! Mình có thể hướng dẫn về chuyển tiền, QR, Face ID, PIN và các cảnh báo an toàn của Timi.",
     },
   ]);
+  const handledGuardianAlertRef = useRef<unknown>(null);
   const name = firstName(user?.full_name);
   const tips = useMemo(() => tipsForPath(location.pathname, name), [location.pathname, name]);
   const tip = tips[tipIndex % tips.length];
@@ -91,6 +108,15 @@ export default function MiniTimiAssistant() {
         ? { title: "Timi đã kiểm tra xong", message: activity.message ?? "Mình đã hoàn tất kiểm tra. Cảm ơn bạn đã kiên nhẫn nhé!" }
         : null;
   const displayedTip = activityTip ?? tip;
+  const guardianStatusLabel = guardianStatus === "active"
+    ? "đang bảo vệ"
+    : guardianStatus === "starting"
+      ? "đang khởi động"
+      : guardianStatus === "error"
+        ? "cần kiểm tra"
+        : guardianStatus === "stopped"
+          ? "đã dừng"
+          : "đang chờ";
   const chatMutation = useMutation({
     mutationFn: assistantApi.chat,
     onSuccess: (response) => {
@@ -133,9 +159,30 @@ export default function MiniTimiAssistant() {
     return () => window.clearTimeout(timer);
   }, [activity.status, clearActivity]);
 
+  useEffect(() => {
+    if (!criticalAlert) return;
+    if (handledGuardianAlertRef.current === criticalAlert) return;
+    handledGuardianAlertRef.current = criticalAlert;
+    const message = [
+      "🚨 Timi vừa phát hiện nguy cơ lừa đảo rất cao trong cuộc gọi.",
+      `Mức nguy cơ hiện tại: ${risk.risk_score}/100.`,
+      risk.explanation,
+      "Bạn hãy dừng cuộc gọi, không chuyển tiền và không cung cấp OTP/PIN. Nếu cần giao dịch, hãy tự gọi lại ngân hàng bằng số chính thức.",
+    ].join("\n\n");
+    setChatMessages((current) => {
+      return [...current, {
+        id: `guardian-alert-${Date.now()}`,
+        role: "assistant",
+        content: message,
+      }];
+    });
+    setOpen(true);
+    setChatOpen(true);
+  }, [criticalAlert, risk.explanation, risk.risk_score]);
+
   // The full transaction-analysis screen already contains the same chibi and
   // conversation, so avoid rendering a duplicate floating assistant there.
-  if (activity.status === "analyzing") return null;
+  if (activity.status === "analyzing" && !criticalAlert) return null;
 
   const submitChat = (event: React.FormEvent) => {
     event.preventDefault();
@@ -162,7 +209,7 @@ export default function MiniTimiAssistant() {
   };
 
   return (
-    <aside className="fixed bottom-20 right-4 z-40 sm:bottom-6 sm:right-6" aria-label="Trợ lý Timi">
+    <aside className={`fixed bottom-20 right-4 sm:bottom-6 sm:right-6 ${criticalAlert ? "z-[100]" : "z-40"}`} aria-label="Trợ lý Timi">
       {isOpen && !chatOpen && (
         <div className="absolute bottom-20 right-0 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-rose-100 bg-white/95 shadow-xl shadow-rose-200/50 backdrop-blur">
           <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-rose-100/70 blur-2xl" />
@@ -176,13 +223,30 @@ export default function MiniTimiAssistant() {
                 </button>
               </div>
               <p className="mt-1 text-xs leading-relaxed text-slate-600">{displayedTip.message}</p>
-              <div className="mt-3 flex items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-rose-500"><Sparkles className="h-3.5 w-3.5" />Timi AI Anti-Scam</span>
-                <button type="button" onClick={() => setChatOpen(true)} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-100">
-                  <MessageCircle className="h-3.5 w-3.5" />Trò chuyện
-                </button>
-              </div>
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold text-rose-500"><Sparkles className="h-3.5 w-3.5" />Timi AI Anti-Scam</span>
+              <button type="button" onClick={() => setChatOpen(true)} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-100">
+                <MessageCircle className="h-3.5 w-3.5" />Trò chuyện
+              </button>
             </div>
+            <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50/90 p-3" aria-label="Trạng thái Scam Guardian">
+              <div className="flex items-center justify-between gap-2 text-[11px] font-extrabold text-slate-700">
+                <span className="flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />Guardian {guardianStatusLabel}</span>
+                <span className={guardianStatus === "active" ? "text-emerald-600" : guardianStatus === "error" ? "text-red-500" : "text-amber-600"}>{guardianStatus}</span>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] leading-4 text-slate-500">
+                <span className="flex items-center gap-1"><Mic className="h-3 w-3" />Mic {audioLevel.toFixed(3)} · {mediaTrackState}</span>
+                <span>WebAudio {audioContextState}</span>
+                <span>Recorder {recorderState}</span>
+                <span className="flex items-center gap-1"><AudioLines className="h-3 w-3" />Chunk {audioChunkCount} · ACK {audioAckCount}</span>
+                <span>Data event {audioDataEventCount}</span>
+                <span>Bỏ qua {audioSkippedCount}</span>
+              </div>
+              <div className="mt-2 flex items-center gap-1 text-[10px] leading-4 text-slate-500"><Wifi className="h-3 w-3" />STT {transcriptionMode}</div>
+              <div className={`mt-1 text-[10px] font-bold ${risk.risk_score >= 80 ? "text-red-600" : risk.risk_score >= 30 ? "text-amber-600" : "text-emerald-600"}`}>Risk {risk.risk_score}/100 · {risk.recommended_action}</div>
+              {guardianError && <p className="mt-1 break-words text-[10px] leading-4 text-red-500">{guardianError}</p>}
+            </div>
+          </div>
           </div>
         </div>
       )}

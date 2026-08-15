@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model_name: str = "openai/gpt-oss-20b"
     groq_base_url: str = "https://api.groq.com/openai/v1"
+    # Realtime Guardian fallback STT. Uses Groq Whisper when configured.
+    guardian_stt_enabled: bool = True
+    # Prefer the accuracy-oriented Whisper model for short Vietnamese call
+    # segments; override with whisper-large-v3-turbo when latency/cost wins.
+    guardian_stt_model: str = "whisper-large-v3"
     llm_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     llm_explanation_enabled: bool = False
 
