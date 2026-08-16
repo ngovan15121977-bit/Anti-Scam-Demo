@@ -57,8 +57,9 @@ Timi là ứng dụng ngân hàng mô phỏng tập trung vào việc phát hi�
 - Ưu tiên Groq Whisper server-side STT (`GUARDIAN_STT_ENABLED=true`, mặc định `whisper-large-v3`); metadata `verbose_json` và bộ lọc câu outro/quảng bá YouTube phổ biến được dùng để bỏ các đoạn im lặng/hallucination trước khi đưa vào risk engine. Nếu provider trả lỗi/rỗng, browser SpeechRecognition tự chuyển sang fallback khi trình duyệt hỗ trợ. Audio chunk chỉ tồn tại trong bộ nhớ xử lý và không được lưu.
 - Backend giữ conversation state trong session và gửi transcript vào Guardian Risk Agent (Groq). Agent tự quyết định `risk_score`, `risk_level`, danh sách tín hiệu, ngưỡng ngữ cảnh và `recommended_action` (`CONTINUE`, `MONITOR`, `PAUSE`, `STOP`) rồi trả về JSON có schema giới hạn.
 - Backend không tính lại ngưỡng và không để LLM gọi tool: backend chỉ validate/lưu quyết định, hiển thị cảnh báo và thực thi chặn giao dịch khi agent trả về `STOP`. Nếu agent/STT không khả dụng, hệ thống fail-closed bằng một quyết định tạm dừng rõ ràng để không bỏ lọt giao dịch nguy hiểm.
+- Guardian agent có retry cho lỗi mạng/429/5xx; một lỗi đơn lẻ chỉ chuyển phiên sang `PAUSE` và không bật cảnh báo scam. Sau ba lỗi liên tiếp, backend chuyển sang `STOP` fail-closed và giữ chặn đến khi phiên gọi kết thúc.
 - Mini Timi tự mở khung hội thoại và gửi cảnh báo có risk score, tín hiệu phát hiện và hướng dẫn dừng cuộc gọi.
-- Guardian chạy nền trong toàn bộ luồng sử dụng; trạng thái microphone, recorder, chunk/ACK, STT và risk được hiển thị dạng mini trong Timi ở góc màn hình để chẩn đoán mà không cần trang test riêng.
+- Guardian chạy nền trong toàn bộ luồng sử dụng; các chỉ số microphone, recorder, chunk/ACK, STT và risk không hiển thị trong layout để giữ giao diện gọn, nhưng luồng realtime và cảnh báo vẫn hoạt động.
 - Transcript chỉ lưu vào conversation_segments khi người dùng bật consent; risk events/signals vẫn được lưu để audit nhưng không lưu text bằng chứng nếu chưa consent.
 - Critical alert được lưu vào scam_alerts cùng thời điểm gửi WebSocket để audit/hiển thị lại sau này.
 - Speaker diarization server là adapter kế tiếp; giao thức WebSocket hiện tại đã tách riêng để bổ sung mà không ảnh hưởng UI.
@@ -145,7 +146,8 @@ Không commit .env. Các biến quan trọng:
 | GROQ_MODEL_NAME | Cho chat | Mặc định openai/gpt-oss-20b |
 | GROQ_BASE_URL | Không | Mặc định https://api.groq.com/openai/v1 |
 | GUARDIAN_AGENT_ENABLED | Không | Bật Guardian Risk Agent; mặc định true |
-| GUARDIAN_AGENT_MODEL | Không | Model Groq dùng chấm điểm/ngưỡng Guardian; mặc định `openai/gpt-oss-20b` |
+| GUARDIAN_AGENT_MODEL | Không | Model Groq dùng chấm điểm/ngưỡng Guardian; mặc định `llama-3.1-8b-instant` |
+| GUARDIAN_AGENT_MIN_INTERVAL_SECONDS | Không | Khoảng tối thiểu giữa hai lần agent phân tích transcript; mặc định 6 giây |
 | GUARDIAN_STT_ENABLED | Không | Bật server-side Whisper STT cho Guardian; mặc định true |
 | GUARDIAN_STT_MODEL | Không | Mặc định whisper-large-v3; có thể đổi sang whisper-large-v3-turbo nếu ưu tiên tốc độ/chi phí |
 | OPENAI_API_KEY | Không | Nhánh giải thích transaction legacy khi bật LLM |

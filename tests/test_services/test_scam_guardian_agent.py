@@ -86,6 +86,9 @@ def test_invalid_agent_json_fails_closed(monkeypatch) -> None:
     fallback = scam_guardian_agent.fail_closed_guardian_result("test")
     assert fallback.recommended_action == "STOP"
     assert fallback.scenario == "agent_unavailable"
+    degraded = scam_guardian_agent.degraded_guardian_result("temporary")
+    assert degraded.recommended_action == "PAUSE"
+    assert degraded.risk_level == "high"
 
 
 def test_agent_shape_aliases_are_normalized(monkeypatch) -> None:
@@ -123,3 +126,11 @@ def test_agent_shape_aliases_are_normalized(monkeypatch) -> None:
     assert result.risk_level == "critical"
     assert result.recommended_action == "STOP"
     assert result.signals[0].signal_type == "otp_request"
+
+
+def test_rate_limit_message_produces_provider_backoff() -> None:
+    error = RuntimeError(
+        "Rate limit reached. Please try again in 4m52.464s."
+    )
+    error.status_code = 429  # type: ignore[attr-defined]
+    assert scam_guardian_agent._retry_after_seconds(error) == pytest.approx(292.464)

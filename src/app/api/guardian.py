@@ -6,6 +6,7 @@ import asyncio
 import base64
 import binascii
 import logging
+import time
 import uuid
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -43,6 +44,7 @@ from src.app.services.scam_guardian import (
 from src.app.services.scam_guardian_agent import (
     GuardianAgentUnavailableError,
     analyze_with_guardian_agent,
+    degraded_guardian_result,
     fail_closed_guardian_result,
 )
 from src.app.services.scam_guardian_stt import (
@@ -266,6 +268,9 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
     state = GuardianConversationState()
     session: ScamGuardianSession | None = None
     last_action = "CONTINUE"
+    agent_failure_streak = 0
+    last_agent_analysis_at: float | None = None
+    agent_retry_after_until = 0.0
     settings = get_settings()
 
     try:
@@ -309,7 +314,8 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
         )
 
         async def process_final_transcript(transcript: GuardianTranscriptMessage) -> None:
-            nonlocal last_action
+            nonlocal agent_failure_streak, agent_retry_after_until
+            nonlocal last_action, last_agent_analysis_at
             # Browser SpeechRecognition can produce the same stock YouTube
             # outro text as Whisper when the microphone is silent. Discard it
             # before persistence, UI delivery, and risk scoring regardless of
@@ -338,6 +344,24 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
                 db.flush()
                 segment_id = segment.id
 
+            now = time.monotonic()
+            if (
+                last_agent_analysis_at is not None
+                and now - last_agent_analysis_at < settings.guardian_agent_min_interval_seconds
+            ) or now < agent_retry_after_until:
+                # Still forward the transcript to the UI, but do not spend a
+                # Groq request on every short STT fragment or rate-limit retry.
+                await websocket.send_json(
+                    {
+                        "type": "transcript",
+                        "status": "final",
+                        "speaker": transcript.speaker,
+                        "text": transcript.text,
+                    }
+                )
+                return
+            last_agent_analysis_at = now
+
             try:
                 # LLM inference is blocking; keep the WebSocket event loop
                 # responsive while the agent evaluates the conversation.
@@ -346,16 +370,35 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
                     state,
                     transcript.text,
                 )
+                agent_failure_streak = 0
+                agent_retry_after_until = 0.0
             except GuardianAgentUnavailableError as exc:
                 # Fail closed without pretending that a backend threshold made
                 # the decision. The synthetic action only protects the user
                 # until the agent is available again.
-                logger.warning("Guardian agent unavailable: %s", exc)
-                result = fail_closed_guardian_result(str(exc))
+                logger.warning(
+                    "Guardian agent unavailable: %s (provider=%s, retry_after=%ss)",
+                    exc,
+                    type(exc.__cause__).__name__ if exc.__cause__ else "unknown",
+                    exc.retry_after_seconds,
+                )
+                agent_failure_streak += 1
+                if exc.retry_after_seconds:
+                    agent_retry_after_until = time.monotonic() + exc.retry_after_seconds
+                # Do not turn a single transient provider failure into a
+                # critical scam alert. Three consecutive failures enter the
+                # explicit fail-closed STOP state; both states still pause
+                #/block transactions through the backend guard below.
+                result = (
+                    fail_closed_guardian_result(str(exc))
+                    if agent_failure_streak >= 3
+                    else degraded_guardian_result(str(exc))
+                )
                 await websocket.send_json(
                     {
                         "type": "agent_status",
-                        "status": "unavailable",
+                        "status": "blocked" if agent_failure_streak >= 3 else "degraded",
+                        "consecutive_failures": agent_failure_streak,
                         "message": str(exc),
                     }
                 )
