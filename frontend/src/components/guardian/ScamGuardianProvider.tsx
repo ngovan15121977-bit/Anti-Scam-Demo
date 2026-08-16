@@ -44,6 +44,7 @@ type ReadyWaiter = {
 
 export interface ScamGuardianContextValue {
   status: GuardianStatus;
+  voiceMonitoringEnabled: boolean;
   session: GuardianSession | null;
   risk: GuardianRiskEvent;
   transcript: GuardianTranscriptEvent[];
@@ -71,6 +72,7 @@ export interface ScamGuardianContextValue {
   dismissAlert: () => void;
   startGuardian: () => Promise<void>;
   stopGuardian: () => Promise<void>;
+  setVoiceMonitoringEnabled: (enabled: boolean) => Promise<void>;
   sendTranscript: (text: string, final?: boolean) => void;
 }
 
@@ -85,6 +87,18 @@ const defaultRisk: GuardianRiskEvent = {
 };
 
 const GuardianContext = createContext<ScamGuardianContextValue | null>(null);
+
+function voiceMonitoringPreferenceKey(userId: string | undefined): string {
+  return userId ? `timi-guardian-voice-enabled:${userId}` : "timi-guardian-voice-enabled";
+}
+
+function readVoiceMonitoringPreference(userId: string | undefined): boolean {
+  try {
+    return window.localStorage.getItem(voiceMonitoringPreferenceKey(userId)) !== "false";
+  } catch {
+    return true;
+  }
+}
 
 function speechRecognitionConstructor(): SpeechRecognitionConstructor | null {
   const browserWindow = window as unknown as {
@@ -119,6 +133,8 @@ function requestErrorMessage(cause: unknown, fallback: string): string {
 
 export function ScamGuardianProvider({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
+  const [voiceMonitoringEnabled, setVoiceMonitoringEnabledState] = useState(() => readVoiceMonitoringPreference(userId));
   const [status, setStatus] = useState<GuardianStatus>("idle");
   const [session, setSession] = useState<GuardianSession | null>(null);
   const [risk, setRisk] = useState<GuardianRiskEvent>(defaultRisk);
@@ -171,6 +187,10 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    setVoiceMonitoringEnabledState(readVoiceMonitoringPreference(userId));
+  }, [userId]);
 
   useEffect(() => {
     setSpeechAvailable(Boolean(speechRecognitionConstructor()));
@@ -731,6 +751,14 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
       }
       return;
     }
+    if (!voiceMonitoringEnabled) {
+      autoStartRef.current = false;
+      if (autoStartTimerRef.current !== null) {
+        window.clearTimeout(autoStartTimerRef.current);
+        autoStartTimerRef.current = null;
+      }
+      return;
+    }
     if (!autoStartRef.current) {
       autoStartRef.current = true;
       // StrictMode performs an intentional setup/cleanup/setup cycle in dev.
@@ -754,10 +782,10 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
       }
       autoStartRef.current = false;
     };
-  }, [startGuardian, token]);
+  }, [startGuardian, token, voiceMonitoringEnabled]);
 
   useEffect(() => {
-    if (!token) return undefined;
+    if (!token || !voiceMonitoringEnabled) return undefined;
     // Some browsers only allow getUserMedia after a user gesture. The hidden
     // Guardian normally starts after login, so retry once the user clicks or
     // presses a key anywhere in the authenticated layout. This keeps the
@@ -773,7 +801,7 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
       window.removeEventListener("pointerdown", retryAfterGesture);
       window.removeEventListener("keydown", retryAfterGesture);
     };
-  }, [startGuardian, token]);
+  }, [startGuardian, token, voiceMonitoringEnabled]);
 
   useEffect(() => () => {
     guardianRunIdRef.current += 1;
@@ -787,8 +815,25 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
     closeSocket();
   }, [cleanupMedia, closeSocket]);
 
+  const setVoiceMonitoringEnabled = useCallback(async (enabled: boolean) => {
+    try {
+      window.localStorage.setItem(voiceMonitoringPreferenceKey(userId), String(enabled));
+    } catch {
+      // The preference is best-effort; microphone control still applies now.
+    }
+    setVoiceMonitoringEnabledState(enabled);
+    if (!enabled) {
+      await stopGuardian();
+      return;
+    }
+    if (token && statusRef.current !== "active" && statusRef.current !== "starting") {
+      await startGuardian();
+    }
+  }, [startGuardian, stopGuardian, token, userId]);
+
   const value: ScamGuardianContextValue = {
     status,
+    voiceMonitoringEnabled,
     session,
     risk,
     transcript,
@@ -816,6 +861,7 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
     dismissAlert: () => setCriticalAlert(null),
     startGuardian,
     stopGuardian,
+    setVoiceMonitoringEnabled,
     sendTranscript,
   };
 

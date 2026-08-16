@@ -19,13 +19,17 @@ import {
   Building2,
   X,
   Loader2,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/api/auth";
+import { useScamGuardian } from "@/components/guardian/ScamGuardianProvider";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
   const { user, logout, updateUser } = useAuthStore();
+  const { voiceMonitoringEnabled, setVoiceMonitoringEnabled, status: guardianStatus } = useScamGuardian();
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
   const [notifications, setNotifications] = useState({
@@ -39,6 +43,7 @@ export default function ProfilePage() {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [isAvatarPreviewOpen, setIsAvatarPreviewOpen] = useState(false);
+  const [isVoicePreferenceUpdating, setIsVoicePreferenceUpdating] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const overviewQuery = useQuery({
     queryKey: ["account-overview"],
@@ -117,6 +122,16 @@ export default function ProfilePage() {
   const handleLogout = () => {
     logout();
     navigate("/", { replace: true });
+  };
+
+  const handleVoiceMonitoringToggle = async () => {
+    if (isVoicePreferenceUpdating) return;
+    setIsVoicePreferenceUpdating(true);
+    try {
+      await setVoiceMonitoringEnabled(!voiceMonitoringEnabled);
+    } finally {
+      setIsVoicePreferenceUpdating(false);
+    }
   };
 
   return (
@@ -278,6 +293,30 @@ export default function ProfilePage() {
             </h3>
           </div>
           <div className="divide-y divide-gray-50">
+            <div className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50/80 transition-colors">
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${voiceMonitoringEnabled ? "bg-emerald-50" : "bg-gray-100"}`}>
+                {voiceMonitoringEnabled ? <Mic className="w-5 h-5 text-emerald-600" /> : <MicOff className="w-5 h-5 text-gray-500" />}
+              </div>
+              <div className="flex-1 text-left min-w-0">
+                <p className="font-semibold text-gray-900">Tự động nghe và bảo vệ cuộc gọi</p>
+                <p className="text-xs text-gray-400">
+                  {voiceMonitoringEnabled
+                    ? guardianStatus === "active" ? "Đang hoạt động ngầm khi bạn sử dụng ứng dụng" : "Đang bật, sẽ tự khởi động lại khi cần"
+                    : "Đã tắt, Timi sẽ không truy cập microphone"}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={voiceMonitoringEnabled}
+                aria-label="Bật hoặc tắt tự động nghe và bảo vệ cuộc gọi"
+                onClick={() => void handleVoiceMonitoringToggle()}
+                disabled={isVoicePreferenceUpdating}
+                className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:cursor-wait disabled:opacity-60 ${voiceMonitoringEnabled ? "bg-emerald-500" : "bg-gray-300"}`}
+              >
+                <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${voiceMonitoringEnabled ? "translate-x-6" : "translate-x-1"}`} />
+              </button>
+            </div>
             {menuItems.map((item) => (
               <button
                 key={item.label}
