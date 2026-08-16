@@ -62,7 +62,9 @@ class Settings(BaseSettings):
     # Agent-owned Scam Guardian decisions. The backend validates the bounded
     # JSON contract and executes only the returned safety action.
     guardian_agent_enabled: bool = True
-    guardian_agent_model: str = "openai/gpt-oss-20b"
+    guardian_agent_model: str = "llama-3.1-8b-instant"
+    # Avoid spending a provider request on every short STT fragment.
+    guardian_agent_min_interval_seconds: float = Field(default=6.0, ge=0.0, le=60.0)
     # Realtime Guardian fallback STT. Uses Groq Whisper when configured.
     guardian_stt_enabled: bool = True
     # Prefer the accuracy-oriented Whisper model for short Vietnamese call

@@ -575,7 +575,12 @@ def submit_decision(
         .where(
             ScamGuardianSession.user_id == current_user.id,
             ScamGuardianSession.status == "active",
-            ScamGuardianSession.agent_action == "STOP",
+            or_(
+                ScamGuardianSession.agent_action == "STOP",
+                # A degraded agent is not a scam verdict, but transfers must
+                # still wait until a trusted risk decision is available.
+                ScamGuardianSession.scam_type == "agent_unavailable",
+            ),
         )
         .order_by(desc(ScamGuardianSession.max_risk_score))
         .limit(1)
@@ -587,10 +592,10 @@ def submit_decision(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Giao dịch bị tạm chặn vì Scam Guardian đang phát hiện nguy cơ "
-                f"{active_guardian.max_risk_score}/100 và agent đề xuất STOP. "
-                "Hãy kết thúc cuộc gọi, "
-                "tự xác minh qua kênh chính thức rồi thử lại."
+                "Giao dịch bị tạm chặn vì Scam Guardian chưa có quyết định tin cậy "
+                f"(action={active_guardian.agent_action}, "
+                f"risk={active_guardian.max_risk_score}/100). "
+                "Hãy kết thúc cuộc gọi hoặc thử lại khi Guardian hoạt động ổn định."
             ),
         )
 

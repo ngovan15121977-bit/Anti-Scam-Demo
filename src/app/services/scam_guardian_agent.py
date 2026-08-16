@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 class GuardianAgentUnavailableError(RuntimeError):
     """Raised when an agent decision cannot be obtained or validated."""
 
+    def __init__(self, message: str, *, retry_after_seconds: float = 0) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = max(0.0, retry_after_seconds)
+
 
 _SYSTEM_PROMPT = """
 Bạn là Guardian Risk Decision Agent của Timi, chuyên phân tích transcript cuộc
@@ -260,8 +264,8 @@ def _conversation_payload(
     # Bound context sent to the provider.  Raw transcript is never persisted
     # by this service and is sent only when the user has an active session.
     segments = [
-        {"speaker": speaker, "text": text[:1000]}
-        for speaker, text in state.segments[-40:]
+        {"speaker": speaker, "text": text[:600]}
+        for speaker, text in state.segments[-16:]
     ]
     return {
         "latest_transcript": latest_text[:2000],
@@ -286,6 +290,10 @@ def analyze_with_guardian_agent(
         response = OpenAI(
             api_key=settings.groq_api_key,
             base_url=settings.groq_base_url,
+            # The realtime stream must tolerate a transient 429/5xx or short
+            # network flap without turning one chunk into a scam alert.
+            max_retries=2,
+            timeout=20.0,
         ).chat.completions.create(
             model=settings.guardian_agent_model,
             messages=[
@@ -299,11 +307,14 @@ def analyze_with_guardian_agent(
                 },
             ],
             temperature=0,
-            max_completion_tokens=700,
+            max_completion_tokens=400,
             response_format={"type": "json_object"},
         )
     except Exception as exc:
-        raise GuardianAgentUnavailableError("Không thể gọi Guardian risk agent") from exc
+        raise GuardianAgentUnavailableError(
+            "Không thể gọi Guardian risk agent",
+            retry_after_seconds=_retry_after_seconds(exc),
+        ) from exc
 
     decision = _parse_json(_response_text(response))
     return GuardianRiskResult(
@@ -324,6 +335,34 @@ def analyze_with_guardian_agent(
     )
 
 
+def _retry_after_seconds(exc: Exception) -> float:
+    """Extract provider backoff without exposing response bodies or secrets."""
+
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is not None:
+        try:
+            value = headers.get("retry-after") or headers.get("Retry-After")
+            if value is not None:
+                return min(300.0, max(1.0, float(value)))
+        except (TypeError, ValueError):
+            pass
+    status_code = getattr(exc, "status_code", None)
+    message = str(exc).lower()
+    if status_code == 429 or "rate limit" in message or "rate_limit" in message:
+        match = re.search(
+            r"try again in\s*(?:(\d+)m)?\s*(\d+(?:\.\d+)?)s",
+            message,
+        )
+        if match:
+            minutes = float(match.group(1) or 0)
+            seconds = float(match.group(2))
+            return min(300.0, max(1.0, minutes * 60 + seconds))
+        # Groq may omit Retry-After for daily token quotas. Avoid hammering it.
+        return 60.0
+    return 0.0
+
+
 def fail_closed_guardian_result(reason: str) -> GuardianRiskResult:
     """Return a safe emergency decision when the agent is unavailable.
 
@@ -332,13 +371,25 @@ def fail_closed_guardian_result(reason: str) -> GuardianRiskResult:
     dangerous transaction until an agent decision is available again.
     """
 
+    return _agent_unavailable_result(reason, stop=True)
+
+
+def degraded_guardian_result(reason: str) -> GuardianRiskResult:
+    """Represent a short provider outage without raising a critical alert."""
+
+    return _agent_unavailable_result(reason, stop=False)
+
+
+def _agent_unavailable_result(reason: str, *, stop: bool) -> GuardianRiskResult:
+    action = "STOP" if stop else "PAUSE"
+    level = "critical" if stop else "high"
     return GuardianRiskResult(
         risk_score=100,
-        risk_level="critical",
+        risk_level=level,
         scenario="agent_unavailable",
-        recommended_action="STOP",
+        recommended_action=action,
         explanation=(
-            "Guardian Risk Agent hiện không khả dụng nên hệ thống tạm dừng "
+            "Guardian Risk Agent tạm thời không phản hồi; hệ thống tạm dừng "
             f"để bảo vệ giao dịch ({reason})."
         ),
         signals=(
