@@ -1,6 +1,8 @@
 """Authentication, independent face enrollment, and account profile APIs."""
 
 import base64
+import time
+from threading import Lock
 from datetime import UTC, datetime
 
 import cloudinary
@@ -40,13 +42,43 @@ from src.app.schemas.auth import (
 )
 from src.app.schemas.user import UserOut
 from src.app.services.audit import add_audit_log
-from src.app.services.face_verification import embedding_from_data_url, similarity_from_embedding
+from src.app.services.face_verification import (
+    embedding_from_data_url,
+    face_quality_rule_from_data_url,
+    similarity_from_embedding,
+)
 from src.app.services import risk_rules
 from src.app.services.transaction_telemetry import build_risk_telemetry, persist_risk_telemetry
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 _AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 _MAX_IMAGE_SIZE = 5 * 1024 * 1024
+_face_failure_state: dict[str, tuple[int, float]] = {}
+_face_failure_state_lock = Lock()
+
+
+def _face_lock_remaining(user_id: str) -> int:
+    with _face_failure_state_lock:
+        _failures, locked_until = _face_failure_state.get(user_id, (0, 0.0))
+        remaining = max(0, int(locked_until - time.monotonic()))
+        if remaining == 0 and locked_until:
+            _face_failure_state.pop(user_id, None)
+        return remaining
+
+
+def _record_face_failure(user_id: str, settings) -> tuple[int, int]:
+    with _face_failure_state_lock:
+        failures, locked_until = _face_failure_state.get(user_id, (0, 0.0))
+        failures += 1
+        if failures >= settings.face_transaction_failure_limit:
+            locked_until = time.monotonic() + settings.face_transaction_lock_seconds
+        _face_failure_state[user_id] = (failures, locked_until)
+        return failures, max(0, int(locked_until - time.monotonic()))
+
+
+def _reset_face_failures(user_id: str) -> None:
+    with _face_failure_state_lock:
+        _face_failure_state.pop(user_id, None)
 
 
 def _configure_cloudinary() -> None:
@@ -221,20 +253,72 @@ def enroll_face(payload: FaceEnrollmentRequest, db: Session = Depends(get_db), c
     return FaceVerificationResponse(matched=True, similarity=1, threshold=settings.face_similarity_threshold, message="Đã đăng ký khuôn mặt độc lập với ảnh đại diện.")
 
 
+@router.post("/face/quality")
+def face_quality(
+    payload: FaceVerificationRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    del current_user
+    rule = face_quality_rule_from_data_url(payload.image_data)
+    messages = {
+        "obstructed_hand": "Vui lòng đưa tay ra khỏi khuôn mặt trước khi quét.",
+        "obstructed_mask": "Vui lòng tháo khẩu trang khỏi khuôn mặt trước khi quét.",
+        "obstructed_sunglasses": "Vui lòng tháo kính râm khỏi khuôn mặt trước khi quét.",
+        "obstructed_glasses": "Vui lòng tháo kính hoặc vật cản khỏi khuôn mặt trước khi quét.",
+        "obstructed_other": "Vui lòng loại bỏ mũ, nón hoặc vật cản khỏi khuôn mặt trước khi quét.",
+        "model_unavailable": "Model kiểm tra khuôn mặt chưa sẵn sàng. Hệ thống đang tải model, hãy thử lại sau ít giây.",
+        "anti_spoof_unavailable": "Model chống giả mạo chưa sẵn sàng. Hãy cài dependencies rồi thử lại.",
+        "spoof_detected": "Không xác minh được người thật. Không dùng ảnh hoặc video trước camera.",
+        "obstructed_eyes": "Vui lòng bỏ tay, kính tối hoặc vật cản khỏi vùng mắt.",
+        "obstructed_mouth_chin": "Vui lòng bỏ tay, khẩu trang hoặc vật cản khỏi vùng miệng và cằm.",
+        "obstructed_headwear": "Vui lòng bỏ mũ/nón hoặc vật cản khỏi vùng trán và đầu.",
+        "obstructed_face": "Vui lòng loại bỏ các vật cản khỏi khuôn mặt trước khi quét.",
+        "no_face": "Chưa nhận diện được khuôn mặt. Hãy đưa mặt vào chính giữa, tiến gần camera hơn một chút và nhìn thẳng.",
+        "multiple_faces": "Có nhiều khuôn mặt. Chỉ để một mình bạn trong khung.",
+        "off_center": "Khuôn mặt đang lệch tâm. Hãy căn mặt vào giữa khung.",
+        "too_far": "Khuôn mặt còn quá xa. Hãy đưa mặt lại gần camera.",
+        "lighting": "Ánh sáng chưa đạt. Hãy tăng sáng hoặc tránh ánh sáng chiếu thẳng.",
+        "blurry": "Khuôn mặt đang bị mờ. Hãy giữ camera và khuôn mặt yên.",
+        "invalid_image": "Không đọc được ảnh camera. Hãy thử lại.",
+    }
+    return {
+        "ready": rule == "ready",
+        "rule": rule,
+        "message": messages.get(rule, "Khung hình chưa đạt yêu cầu."),
+    }
+
+
 @router.post("/face/verify", response_model=FaceVerificationResponse)
 def verify_face(payload: FaceVerificationRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> FaceVerificationResponse:
     settings = get_settings()
+    is_transaction_verification = payload.transaction_id is not None
+    if is_transaction_verification:
+        remaining = _face_lock_remaining(str(current_user.id))
+        if remaining > 0:
+            raise HTTPException(
+                status_code=429,
+                headers={"Retry-After": str(remaining)},
+                detail=f"Face ID đang tạm khóa. Vui lòng thử lại sau {remaining} giây.",
+            )
     enrollment = db.scalar(select(FaceEnrollment).where(FaceEnrollment.user_id == current_user.id, FaceEnrollment.is_active.is_(True)))
     if enrollment is None:
         raise HTTPException(status_code=409, detail="Bạn chưa đăng ký khuôn mặt")
     if enrollment.model_id != settings.face_embedding_version:
         raise HTTPException(status_code=409, detail="Dữ liệu khuôn mặt cần được đăng ký lại để dùng chuẩn quét khuôn mặt mới")
     similarity = similarity_from_embedding(enrollment_embedding=enrollment.reference_embedding, selfie_data_url=payload.image_data)
-    matched = similarity >= float(enrollment.similarity_threshold)
-    db.add(FaceVerificationLog(user_id=current_user.id, enrollment_id=enrollment.id, transaction_id=payload.transaction_id, purpose="transaction" if payload.transaction_id else "login", similarity=similarity, threshold=float(enrollment.similarity_threshold), matched=matched, model_id=enrollment.model_id, failure_reason=None if matched else "similarity_below_threshold", created_at=datetime.now(UTC)))
+    threshold = settings.face_transaction_similarity_threshold if is_transaction_verification else float(enrollment.similarity_threshold)
+    matched = similarity >= float(threshold)
+    db.add(FaceVerificationLog(user_id=current_user.id, enrollment_id=enrollment.id, transaction_id=payload.transaction_id, purpose="transaction" if is_transaction_verification else "login", similarity=similarity, threshold=float(threshold), matched=matched, model_id=enrollment.model_id, failure_reason=None if matched else "similarity_below_threshold", created_at=datetime.now(UTC)))
     db.commit()
+    if is_transaction_verification:
+        if matched:
+            _reset_face_failures(str(current_user.id))
+        else:
+            failures, locked_for = _record_face_failure(str(current_user.id), settings)
+            if locked_for > 0:
+                raise HTTPException(status_code=429, headers={"Retry-After": str(locked_for)}, detail=f"Bạn đã xác thực Face ID sai {failures} lần. Chức năng tạm khóa {locked_for} giây.")
     token = create_face_verification_token(user_id=str(current_user.id), transaction_id=str(payload.transaction_id) if payload.transaction_id else None) if matched else None
-    return FaceVerificationResponse(matched=matched, similarity=similarity, threshold=float(enrollment.similarity_threshold), message="Khuôn mặt khớp với dữ liệu đã đăng ký." if matched else "Khuôn mặt chưa đủ độ khớp. Hãy chụp lại ở nơi đủ sáng.", verification_token=token)
+    return FaceVerificationResponse(matched=matched, similarity=similarity, threshold=float(threshold), message="Khuôn mặt khớp với dữ liệu đã đăng ký." if matched else "Khuôn mặt chưa đủ độ khớp. Hãy chụp lại ở nơi đủ sáng.", verification_token=token)
 
 
 @router.get("/me", response_model=UserOut)
@@ -284,7 +368,7 @@ def delete_avatar(db: Session = Depends(get_db), current_user: User = Depends(ge
                 resource_type="image",
             )
         except Exception as exc:
-            raise HTTPException(status_code=502, detail="KhÃ´ng thá»ƒ xÃ³a áº£nh Ä‘áº¡i diá»‡n") from exc
+            raise HTTPException(status_code=502, detail="Không thể xóa ảnh đại diện") from exc
 
     current_user.avatar_url = None
     db.commit()

@@ -91,11 +91,13 @@ export interface Transaction {
   bank_code?: string | null;
   amount: number;
   currency: string;
+  note?: string | null;
   transaction_status: string;
   created_at: string;
   completed_at?: string | null;
   cancelled_at?: string | null;
   risk_level?: "safe" | "low" | "medium" | "high" | null;
+  risk_reason?: string | null;
 }
 
 export interface TransactionHistoryPage {

@@ -123,6 +123,15 @@ export const authApi = {
     return response.data;
   },
 
+  checkFaceQuality: async (imageData: string): Promise<{ ready: boolean; rule: string; message: string }> => {
+    const response = await axiosInstance.post<{ ready: boolean; rule: string; message: string }>(
+      "/v1/auth/face/quality",
+      { image_data: imageData },
+      { timeout: 2_500 },
+    );
+    return response.data;
+  },
+
   enrollFace: async (imageData: string): Promise<FaceVerificationResponse> => {
     const response = await axiosInstance.put<FaceVerificationResponse>("/v1/auth/face/enrollment", {
       image_data: imageData,

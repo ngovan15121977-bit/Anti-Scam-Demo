@@ -783,6 +783,7 @@ def _history_item(
     transaction: Transaction,
     sender_user: User | None,
     risk_level: str | None,
+    risk_reason: str | None,
     *,
     current_user_id: uuid.UUID,
 ) -> dict[str, object]:
@@ -807,11 +808,13 @@ def _history_item(
         "bank_code": transaction.bank_code,
         "amount": transaction.amount,
         "currency": transaction.currency,
+        "note": transaction.note,
         "transaction_status": transaction.transaction_status,
         "created_at": transaction.created_at,
         "completed_at": transaction.completed_at,
         "cancelled_at": transaction.cancelled_at,
         "risk_level": risk_level,
+        "risk_reason": risk_reason,
     }
 
 
@@ -873,13 +876,21 @@ def history(
 
     sender = aliased(User)
     latest_assessment = lateral(
-        select(TransactionRiskAssessment.risk_level.label("risk_level"))
+        select(
+            TransactionRiskAssessment.risk_level.label("risk_level"),
+            TransactionRiskAssessment.explanation.label("risk_reason"),
+        )
         .where(TransactionRiskAssessment.transaction_id == Transaction.id)
         .order_by(desc(TransactionRiskAssessment.created_at))
         .limit(1)
     ).alias("latest_assessment")
     rows = db.execute(
-        select(Transaction, sender, latest_assessment.c.risk_level)
+        select(
+            Transaction,
+            sender,
+            latest_assessment.c.risk_level,
+            latest_assessment.c.risk_reason,
+        )
         .join(visible_transactions, visible_transactions.c.transaction_id == Transaction.id)
         .outerjoin(sender, Transaction.user_id == sender.id)
         .outerjoin(latest_assessment, true())
@@ -894,9 +905,10 @@ def history(
                 transaction,
                 sender_user,
                 risk_level,
+                risk_reason,
                 current_user_id=current_user.id,
             )
-            for transaction, sender_user, risk_level in page_rows
+            for transaction, sender_user, risk_level, risk_reason in page_rows
         ],
         next_cursor=(
             _encode_history_cursor(page_rows[-1][0])

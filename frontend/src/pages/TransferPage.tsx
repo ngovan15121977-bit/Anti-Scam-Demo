@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -16,6 +16,8 @@ import {
   Sparkles,
   Lightbulb,
   Lock,
+  Eye,
+  EyeOff,
   Star,
   Heart,
   QrCode,
@@ -133,6 +135,8 @@ export default function TransferPage() {
     "form" | "review" | "analyzing" | "ai-check" | "pin" | "face" | "success"
   >("form");
   const [pin, setPin] = useState("");
+  const [isPinVisible, setIsPinVisible] = useState(false);
+  const pinVisibilityTimer = useRef<number | null>(null);
   const [form, setForm] = useState<TransferForm>({
     recipient_account: "",
     recipient_name: "",
@@ -147,6 +151,7 @@ export default function TransferPage() {
     useState<RecipientLookupState>({ status: "idle" });
   const [isBankPickerOpen, setBankPickerOpen] = useState(false);
   const [bankSearch, setBankSearch] = useState("");
+  const [bankActiveIndex, setBankActiveIndex] = useState(0);
   const selectedBank = banks.find((bank) => bank.code === form.bank_code);
   const normalizedBankSearch = bankSearch.trim().toLocaleLowerCase("vi-VN");
   const filteredBanks = banks.filter((bank) =>
@@ -356,6 +361,7 @@ export default function TransferPage() {
 
   const handleBankSearchChange = (value: string) => {
     setBankSearch(value);
+    setBankActiveIndex(0);
     setBankPickerOpen(true);
     if (form.bank_code) {
       setForm((current) => ({
@@ -369,8 +375,28 @@ export default function TransferPage() {
 
   const handleBankFocus = () => {
     setBankPickerOpen(true);
+    setBankActiveIndex(0);
     if (form.bank_code) {
       setBankSearch("");
+    }
+  };
+
+  const handleBankKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setBankPickerOpen(false);
+      return;
+    }
+    if (!isBankPickerOpen || filteredBanks.length === 0) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setBankActiveIndex((current) => (current + 1) % filteredBanks.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setBankActiveIndex((current) => (current - 1 + filteredBanks.length) % filteredBanks.length);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      handleBankChange(filteredBanks[bankActiveIndex]?.code ?? filteredBanks[0].code);
     }
   };
 
@@ -593,6 +619,11 @@ export default function TransferPage() {
                             aria-autocomplete="list"
                             aria-controls="recipient-bank-options"
                             aria-expanded={isBankPickerOpen}
+                            aria-activedescendant={
+                              isBankPickerOpen && filteredBanks[bankActiveIndex]
+                                ? `bank-option-${filteredBanks[bankActiveIndex].code}`
+                                : undefined
+                            }
                             placeholder="Nhập tên hoặc mã ngân hàng"
                             className="w-full pl-11 pr-10 py-2.5 bg-gray-50 rounded-xl border-0 text-gray-800 focus:ring-2 focus:ring-rose-500 outline-none transition-shadow"
                             value={
@@ -601,6 +632,7 @@ export default function TransferPage() {
                                 : (selectedBank?.name ?? "")
                             }
                             onFocus={handleBankFocus}
+                            onKeyDown={handleBankKeyDown}
                             onBlur={() => setBankPickerOpen(false)}
                             onChange={(e) =>
                               handleBankSearchChange(e.target.value)
@@ -621,6 +653,7 @@ export default function TransferPage() {
                                 filteredBanks.map((bank) => (
                                   <button
                                     key={bank.code}
+                                    id={`bank-option-${bank.code}`}
                                     type="button"
                                     role="option"
                                     aria-selected={bank.code === form.bank_code}
@@ -628,7 +661,11 @@ export default function TransferPage() {
                                       event.preventDefault();
                                       handleBankChange(bank.code);
                                     }}
-                                    className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-rose-50"
+                                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-rose-50 ${
+                                      filteredBanks[bankActiveIndex]?.code === bank.code
+                                        ? "bg-rose-50"
+                                        : ""
+                                    }`}
                                   >
                                     <span className="font-medium text-gray-800">
                                       {bank.name}
@@ -676,7 +713,7 @@ export default function TransferPage() {
                       </span>
                     </div>
                     <div className="flex gap-2 mt-4 overflow-x-auto pb-1 scrollbar-hide">
-                      {["50000", "100000", "200000", "500000", "1000000"].map(
+                      {["50000", "100000", "200000", "500000", "1000000", "10000000"].map(
                         (amount) => (
                           <button
                             key={amount}
@@ -901,17 +938,36 @@ export default function TransferPage() {
           <p className="mt-2 text-center text-sm text-gray-500">
             Kiểm tra rủi ro đã hoàn tất. Nhập PIN giao dịch để tiếp tục.
           </p>
-          <input
-            value={pin}
-            onChange={(event) =>
-              setPin(event.target.value.replace(/\D/g, "").slice(0, 6))
-            }
-            inputMode="numeric"
-            type="password"
-            autoComplete="off"
-            placeholder="PIN 4–6 chữ số"
-            className="mt-6 w-full rounded-xl border border-rose-200 p-4 text-center text-xl tracking-[0.5em] outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-300"
-          />
+          <div className="relative mt-6">
+            <input
+              value={pin}
+              onChange={(event) =>
+                setPin(event.target.value.replace(/\D/g, "").slice(0, 6))
+              }
+              inputMode="numeric"
+              type={isPinVisible ? "text" : "password"}
+              autoComplete="off"
+              placeholder="PIN 4–6 chữ số"
+              className="w-full rounded-xl border border-rose-200 p-4 pr-12 text-center text-xl tracking-[0.5em] outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-300"
+            />
+            <button
+              type="button"
+              aria-label={isPinVisible ? "Ẩn mã PIN" : "Hiện mã PIN"}
+              onClick={() => {
+                if (pinVisibilityTimer.current !== null) {
+                  window.clearTimeout(pinVisibilityTimer.current);
+                }
+                setIsPinVisible(true);
+                pinVisibilityTimer.current = window.setTimeout(() => {
+                  setIsPinVisible(false);
+                  pinVisibilityTimer.current = null;
+                }, 200);
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-2 text-gray-400 hover:bg-rose-50 hover:text-rose-600"
+            >
+              {isPinVisible ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+            </button>
+          </div>
           <button
             disabled={!/^\d{4,6}$/.test(pin) || decisionMutation.isPending}
             onClick={() =>

@@ -37,6 +37,7 @@ interface Transaction {
   risk_level: "low" | "medium" | "high" | "critical";
   created_at: string;
   description: string;
+  reason: string;
 }
 
 const APP_TIME_ZONE = "Asia/Ho_Chi_Minh";
@@ -76,12 +77,13 @@ export default function HistoryPage() {
   const [quickFilter, setQuickFilter] = useState<"all" | "today" | "yesterday" | "week" | "month">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   const historyQuery = useInfiniteQuery({
-    queryKey: ["transaction-history"],
+    queryKey: ["transaction-history", showAll],
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => transactionsApi.getHistory({
-      limit: 20,
+      limit: showAll ? 20 : 3,
       cursor: pageParam,
     }),
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
@@ -118,6 +120,7 @@ export default function HistoryPage() {
       ? "low"
       : transaction.risk_level === "medium" ? "medium" : transaction.risk_level === "high" ? "high" : "critical",
     created_at: transaction.created_at,
+    reason: transaction.risk_reason || transaction.note || "Giao dịch được ghi nhận trong lịch sử tài khoản.",
     description: transaction.direction === "incoming"
       ? transaction.transaction_status === "completed"
         ? "Đã nhận tiền qua Timi Bank"
@@ -335,6 +338,39 @@ export default function HistoryPage() {
                               {tx.risk_level !== "low" && <p className={`text-xs font-bold mt-1.5 ${risk.color}`}>{risk.label}</p>}
                             </div>
                           </div>
+                          <div className={`mt-4 rounded-xl border px-4 py-3 ${
+                            tx.risk_level === "low"
+                              ? "border-emerald-100 bg-emerald-50"
+                              : tx.risk_level === "medium"
+                                ? "border-amber-100 bg-amber-50"
+                                : "border-red-100 bg-red-50"
+                          }`}>
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className={`h-4 w-4 ${
+                                tx.risk_level === "low"
+                                  ? "text-emerald-500"
+                                  : tx.risk_level === "medium"
+                                    ? "text-amber-500"
+                                    : "text-red-500"
+                              }`} />
+                              <p className={`text-xs font-bold ${
+                                tx.risk_level === "low"
+                                  ? "text-emerald-700"
+                                  : tx.risk_level === "medium"
+                                    ? "text-amber-700"
+                                    : "text-red-700"
+                              }`}>
+                                {tx.risk_level === "low" ? "An toàn" : "Lý do đánh giá"}
+                              </p>
+                            </div>
+                            <p className={`mt-1 text-sm leading-5 ${
+                              tx.risk_level === "low"
+                                ? "text-emerald-700"
+                                : tx.risk_level === "medium"
+                                  ? "text-amber-700"
+                                  : "text-red-700"
+                            }`}>{tx.reason}</p>
+                          </div>
                           {tx.status === "blocked" && (
                             <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-xl">
                               <div className="flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-red-500" /><p className="text-xs text-red-600 font-bold">AI Anti-Scam đã chặn giao dịch này</p></div>
@@ -345,7 +381,7 @@ export default function HistoryPage() {
                     );
                   })
                 )}
-                {historyQuery.hasNextPage && !historyQuery.isError && (
+                {showAll && historyQuery.hasNextPage && !historyQuery.isError && (
                   <button
                     type="button"
                     onClick={() => historyQuery.fetchNextPage()}
@@ -357,6 +393,15 @@ export default function HistoryPage() {
                     ) : (
                       "Tải thêm giao dịch"
                     )}
+                  </button>
+                )}
+                {!showAll && historyQuery.hasNextPage && !historyQuery.isError && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAll(true)}
+                    className="flex w-full items-center justify-center rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-bold text-rose-500 transition-colors hover:bg-rose-50"
+                  >
+                    Xem tất cả lịch sử
                   </button>
                 )}
               </div>

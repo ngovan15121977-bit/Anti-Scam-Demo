@@ -84,13 +84,16 @@ class Settings(BaseSettings):
     risk_telemetry_hash_key: str = ""
 
     # ---- Local Hugging Face face verification ----
-    face_model_id: str = "gaunernst/vit_tiny_patch8_112.arcface_ms1mv3"
-    # Keep production startup light on small containers; the model is loaded
-    # lazily on the first face-enrollment or face-verification request.
-    face_model_preload: bool = False
+    # Load the model during startup so enrollment does not wait for first-use
+    # model initialization.
+    face_model_preload: bool = True
     # Changes whenever preprocessing changes, so incompatible old embeddings are re-enrolled.
+    face_model_id: str = "gaunernst/vit_tiny_patch8_112.arcface_ms1mv3"
     face_embedding_version: str = "arcface-face-crop-v1"
-    face_similarity_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
+    face_similarity_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
+    face_transaction_similarity_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
+    face_transaction_failure_limit: int = Field(default=10, ge=1)
+    face_transaction_lock_seconds: int = Field(default=30, ge=1)
 
     @computed_field
     @property

@@ -105,11 +105,13 @@ class TransactionOut(BaseModel):
     bank_code: str | None
     amount: int
     currency: str
+    note: str | None = None
     transaction_status: str
     created_at: datetime
     completed_at: datetime | None
     cancelled_at: datetime | None
     risk_level: str | None = None
+    risk_reason: str | None = None
 
 
 class TransactionHistoryPage(BaseModel):
