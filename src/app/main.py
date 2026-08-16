@@ -45,7 +45,10 @@ app.include_router(guardian.router, prefix="/api/v1")
 @app.on_event("startup")
 def preload_face_ai() -> None:
     """Optionally warm face AI; lazy loading is safer on small deployments."""
-    if not settings.face_model_preload:
+    # Render's small instances must stay healthy before the first face request.
+    # Loading PyTorch/Hugging Face here can exceed the memory limit and produce
+    # an unexplained status 137 restart, so production always uses lazy loading.
+    if settings.app_env == "production" or not settings.face_model_preload:
         return
     try:
         warm_face_model()

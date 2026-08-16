@@ -11,6 +11,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Avoid a thread explosion on Render's small CPU instance. Face AI is loaded
+# lazily on the first enrollment/verification request, not during health boot.
+ENV FACE_MODEL_PRELOAD=false \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1
+
 # Copy installed packages from builder
 COPY --from=builder /usr/local /usr/local
 # ENV PATH=/root/.local/bin:$PATH

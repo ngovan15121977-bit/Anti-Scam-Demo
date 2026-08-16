@@ -30,6 +30,15 @@ def _model():
         from timm.data import create_transform, resolve_data_config
     except ImportError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Face AI chưa được cài đặt. Chạy pip install -r requirements.txt để tải model Hugging Face.") from exc
+    # Keep the web process within Render's small CPU/RAM budget. This does not
+    # change the embedding model; it only prevents PyTorch from creating a
+    # large thread pool for a single lightweight inference request.
+    torch.set_num_threads(1)
+    try:
+        torch.set_num_interop_threads(1)
+    except RuntimeError:
+        # PyTorch rejects changing inter-op threads after its runtime started.
+        pass
     model = timm.create_model(f"hf_hub:{get_settings().face_model_id}", pretrained=True).eval()
     transform = create_transform(**resolve_data_config(model.pretrained_cfg, model=model))
     return model, transform, torch
