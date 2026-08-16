@@ -187,13 +187,13 @@ export default function FaceVerificationModal({
             // instruction remains visible instead of restarting silently.
             if (
               stablePositionReady.current &&
-              performance.now() - challengeStartedAt < 10000 &&
+              performance.now() - challengeStartedAt < 20000 &&
               (quality.rule === "no_face" ||
                 quality.rule === "off_center" ||
                 quality.rule === "obstructed_eyes")
             ) {
               setFrameQuality("holding");
-              setFrameQualityMessage("Đang xác minh chuyển động. Hãy quay trái/phải thật chậm và đưa mặt trở lại khung hình.");
+              setFrameQualityMessage("Đang xác minh chuyển động. Hãy quay trái/phải chậm và đưa mặt trở lại khung hình.");
               return;
             }
             stablePositionReady.current = false;
