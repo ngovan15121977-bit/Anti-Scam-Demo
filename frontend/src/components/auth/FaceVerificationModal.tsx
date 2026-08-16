@@ -96,14 +96,20 @@ export default function FaceVerificationModal({
           }
           const motion = difference / (32 * 32 * 3);
           const now = performance.now();
-          if (stablePositionReady.current && motion >= 7 && now - lastMotionAt >= 550) {
+          if (stablePositionReady.current && motion >= 5 && now - lastMotionAt >= 450) {
             motionEvents += 1;
             lastMotionAt = now;
+            if (!livenessPassed.current && mode === "enrollment") {
+              setFrameQualityMessage(`Đã nhận chuyển động ${Math.min(motionEvents, 2)}/2. Tiếp tục quay chậm sang phía còn lại...`);
+            }
           }
           // Require several independent changes. A single compressed/static
           // image must not immediately unlock enrollment or verification.
           if (stablePositionReady.current && motionEvents >= 2 && now - livenessStartedAt >= 1500) {
             livenessPassed.current = true;
+            if (mode === "enrollment") {
+              setFrameQualityMessage("Đã hoàn thành quay trái/phải. Hãy đưa mặt trở lại giữa khung...");
+            }
           }
         }
         previousMotionFrame = new Uint8ClampedArray(currentFrame);
@@ -190,7 +196,8 @@ export default function FaceVerificationModal({
               performance.now() - challengeStartedAt < 20000 &&
               (quality.rule === "no_face" ||
                 quality.rule === "off_center" ||
-                quality.rule === "obstructed_eyes")
+                quality.rule === "obstructed_eyes" ||
+                quality.rule === "blurry")
             ) {
               setFrameQuality("holding");
               setFrameQualityMessage("Đang xác minh chuyển động. Hãy quay trái/phải chậm và đưa mặt trở lại khung hình.");
