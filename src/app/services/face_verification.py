@@ -97,12 +97,10 @@ def _obstruction_rule(image, face_box) -> str:
     eyes = eyes_detector.detectMultiScale(
         upper, scaleFactor=1.1, minNeighbors=6, minSize=(max(12, width // 10), max(12, height // 12))
     )
-    # Keep this check intentionally small and fast. OpenCV may detect only one
-    # eye because of lighting, glasses or a slight turn of the head; reject
-    # only when it cannot detect either eye at all. This does not create a
-    # failure-lock event.
-    if len(eyes) == 0:
-        return "obstructed_eyes"
+    # Do not reject a face when Haar cannot see the eyes: prescription glasses,
+    # a slow head turn, lighting and camera compression commonly cause this
+    # false positive. Dedicated obstruction models are not used in this local
+    # lightweight flow.
     return "ready"
 
 
@@ -166,16 +164,34 @@ def _crop_primary_face(image):
     face_center_x = (x + width / 2) / image_width
     face_center_y = (y + height / 2) / image_height
     if not 0.28 <= face_center_x <= 0.72 or not 0.24 <= face_center_y <= 0.76:
-        raise HTTPException(
-            status_code=422,
-            detail="Khuôn mặt cần nằm gần giữa khung hình. Hãy điều chỉnh camera và chụp lại.",
-        )
+        if face_center_x < 0.28:
+            detail = "Khuôn mặt đang lệch sang trái. Hãy dịch mặt sang phải một chút."
+        elif face_center_x > 0.72:
+            detail = "Khuôn mặt đang lệch sang phải. Hãy dịch mặt sang trái một chút."
+        elif face_center_y < 0.24:
+            detail = "Khuôn mặt đang quá cao. Hãy hạ camera hoặc đưa mặt xuống một chút."
+        else:
+            detail = "Khuôn mặt đang quá thấp. Hãy nâng camera hoặc đưa mặt lên một chút."
+        raise HTTPException(status_code=422, detail=detail)
     if x < image_width * 0.02 or y < image_height * 0.02 or x + width > image_width * 0.98 or y + height > image_height * 0.98:
-        raise HTTPException(status_code=422, detail="Khuôn mặt đang ra khỏi khung. Hãy đưa mặt trở lại giữa camera.")
-    if width < image_width * 0.18 or height < image_height * 0.18:
+        if x < image_width * 0.02:
+            detail = "Phần mặt bên trái đang sát mép hoặc ra khỏi khung. Hãy dịch mặt sang phải."
+        elif x + width > image_width * 0.98:
+            detail = "Phần mặt bên phải đang sát mép hoặc ra khỏi khung. Hãy dịch mặt sang trái."
+        elif y < image_height * 0.02:
+            detail = "Phần trán đang sát mép trên. Hãy hạ mặt hoặc điều chỉnh camera xuống."
+        else:
+            detail = "Phần cằm đang sát mép dưới. Hãy nâng mặt hoặc điều chỉnh camera lên."
+        raise HTTPException(status_code=422, detail=detail)
+    if width < image_width * 0.25 or height < image_height * 0.25:
         raise HTTPException(
             status_code=422,
             detail="Khuôn mặt chưa đủ gần. Hãy đưa mặt lại gần camera hơn.",
+        )
+    if width > image_width * 0.78 or height > image_height * 0.78:
+        raise HTTPException(
+            status_code=422,
+            detail="Khuôn mặt đang quá gần camera. Hãy lùi ra xa một chút để thấy trọn khuôn mặt.",
         )
     if _obstruction_rule(image, ordered_faces[0]) != "ready":
         raise HTTPException(
@@ -260,11 +276,25 @@ def face_quality_rule_from_data_url(data_url: str) -> str:
     center_x = (x + width / 2) / image_width
     center_y = (y + height / 2) / image_height
     if not 0.28 <= center_x <= 0.72 or not 0.24 <= center_y <= 0.76:
-        return "off_center"
+        if center_x < 0.28:
+            return "off_center_left"
+        if center_x > 0.72:
+            return "off_center_right"
+        if center_y < 0.24:
+            return "off_center_top"
+        return "off_center_bottom"
     if x < image_width * 0.02 or y < image_height * 0.02 or x + width > image_width * 0.98 or y + height > image_height * 0.98:
-        return "off_center"
-    if width < image_width * 0.18 or height < image_height * 0.18:
+        if x < image_width * 0.02:
+            return "off_center_left"
+        if x + width > image_width * 0.98:
+            return "off_center_right"
+        if y < image_height * 0.02:
+            return "off_center_top"
+        return "off_center_bottom"
+    if width < image_width * 0.25 or height < image_height * 0.25:
         return "too_far"
+    if width > image_width * 0.78 or height > image_height * 0.78:
+        return "too_near"
     obstruction = _obstruction_rule(image, ordered[0])
     if obstruction != "ready":
         return obstruction

@@ -121,6 +121,7 @@ class TransactionHistoryPage(BaseModel):
 
 class TransactionHistorySummary(BaseModel):
     completed_outgoing_today: int = Field(..., ge=0)
+    total_transactions: int = Field(..., ge=0)
 
 
 class TrustedRecipientCreate(BaseModel):

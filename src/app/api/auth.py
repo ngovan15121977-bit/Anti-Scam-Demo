@@ -237,7 +237,10 @@ def enroll_face(payload: FaceEnrollmentRequest, db: Session = Depends(get_db), c
     image = _data_url_bytes(payload.image_data)
     embedding = embedding_from_data_url(payload.image_data)
     try:
-        uploaded = cloudinary.uploader.upload(image, folder="fintechguard/face-enrollments", public_id=str(current_user.id), overwrite=True, resource_type="image", allowed_formats=["jpg", "jpeg", "png"], transformation=[{"width": 512, "height": 512, "crop": "fill", "gravity": "face"}])
+        # The embedding service already validates and crops the primary face.
+        # Store a smaller face-focused reference so uploads and future reads
+        # do not carry unnecessary background pixels.
+        uploaded = cloudinary.uploader.upload(image, folder="fintechguard/face-enrollments", public_id=str(current_user.id), overwrite=True, resource_type="image", allowed_formats=["jpg", "jpeg", "png"], transformation=[{"width": 256, "height": 256, "crop": "fill", "gravity": "face", "zoom": 0.85}])
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Không thể lưu ảnh khuôn mặt lên Cloudinary") from exc
     row = db.scalar(select(FaceEnrollment).where(FaceEnrollment.user_id == current_user.id))
@@ -273,10 +276,15 @@ def face_quality(
         "obstructed_mouth_chin": "Vui lòng bỏ tay, khẩu trang hoặc vật cản khỏi vùng miệng và cằm.",
         "obstructed_headwear": "Vui lòng bỏ mũ/nón hoặc vật cản khỏi vùng trán và đầu.",
         "obstructed_face": "Vui lòng loại bỏ các vật cản khỏi khuôn mặt trước khi quét.",
-        "no_face": "Chưa nhận diện được khuôn mặt. Hãy đưa mặt vào chính giữa, tiến gần camera hơn một chút và nhìn thẳng.",
+        "no_face": "Chưa thấy khuôn mặt. Hãy đưa toàn bộ mặt vào khung; nếu mặt đang quá nhỏ thì tiến gần camera hơn.",
         "multiple_faces": "Có nhiều khuôn mặt. Chỉ để một mình bạn trong khung.",
         "off_center": "Khuôn mặt đang lệch tâm. Hãy căn mặt vào giữa khung.",
-        "too_far": "Khuôn mặt còn quá xa. Hãy đưa mặt lại gần camera.",
+        "off_center_left": "Khuôn mặt đang lệch sang trái. Hãy dịch mặt sang phải một chút.",
+        "off_center_right": "Khuôn mặt đang lệch sang phải. Hãy dịch mặt sang trái một chút.",
+        "off_center_top": "Khuôn mặt đang quá cao. Hãy hạ camera hoặc đưa mặt xuống một chút.",
+        "off_center_bottom": "Khuôn mặt đang quá thấp. Hãy nâng camera hoặc đưa mặt lên một chút.",
+        "too_far": "Khuôn mặt đang quá xa hoặc quá nhỏ. Hãy tiến gần camera thêm một chút.",
+        "too_near": "Khuôn mặt đang quá gần camera. Hãy lùi ra xa một chút để thấy trọn khuôn mặt.",
         "lighting": "Ánh sáng chưa đạt. Hãy tăng sáng hoặc tránh ánh sáng chiếu thẳng.",
         "blurry": "Khuôn mặt đang bị mờ. Hãy giữ camera và khuôn mặt yên.",
         "invalid_image": "Không đọc được ảnh camera. Hãy thử lại.",

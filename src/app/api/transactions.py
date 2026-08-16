@@ -838,8 +838,17 @@ def history_summary(
             Transaction.created_at >= local_start.astimezone(UTC),
         )
     )
+    total_transactions = db.scalar(
+        select(func.count(Transaction.id)).where(
+            or_(
+                Transaction.user_id == current_user.id,
+                Transaction.timi_recipient_user_id == current_user.id,
+            )
+        )
+    )
     return TransactionHistorySummary(
-        completed_outgoing_today=int(completed_outgoing_today or 0)
+        completed_outgoing_today=int(completed_outgoing_today or 0),
+        total_transactions=int(total_transactions or 0),
     )
 
 

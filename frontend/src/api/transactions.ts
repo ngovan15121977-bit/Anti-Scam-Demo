@@ -107,6 +107,7 @@ export interface TransactionHistoryPage {
 
 export interface TransactionHistorySummary {
   completed_outgoing_today: number;
+  total_transactions: number;
 }
 
 export const transactionsApi = {

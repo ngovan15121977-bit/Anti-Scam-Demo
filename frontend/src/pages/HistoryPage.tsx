@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { transactionsApi, type Transaction as ApiTransaction } from "@/api/transactions";
 import { useNavigate } from "react-router-dom";
@@ -78,18 +78,31 @@ export default function HistoryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const hasGlobalFilter = filter !== "all" || statusFilter !== "all" || quickFilter !== "all" || searchQuery.trim().length > 0;
 
   const historyQuery = useInfiniteQuery({
-    queryKey: ["transaction-history", showAll],
+    queryKey: ["transaction-history", showAll, filter, statusFilter, quickFilter, searchQuery.trim()],
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => transactionsApi.getHistory({
-      limit: showAll ? 20 : 3,
+      // A search/filter must scan every cursor page so old transactions are
+      // searchable. The unfiltered dashboard view intentionally starts with 3.
+      limit: showAll || hasGlobalFilter ? 20 : 3,
       cursor: pageParam,
     }),
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     refetchOnMount: "always",
     staleTime: 0,
   });
+  const historySummaryQuery = useQuery({
+    queryKey: ["transaction-history-summary"],
+    queryFn: () => transactionsApi.getHistorySummary(),
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (!hasGlobalFilter || !historyQuery.hasNextPage || historyQuery.isFetchingNextPage || historyQuery.isError) return;
+    void historyQuery.fetchNextPage();
+  }, [hasGlobalFilter, historyQuery.hasNextPage, historyQuery.isFetchingNextPage, historyQuery.isError, historyQuery.fetchNextPage]);
 
   const historyError = historyQuery.error;
   const historyErrorMessage = axios.isAxiosError(historyError)
@@ -133,7 +146,10 @@ export default function HistoryPage() {
   const filteredTransactions = transactions.filter((tx) => {
     if (filter !== "all" && tx.type !== filter) return false;
     if (statusFilter !== "all" && tx.status !== statusFilter) return false;
-    if (searchQuery && !tx.recipient_name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase().trim();
+      if (!tx.recipient_name.toLowerCase().includes(query) && !tx.recipient_account.toLowerCase().includes(query)) return false;
+    }
     if (quickFilter !== "all") {
       const transactionDateKey = getAppDateKey(tx.created_at);
       const todayKey = getAppDateKey(new Date());
@@ -180,6 +196,7 @@ export default function HistoryPage() {
   const getTypeLabel = (type: string) => { switch (type) { case "transfer": return "Chuyển tiền"; case "receive": return "Nhận tiền"; case "payment": return "Thanh toán"; default: return type; } };
   const totalIn = filteredTransactions.filter(t => t.type === "receive").reduce((sum, t) => sum + t.amount, 0);
   const totalOut = filteredTransactions.filter(t => t.type === "transfer").reduce((sum, t) => sum + t.amount, 0);
+  const totalTransactionCount = historySummaryQuery.data?.total_transactions ?? filteredTransactions.length;
 
   return (
     <div className="min-h-screen bg-gray-50 w-full relative overflow-hidden">
@@ -262,7 +279,7 @@ export default function HistoryPage() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
                   <div className="flex items-center gap-2 mb-2"><Receipt className="w-4 h-4 text-gray-400" /><p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tổng giao dịch</p></div>
-                  <p className="text-2xl font-extrabold text-gray-900">{filteredTransactions.length}</p>
+                  <p className="text-2xl font-extrabold text-gray-900">{totalTransactionCount}</p>
                 </div>
                 <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
                   <div className="flex items-center gap-2 mb-2"><TrendingUp className="w-4 h-4 text-emerald-500" /><p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Đã nhận</p></div>
@@ -381,7 +398,7 @@ export default function HistoryPage() {
                     );
                   })
                 )}
-                {showAll && historyQuery.hasNextPage && !historyQuery.isError && (
+                {showAll && !hasGlobalFilter && historyQuery.hasNextPage && !historyQuery.isError && (
                   <button
                     type="button"
                     onClick={() => historyQuery.fetchNextPage()}
@@ -395,7 +412,7 @@ export default function HistoryPage() {
                     )}
                   </button>
                 )}
-                {!showAll && historyQuery.hasNextPage && !historyQuery.isError && (
+                {!showAll && !hasGlobalFilter && !historyQuery.isError && (
                   <button
                     type="button"
                     onClick={() => setShowAll(true)}
@@ -403,6 +420,11 @@ export default function HistoryPage() {
                   >
                     Xem tất cả lịch sử
                   </button>
+                )}
+                {hasGlobalFilter && historyQuery.isFetchingNextPage && (
+                  <div className="flex items-center justify-center gap-2 py-3 text-xs font-semibold text-gray-400">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Đang tìm trong toàn bộ lịch sử...
+                  </div>
                 )}
               </div>
             </div>
