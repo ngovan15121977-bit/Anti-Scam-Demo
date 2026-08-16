@@ -1,415 +1,552 @@
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useAuthStore } from "@/stores/authStore";
 import {
   Shield,
   ArrowRight,
-  Zap,
-  Lock,
-  Smartphone,
-  CreditCard,
-  Users,
   TrendingUp,
-  CheckCircle2,
-  Sparkles,
-  Heart,
-  Gamepad2,
-  Receipt,
-  Plane,
-  ArrowRightLeft,
-  ShoppingCart,
-  LayoutGrid,
-  Film,
-  Car,
-  PieChart,
   Landmark,
-  Wallet,
-  Ticket,
-  Bus,
+  PiggyBank,
+  FileText,
+  AlertTriangle,
+  Target,
+  CheckCircle2,
+  Star,
+  Mail,
+  Phone,
+  MapPin,
+  Facebook,
+  Twitter,
+  Linkedin,
+  Instagram,
 } from "lucide-react";
-import { useAuthStore } from "@/stores/authStore";
-import { authApi } from "@/api/auth";
-
-const services = [
-  { icon: Sparkles, label: "MoMo đề xuất" },
-  { icon: Shield, label: "Tài chính - Bảo hiểm" },
-  { icon: Film, label: "Mua vé xem phim" },
-  { icon: Heart, label: "Ví Nhân Ái" },
-  { icon: Gamepad2, label: "Trò chơi" },
-  { icon: Smartphone, label: "Điện thoại - Data 4G/5G" },
-  { icon: Receipt, label: "Thanh toán hóa đơn" },
-  { icon: Plane, label: "Du lịch - Đi lại" },
-  { icon: ArrowRightLeft, label: "Chuyển tiền - Thanh toán" },
-  { icon: ShoppingCart, label: "Thương mại điện tử" },
-  { icon: LayoutGrid, label: "Game - Ứng dụng" },
-];
-
-const tags = [
-  { icon: Sparkles, label: "Trợ Thủ Tài Chính" },
-  { icon: Car, label: "Tra cứu phạt nguội" },
-  { icon: PieChart, label: "Quản Lý Chi Tiêu" },
-  { icon: Landmark, label: "Trung Tâm Tài Chính" },
-  { icon: Users, label: "Quỹ Nhóm" },
-  { icon: Wallet, label: "Ví Trả Sau" },
-  { icon: Zap, label: "Vay Nhanh" },
-  { icon: Heart, label: "Trái Tim MoMo" },
-  { icon: Ticket, label: "Vé xem phim" },
-  { icon: Bus, label: "Vé xe khách" },
-];
-
-const features = [
-  {
-    icon: ArrowRight,
-    title: "Chuyển tiền siêu tốc",
-    desc: "Chuyển tiền 24/7 đến mọi ngân hàng, chỉ cần số điện thoại",
-    color: "bg-rose-100 text-rose-600",
-  },
-  {
-    icon: CreditCard,
-    title: "Thanh toán mọi dịch vụ",
-    desc: "Hóa đơn điện nước, nạp điện thoại, vé xem phim... tất cả trong 1 chạm",
-    color: "bg-blue-100 text-blue-600",
-  },
-  {
-    icon: Shield,
-    title: "AI Anti-Scam",
-    desc: "Trí tuệ nhân tạo phân tích real-time, chặn giao dịch rủi ro trước khi xảy ra",
-    color: "bg-emerald-100 text-emerald-600",
-  },
-  {
-    icon: Lock,
-    title: "Bảo mật tuyệt đối",
-    desc: "Mã hóa đầu cuối, xác thực sinh trắc học, đáp ứng tiêu chuẩn ngân hàng",
-    color: "bg-violet-100 text-violet-600",
-  },
-  {
-    icon: TrendingUp,
-    title: "Quản lý chi tiêu",
-    desc: "Báo cáo thông minh, phân loại giao dịch tự động, giúp bạn tiết kiệm hơn",
-    color: "bg-amber-100 text-amber-600",
-  },
-  {
-    icon: Smartphone,
-    title: "Ví điện tử thông minh",
-    desc: "Giao diện đơn giản, thao tác nhanh chóng, phù hợp mọi lứa tuổi",
-    color: "bg-sky-100 text-sky-600",
-  },
-];
+import { useState, useEffect, useRef } from "react";
 
 const stats = [
-  { label: "Người dùng tin tưởng", value: "2M+" },
-  { label: "Giao dịch mỗi ngày", value: "500K+" },
-  { label: "Giao dịch rủi ro đã chặn", value: "120K+" },
-  { label: "Đối tác liên kết", value: "200+" },
+  { value: "$4.2B+", label: "Assets Managed" },
+  { value: "97%", label: "Client Satisfaction" },
+  { value: "12+", label: "Years Experience" },
+  { value: "+18.4%", label: "Annual Returns" },
 ];
+
+const trustBadges = [
+  "Bank-Grade Security",
+  "SEC Registered",
+  "50,000+ Clients Worldwide",
+  "256-bit Encryption",
+  "Award Winning Advisory",
+  "30+ Countries Served",
+];
+
+const services = [
+  {
+    icon: TrendingUp,
+    title: "Investment Planning",
+    desc: "Tailored portfolios built around your goals, risk appetite, and investment horizon.",
+    color: "bg-blue-50 text-blue-600",
+    image: "/img/1.jpg",
+  },
+  {
+    icon: Landmark,
+    title: "Wealth Management",
+    desc: "Holistic strategies to preserve, grow, and transfer your wealth across generations.",
+    color: "bg-emerald-50 text-emerald-600",
+    image: "/img/2.jpg",
+  },
+  {
+    icon: PiggyBank,
+    title: "Retirement Plans",
+    desc: "Secure your future with structured pension plans, annuities, and long-term savings.",
+    color: "bg-amber-50 text-amber-600",
+    image: "/img/3.jpg",
+  },
+  {
+    icon: FileText,
+    title: "Tax Advisory",
+    desc: "Smart tax-efficient strategies to maximise your returns and stay fully compliant.",
+    color: "bg-violet-50 text-violet-600",
+    image: "/img/4.jpg",
+  },
+  {
+    icon: AlertTriangle,
+    title: "Risk Management",
+    desc: "Identify, assess, and mitigate financial risks with expert guidance and analysis.",
+    color: "bg-rose-50 text-rose-600",
+    image: "/img/5.jpg",
+  },
+  {
+    icon: Target,
+    title: "Savings Goals",
+    desc: "Set, track, and achieve your savings milestones with automated, goal-based tools.",
+    color: "bg-sky-50 text-sky-600",
+    image: "/img/6.jpg",
+  },
+];
+
+const whyFeatures = [
+  {
+    title: "Personalised Strategy",
+    desc: "Every plan is crafted specifically for your unique financial situation.",
+  },
+  {
+    title: "Transparent Pricing",
+    desc: "No hidden fees. Clear, upfront pricing on every product and service.",
+  },
+  {
+    title: "24/7 Expert Support",
+    desc: "Our advisors are always available when you need guidance the most.",
+  },
+];
+
+const counterStats = [
+  { value: 50000, suffix: "+", label: "Happy Clients" },
+  { value: 4.2, suffix: "M+", label: "Assets Managed", isFloat: true },
+  { value: 30, suffix: "+", label: "Countries Served" },
+  { value: 25, suffix: "", label: "Industry Awards" },
+];
+
+const testimonials = [
+  {
+    text: "VaultEdge transformed how I manage my finances. My portfolio has grown by 22% in just 18 months. Incredible service!",
+    author: "Sarah Patel",
+    role: "Marketing Director",
+    rating: 5,
+    image: "/img/7.jpg",
+  },
+  {
+    text: "The retirement planning team at VaultEdge gave me total peace of mind. Professional, responsive, and results-driven.",
+    author: "James Wilson",
+    role: "Business Owner",
+    rating: 5,
+    image: "/img/8.jpg",
+  },
+  {
+    text: "Switched from our old firm and couldn't be happier. Their tax advisory alone saved us thousands in the first year.",
+    author: "Michael Chen",
+    role: "Startup Founder",
+    rating: 5,
+    image: "/img/9.jpg",
+  },
+];
+
+function AnimatedCounter({ target, suffix, isFloat = false, duration = 2000 }: { target: number; suffix: string; isFloat?: boolean; duration?: number }) {
+  const [count, setCount] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+  const hasAnimated = useRef(false);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !hasAnimated.current) {
+          hasAnimated.current = true;
+          const startTime = Date.now();
+          const animate = () => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const easeOut = 1 - Math.pow(1 - progress, 3);
+            setCount(isFloat ? parseFloat((target * easeOut).toFixed(1)) : Math.floor(target * easeOut));
+            if (progress < 1) requestAnimationFrame(animate);
+          };
+          requestAnimationFrame(animate);
+        }
+      },
+      { threshold: 0.3 }
+    );
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [target, duration, isFloat]);
+
+  return (
+    <div ref={ref} className="text-4xl lg:text-5xl font-bold text-slate-900">
+      {isFloat ? count.toFixed(1) : count.toLocaleString()}{suffix}
+    </div>
+  );
+}
 
 export default function HomePage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const [securityPromptDismissed, setSecurityPromptDismissed] = useState(false);
-  const pinStatus = useQuery({ queryKey: ["transaction-pin-status"], queryFn: authApi.transactionPinStatus, staleTime: 0 });
-  const faceStatus = useQuery({ queryKey: ["face-enrollment-status"], queryFn: authApi.faceEnrollmentStatus, staleTime: 0 });
-  const needsSecuritySetup = !securityPromptDismissed && pinStatus.isSuccess && faceStatus.isSuccess && (!pinStatus.data.configured || !faceStatus.data.configured);
 
   return (
-    <div className="min-h-screen bg-white w-full">
-      {needsSecuritySetup && <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-3xl bg-white p-7 text-center shadow-2xl"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-rose-100"><Shield className="h-8 w-8 text-rose-600" /></div><h2 className="mt-5 text-2xl font-bold text-slate-900">Thiết lập bảo mật tài khoản</h2><p className="mt-3 text-sm leading-relaxed text-slate-600">Bạn cần thêm mã PIN và khuôn mặt để bảo vệ các giao dịch chuyển tiền.</p><button onClick={() => navigate(!pinStatus.data.configured ? "/setup-pin" : "/setup-face")} className="mt-6 w-full rounded-xl bg-rose-600 py-3 font-bold text-white">{!pinStatus.data.configured ? "Tạo mã PIN" : "Đăng ký khuôn mặt"}</button><button onClick={() => setSecurityPromptDismissed(true)} className="mt-3 w-full rounded-xl bg-slate-100 py-3 font-semibold text-slate-700 hover:bg-slate-200">Để sau, quay lại Dashboard</button></div></div>}
-      {/* ===== TIỆN ÍCH VÀ DỊCH VỤ ===== */}
-      <section className="pt-6 pb-6 bg-white w-full">
+    <div className="min-h-screen bg-white w-full font-sans">
+      {/* ===== HERO SECTION ===== */}
+      <section className="relative min-h-[100dvh] flex items-center bg-gradient-to-br from-slate-50 via-white to-blue-50/30 w-full overflow-hidden">
+        {/* Background decoration */}
+        <div className="absolute top-20 right-0 w-[600px] h-[600px] bg-blue-100/40 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3" />
+        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-indigo-100/30 rounded-full blur-3xl translate-y-1/3 -translate-x-1/4" />
+
+        <div className="w-full px-6 lg:px-12 xl:px-20 relative z-10">
+          <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+            {/* Left Content */}
+            <div className="max-w-2xl">
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-100 rounded-full mb-6">
+                <Star className="w-4 h-4 text-blue-600 fill-blue-600" />
+                <span className="text-sm font-semibold text-blue-700">Trusted Since 2012 · 50,000+ Clients</span>
+              </div>
+
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-bold text-slate-900 leading-[1.1] mb-6">
+                Grow Your Wealth{" "}
+                <span className="relative">
+                  With Confidence
+                  <svg className="absolute -bottom-2 left-0 w-full" viewBox="0 0 300 12" fill="none">
+                    <path d="M2 10C50 2 100 2 150 6C200 10 250 10 298 2" stroke="#3B82F6" strokeWidth="4" strokeLinecap="round" />
+                  </svg>
+                </span>
+              </h1>
+
+              <p className="text-lg lg:text-xl text-slate-500 leading-relaxed mb-8 max-w-lg">
+                Timi delivers intelligent, data-driven investment strategies and personalised financial guidance to help you reach every milestone.
+              </p>
+
+              <div className="flex flex-col sm:flex-row gap-4 mb-12">
+                <button
+                  onClick={() => navigate(user ? "/dashboard" : "/register")}
+                  className="px-8 py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all shadow-xl shadow-slate-200 flex items-center justify-center gap-2 group"
+                >
+                  Bắt đầu ngay
+                  <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </button>
+                <button
+                  onClick={() => navigate("/transfer")}
+                  className="px-8 py-4 bg-white text-slate-700 font-bold rounded-2xl border-2 border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
+                >
+                  Chuyển tiền
+                  <ArrowRight className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Hero Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+                {stats.map((stat) => (
+                  <div key={stat.label}>
+                    <p className="text-2xl lg:text-3xl font-bold text-slate-900">{stat.value}</p>
+                    <p className="text-xs text-slate-400 mt-1 font-medium uppercase tracking-wider">{stat.label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Right Image */}
+            <div className="relative hidden lg:block">
+              <div className="relative rounded-[2.5rem] overflow-hidden shadow-2xl shadow-slate-200/50 border border-slate-100">
+                <img
+                  src="https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=800&q=80"
+                  alt="Financial Planning"
+                  className="w-full h-[560px] object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/20 to-transparent" />
+              </div>
+
+              {/* Floating Card */}
+              <div className="absolute -bottom-6 -left-6 bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-100 p-5 w-64">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
+                    <TrendingUp className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400 font-medium">Portfolio Growth</p>
+                    <p className="text-lg font-bold text-slate-900">+22.4%</p>
+                  </div>
+                </div>
+                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full w-3/4 bg-emerald-500 rounded-full" />
+                </div>
+              </div>
+
+              {/* Floating Card 2 */}
+              <div className="absolute -top-4 -right-4 bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-100 p-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
+                    <Shield className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <span className="text-sm font-semibold text-slate-700">AI Protected</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ===== TRUST MARQUEE ===== */}
+      <section className="py-6 bg-slate-900 w-full overflow-hidden">
+        <div className="flex animate-marquee whitespace-nowrap">
+          {[...trustBadges, ...trustBadges, ...trustBadges].map((badge, i) => (
+            <span key={i} className="mx-8 text-sm font-medium text-slate-400 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              {badge}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      {/* ===== SERVICES SECTION ===== */}
+      <section className="py-24 bg-white w-full">
         <div className="w-full px-6 lg:px-12 xl:px-20">
-          <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold text-rose-600 mb-3">Tiện ích và dịch vụ</h2>
-            <p className="text-slate-600 max-w-3xl mx-auto text-sm leading-relaxed">
-              Ứng dụng tài chính Timi giúp bạn có thể tiếp cận nhiều dịch vụ tài chính đa dạng với chi phí hợp lý, để bạn làm được nhiều hơn với tiền.
+          <div className="text-center mb-16 max-w-2xl mx-auto">
+            <p className="text-sm font-bold text-blue-600 uppercase tracking-widest mb-3">Our Services</p>
+            <h2 className="text-3xl lg:text-5xl font-bold text-slate-900 mb-5">Comprehensive Financial Solutions</h2>
+            <p className="text-slate-500 text-lg">
+              From investment planning to risk management, we provide end-to-end financial services tailored to your needs.
             </p>
           </div>
 
-          {/* Services Grid */}
-          <div className="relative">
-            <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide justify-start lg:justify-center snap-x">
-              {services.map((service) => {
-                const Icon = service.icon;
-                return (
-                  <button
-                    key={service.label}
-                    onClick={() => user ? navigate("/dashboard") : navigate("/login")}
-                    className="flex flex-col items-center gap-2 min-w-[72px] snap-start group"
-                  >
-                    <div className="w-14 h-14 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center group-hover:bg-rose-100 transition-colors">
-                      <Icon className="w-6 h-6 text-rose-600" />
-                    </div>
-                    <span className="text-[11px] text-center text-slate-700 font-medium leading-tight max-w-[72px]">
-                      {service.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Tags Pills */}
-          <div className="mt-8 flex flex-wrap justify-center gap-2.5">
-            {tags.map((tag) => {
-              const Icon = tag.icon;
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {services.map((service) => {
+              const Icon = service.icon;
               return (
-                <button
-                  key={tag.label}
+                <div
+                  key={service.title}
                   onClick={() => user ? navigate("/dashboard") : navigate("/login")}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-rose-200 bg-white text-rose-600 text-xs font-medium hover:bg-rose-50 transition-colors"
+                  className="group bg-white rounded-3xl overflow-hidden border border-slate-100 hover:border-blue-200 hover:shadow-2xl hover:shadow-blue-100/50 transition-all duration-500 cursor-pointer"
                 >
-                  <Icon className="w-3.5 h-3.5" />
-                  {tag.label}
-                </button>
+                  <div className="relative h-48 overflow-hidden">
+                    <img
+                      src={service.image}
+                      alt={service.title}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900/40 to-transparent" />
+                    <div className={`absolute bottom-4 left-4 w-12 h-12 ${service.color} rounded-xl flex items-center justify-center shadow-lg`}>
+                      <Icon className="w-6 h-6" />
+                    </div>
+                  </div>
+                  <div className="p-6">
+                    <h3 className="text-xl font-bold text-slate-900 mb-2">{service.title}</h3>
+                    <p className="text-slate-500 leading-relaxed mb-4">{service.desc}</p>
+                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 group-hover:gap-3 transition-all">
+                      Learn more <ArrowRight className="w-4 h-4" />
+                    </span>
+                  </div>
+                </div>
               );
             })}
           </div>
         </div>
       </section>
 
-      {/* ===== AI BANNER ===== */}
-      <section className="py-8 bg-gradient-to-br from-pink-50 to-rose-50 w-full">
+      {/* ===== WHY CHOOSE US ===== */}
+      <section className="py-24 bg-slate-50/50 w-full">
         <div className="w-full px-6 lg:px-12 xl:px-20">
-          <div className="bg-white rounded-3xl overflow-hidden shadow-lg border border-pink-100">
-            <div className="grid lg:grid-cols-2 gap-0">
-              <div className="p-8 lg:p-12 flex flex-col justify-center">
-                <h3 className="text-2xl lg:text-3xl font-bold text-slate-900 mb-4 leading-snug">
-                  Không chỉ là ví điện tử, Timi nay là <span className="text-rose-600">Trợ Thủ Tài Chính với AI</span>
-                </h3>
-                <ul className="space-y-3">
-                  <li className="flex items-start gap-3 text-sm text-slate-600">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-                    <span>Ứng dụng tài chính Timi giúp bạn có thể tiếp cận nhiều dịch vụ tài chính đa dạng với chi phí hợp lý, để bạn làm được nhiều hơn với tiền.</span>
-                  </li>
-                  <li className="flex items-start gap-3 text-sm text-slate-600">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-                    <span>Để ai cũng có thể làm được nhiều thứ hơn với tiền, kể cả những thứ nhỏ nhất.</span>
-                  </li>
-                  <li className="flex items-start gap-3 text-sm text-slate-600">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-                    <span>Với AI xuất hiện trong mọi tương tác nhỏ để giúp bảo vệ tiền của bạn, biến những công việc phức tạp về tiền trở nên đơn giản hay giúp bạn hiểu hơn về tài chính cá nhân mỗi ngày một chút.</span>
-                  </li>
-                </ul>
-                <button
-                  onClick={() => navigate("/dashboard")}
-                  className="mt-6 self-start px-6 py-2.5 bg-gradient-to-r from-rose-500 to-pink-600 text-white text-sm font-bold rounded-full hover:shadow-lg transition-all"
-                >
-                  XEM NGAY
-                </button>
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Left Image */}
+            <div className="relative">
+              <div className="relative rounded-[2.5rem] overflow-hidden shadow-2xl shadow-slate-200/50">
+                <img
+                  src="https://images.unsplash.com/photo-1553877522-43269d4ea984?w=800&q=80"
+                  alt="Why Choose Us"
+                  className="w-full h-[500px] object-cover"
+                />
               </div>
-              <div className="relative bg-gradient-to-br from-pink-100 to-rose-100 flex items-center justify-center p-8 min-h-[300px]">
-                <div className="absolute inset-0 bg-gradient-to-r from-rose-200 to-pink-200 rounded-full blur-3xl opacity-40" />
-                <div className="relative bg-white rounded-[2rem] shadow-xl p-6 w-full max-w-sm">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <p className="text-xs text-slate-400">Số dư ví</p>
-                      <p className="text-2xl font-bold text-slate-800">50.000.000 đ</p>
-                    </div>
-                    <div className="w-10 h-10 bg-rose-100 rounded-xl flex items-center justify-center">
-                      <Shield className="w-5 h-5 text-rose-500" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 mb-4">
-                    <div className="p-3 bg-rose-50 rounded-xl text-center">
-                      <ArrowRightLeft className="w-5 h-5 text-rose-500 mx-auto mb-1" />
-                      <p className="text-[10px] font-semibold text-slate-700">Chuyển tiền</p>
-                    </div>
-                    <div className="p-3 bg-blue-50 rounded-xl text-center">
-                      <CreditCard className="w-5 h-5 text-blue-500 mx-auto mb-1" />
-                      <p className="text-[10px] font-semibold text-slate-700">Thanh toán</p>
-                    </div>
-                  </div>
-                  <div className="p-3 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-xl text-white text-center">
-                    <p className="text-xs font-bold">AI Anti-Scam đang bảo vệ</p>
-                    <p className="text-[10px] text-emerald-100 mt-0.5">Đã quét và an toàn 100% giao dịch hôm nay</p>
-                  </div>
+              <div className="absolute -bottom-8 -right-8 bg-white rounded-2xl shadow-xl p-6 border border-slate-100 max-w-xs">
+                <div className="flex items-center gap-1 mb-2">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="w-4 h-4 text-amber-400 fill-amber-400" />
+                  ))}
                 </div>
+                <p className="text-sm text-slate-600 font-medium">"Best financial platform I've ever used."</p>
+                <p className="text-xs text-slate-400 mt-2">— 50,000+ verified reviews</p>
               </div>
+            </div>
+
+            {/* Right Content */}
+            <div>
+              <p className="text-sm font-bold text-blue-600 uppercase tracking-widest mb-3">Why Timi</p>
+              <h2 className="text-3xl lg:text-5xl font-bold text-slate-900 mb-6 leading-tight">
+                A Smarter Way to Manage Your Money
+              </h2>
+              <p className="text-slate-500 text-lg leading-relaxed mb-10">
+                We combine deep financial expertise with cutting-edge technology to deliver outcomes that consistently outperform the market — all while keeping your interests first.
+              </p>
+
+              <div className="space-y-6">
+                {whyFeatures.map((feature, idx) => (
+                  <div key={idx} className="flex items-start gap-4">
+                    <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center flex-shrink-0">
+                      <CheckCircle2 className="w-6 h-6 text-blue-600" />
+                    </div>
+                    <div>
+                      <h4 className="text-lg font-bold text-slate-900 mb-1">{feature.title}</h4>
+                      <p className="text-slate-500">{feature.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={() => navigate("/dashboard")}
+                className="mt-10 px-8 py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 flex items-center gap-2 group"
+              >
+                Discover Our Story
+                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Stats Section */}
-      <section className="py-12 bg-white border-b border-slate-100 w-full">
-        <div className="w-full px-6 lg:px-12 xl:px-20">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
-            {stats.map((stat) => (
-              <div key={stat.label} className="text-center">
-                <p className="text-3xl lg:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-rose-500 to-pink-600">
-                  {stat.value}
-                </p>
-                <p className="mt-2 text-sm text-slate-500 font-medium">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Features Grid */}
-      <section id="features" className="py-20 bg-slate-50/50 w-full">
+      {/* ===== COUNTER STATS ===== */}
+      <section className="py-20 bg-slate-900 text-white w-full">
         <div className="w-full px-6 lg:px-12 xl:px-20">
           <div className="text-center mb-16">
-            <h2 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-4">
-              Mọi dịch vụ tài chính trong một ứng dụng
-            </h2>
-            <p className="text-slate-600 max-w-2xl mx-auto">
-              Timi tích hợp đầy đủ tiện ích để bạn không cần cài nhiều app. Tất cả đều được bảo vệ bởi AI.
-            </p>
+            <p className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-3">Our Impact</p>
+            <h2 className="text-3xl lg:text-5xl font-bold mb-4">12+ Years of Financial Excellence</h2>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {features.map((feature) => (
-              <div
-                key={feature.title}
-                className="group bg-white rounded-3xl p-8 border border-slate-100 hover:border-rose-200 hover:shadow-xl hover:shadow-rose-100/50 transition-all duration-300"
-              >
-                <div className={`w-14 h-14 ${feature.color} rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform`}>
-                  <feature.icon className="w-7 h-7" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-800 mb-3">{feature.title}</h3>
-                <p className="text-slate-500 leading-relaxed">{feature.desc}</p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
+            {counterStats.map((stat) => (
+              <div key={stat.label} className="text-center">
+                <AnimatedCounter target={stat.value} suffix={stat.suffix} isFloat={stat.isFloat} />
+                <p className="mt-3 text-slate-400 font-medium">{stat.label}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* AI Security Highlight */}
-      <section id="security" className="py-20 bg-gradient-to-br from-slate-900 to-slate-800 text-white w-full">
+      {/* ===== TESTIMONIALS ===== */}
+      <section className="py-24 bg-white w-full">
         <div className="w-full px-6 lg:px-12 xl:px-20">
-          <div className="grid lg:grid-cols-2 gap-16 items-center">
-            <div className="space-y-6">
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 rounded-full border border-white/20">
-                <Shield className="w-4 h-4 text-emerald-400" />
-                <span className="text-sm font-medium">Công nghệ độc quyền</span>
-              </div>
+          <div className="text-center mb-16">
+            <p className="text-sm font-bold text-blue-600 uppercase tracking-widest mb-3">Testimonials</p>
+            <h2 className="text-3xl lg:text-5xl font-bold text-slate-900">What Our Clients Say</h2>
+          </div>
 
-              <h2 className="text-3xl lg:text-5xl font-bold leading-tight">
-                AI Anti-Scam Agent
-                <br />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-pink-400">
-                  bảo vệ 24/7
-                </span>
-              </h2>
-
-              <p className="text-slate-300 text-lg leading-relaxed">
-                Hệ thống AI của Timi phân tích hành vi giao dịch, nhận diện mẫu lừa đảo và cảnh báo ngay lập tức trước khi tiền của bạn rời khỏi ví.
-              </p>
-
-              <div className="space-y-4 pt-4">
-                {[
-                  "Phát hiện giao dịch bất thường trong 50ms",
-                  "Cơ sở dữ liệu scam cập nhật real-time",
-                  "Xác thực đa lớp cho giao dịch lớn",
-                  "Can thiệp AI thông minh khi phát hiện rủi ro",
-                ].map((item) => (
-                  <div key={item} className="flex items-center gap-3">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-                    <span className="text-slate-200">{item}</span>
+          <div className="grid md:grid-cols-3 gap-8">
+            {testimonials.map((t, i) => (
+              <div
+                key={i}
+                className="bg-slate-50 rounded-3xl p-8 border border-slate-100 hover:shadow-xl hover:shadow-slate-100 transition-all duration-300"
+              >
+                <div className="flex gap-1 mb-5">
+                  {[...Array(t.rating)].map((_, j) => (
+                    <Star key={j} className="w-5 h-5 text-amber-400 fill-amber-400" />
+                  ))}
+                </div>
+                <p className="text-slate-600 leading-relaxed mb-6 text-lg">"{t.text}"</p>
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
+                    {t.author.charAt(0)}
                   </div>
+                  <div>
+                    <p className="font-bold text-slate-900">{t.author}</p>
+                    <p className="text-sm text-slate-400">{t.role}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ===== NEWSLETTER / CTA ===== */}
+      <section className="py-24 bg-gradient-to-br from-blue-600 to-indigo-700 w-full relative overflow-hidden">
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10" />
+        <div className="w-full px-6 lg:px-12 xl:px-20 relative z-10">
+          <div className="max-w-3xl mx-auto text-center">
+            <h2 className="text-3xl lg:text-5xl font-bold text-white mb-6">
+              Stay Ahead of the Markets
+            </h2>
+            <p className="text-blue-100 text-lg mb-10">
+              Weekly insights, tips, and exclusive offers — straight to your inbox.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 max-w-lg mx-auto">
+              <div className="flex-1 relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input
+                  type="email"
+                  placeholder="Enter your email"
+                  className="w-full pl-12 pr-4 py-4 rounded-2xl bg-white/10 border border-white/20 text-white placeholder:text-blue-200 focus:outline-none focus:ring-2 focus:ring-white/30"
+                />
+              </div>
+              <button className="px-8 py-4 bg-white text-blue-700 font-bold rounded-2xl hover:bg-blue-50 transition-all shadow-lg">
+                Subscribe
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ===== FOOTER ===== */}
+      <footer className="bg-slate-950 text-slate-400 py-16 w-full">
+        <div className="w-full px-6 lg:px-12 xl:px-20">
+          <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-12 mb-12">
+            {/* Brand */}
+            <div className="lg:col-span-2">
+              <div className="flex items-center gap-2.5 mb-5">
+                <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl flex items-center justify-center">
+                  <Shield className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-xl font-bold text-white tracking-tight">Timi</span>
+              </div>
+              <p className="text-sm leading-relaxed max-w-sm mb-6">
+                Intelligent financial platform protected by AI. Our mission is to make every transaction of yours absolutely safe.
+              </p>
+              <div className="flex gap-3">
+                {[Facebook, Twitter, Linkedin, Instagram].map((Icon, i) => (
+                  <button key={i} className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all">
+                    <Icon className="w-4 h-4" />
+                  </button>
                 ))}
               </div>
             </div>
 
-            <div className="relative flex justify-end">
-              <div className="absolute inset-0 bg-gradient-to-r from-rose-500 to-pink-500 rounded-[3rem] blur-3xl opacity-20" />
-              <div className="relative bg-white/5 backdrop-blur-sm border border-white/10 rounded-[2.5rem] p-8 w-full max-w-lg">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-4 p-4 bg-red-500/20 border border-red-500/30 rounded-2xl">
-                    <Shield className="w-8 h-8 text-red-400" />
-                    <div>
-                      <p className="font-bold text-red-200">Cảnh báo rủi ro cao!</p>
-                      <p className="text-sm text-red-300">Tài khoản nhận nằm trong danh sách đen</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4 p-4 bg-emerald-500/20 border border-emerald-500/30 rounded-2xl">
-                    <CheckCircle2 className="w-8 h-8 text-emerald-400" />
-                    <div>
-                      <p className="font-bold text-emerald-200">Giao dịch an toàn</p>
-                      <p className="text-sm text-emerald-300">Người nhận đã được xác minh</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4 p-4 bg-amber-500/20 border border-amber-500/30 rounded-2xl">
-                    <Zap className="w-8 h-8 text-amber-400" />
-                    <div>
-                      <p className="font-bold text-amber-200">Yêu cầu xác nhận</p>
-                      <p className="text-sm text-amber-300">Số tiền lớn hơn bình thường, vui lòng xác nhận</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-20 bg-gradient-to-br from-rose-50 to-pink-50 w-full">
-        <div className="w-full px-6 lg:px-12 xl:px-20 text-center">
-          <h2 className="text-3xl lg:text-5xl font-bold text-slate-900 mb-6">
-            Sẵn sàng bảo vệ ví tiền của bạn?
-          </h2>
-          <p className="text-lg text-slate-600 mb-10 max-w-2xl mx-auto">
-            Tham gia cùng 2 triệu+ người dùng đang được Timi bảo vệ mỗi ngày. Đăng ký miễn phí, chỉ mất 30 giây.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <button
-              onClick={() => navigate("/register")}
-              className="px-10 py-4 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold rounded-2xl shadow-xl shadow-rose-200 hover:shadow-2xl hover:scale-105 transition-all"
-            >
-              Tạo tài khoản miễn phí
-            </button>
-            <button
-              onClick={() => navigate("/login")}
-              className="px-10 py-4 bg-white text-slate-700 font-bold rounded-2xl border border-slate-200 hover:border-rose-300 hover:text-rose-600 transition-all"
-            >
-              Đã có tài khoản? Đăng nhập
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="bg-slate-900 text-slate-400 py-12 w-full">
-        <div className="w-full px-6 lg:px-12 xl:px-20">
-          <div className="grid md:grid-cols-4 gap-8 mb-8">
-            <div className="col-span-2">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-gradient-to-br from-rose-500 to-pink-600 rounded-lg flex items-center justify-center">
-                  <Shield className="w-4 h-4 text-white" />
-                </div>
-                <span className="text-xl font-bold text-white">Timi</span>
-              </div>
-              <p className="text-sm leading-relaxed max-w-sm">
-                Ví điện tử thông minh được bảo vệ bởi AI. Sứ mệnh của chúng tôi là giúp mọi giao dịch của bạn đều an toàn tuyệt đối.
-              </p>
-            </div>
+            {/* Links */}
             <div>
-              <h4 className="text-white font-semibold mb-4">Dịch vụ</h4>
-              <ul className="space-y-2 text-sm">
-                <li><a href="#" className="hover:text-rose-400 transition-colors">Chuyển tiền</a></li>
-                <li><a href="#" className="hover:text-rose-400 transition-colors">Thanh toán hóa đơn</a></li>
-                <li><a href="#" className="hover:text-rose-400 transition-colors">Nạp điện thoại</a></li>
-                <li><a href="#" className="hover:text-rose-400 transition-colors">Quản lý chi tiêu</a></li>
+              <h4 className="text-white font-semibold mb-5">Services</h4>
+              <ul className="space-y-3 text-sm">
+                <li><button onClick={() => navigate("/transfer")} className="hover:text-blue-400 transition-colors">Chuyển tiền</button></li>
+                <li><button onClick={() => navigate("/qr")} className="hover:text-blue-400 transition-colors">Thanh toán QR</button></li>
+                <li><button onClick={() => navigate("/history")} className="hover:text-blue-400 transition-colors">Lịch sử giao dịch</button></li>
+                <li><button onClick={() => navigate("/account")} className="hover:text-blue-400 transition-colors">Quản lý tài khoản</button></li>
               </ul>
             </div>
+
             <div>
-              <h4 className="text-white font-semibold mb-4">Hỗ trợ</h4>
-              <ul className="space-y-2 text-sm">
-                <li><a href="#" className="hover:text-rose-400 transition-colors">Trung tâm trợ giúp</a></li>
-                <li><a href="#" className="hover:text-rose-400 transition-colors">Chính sách bảo mật</a></li>
-                <li><a href="#" className="hover:text-rose-400 transition-colors">Điều khoản sử dụng</a></li>
-                <li><a href="#" className="hover:text-rose-400 transition-colors">Liên hệ</a></li>
+              <h4 className="text-white font-semibold mb-5">Company</h4>
+              <ul className="space-y-3 text-sm">
+                <li><a href="#" className="hover:text-blue-400 transition-colors">About Us</a></li>
+                <li><a href="#" className="hover:text-blue-400 transition-colors">Careers</a></li>
+                <li><a href="#" className="hover:text-blue-400 transition-colors">Press</a></li>
+                <li><a href="#" className="hover:text-blue-400 transition-colors">Blog</a></li>
+              </ul>
+            </div>
+
+            <div>
+              <h4 className="text-white font-semibold mb-5">Contact</h4>
+              <ul className="space-y-3 text-sm">
+                <li className="flex items-center gap-2">
+                  <Mail className="w-4 h-4" /> support@timi.com
+                </li>
+                <li className="flex items-center gap-2">
+                  <Phone className="w-4 h-4" /> 1900 1234
+                </li>
+                <li className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4" /> TP. Hồ Chí Minh
+                </li>
               </ul>
             </div>
           </div>
-          <div className="border-t border-slate-800 pt-8 text-sm text-center">
-            © 2026 Timi. Tất cả quyền được bảo lưu.
+
+          <div className="border-t border-slate-900 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
+            <p className="text-sm">© 2026 Timi. All rights reserved.</p>
+            <div className="flex gap-6 text-sm">
+              <a href="#" className="hover:text-blue-400 transition-colors">Privacy Policy</a>
+              <a href="#" className="hover:text-blue-400 transition-colors">Terms of Service</a>
+              <a href="#" className="hover:text-blue-400 transition-colors">Cookies</a>
+            </div>
           </div>
         </div>
       </footer>
+
+      {/* Marquee animation style */}
+      <style>{`
+        @keyframes marquee {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-33.33%); }
+        }
+        .animate-marquee {
+          animation: marquee 20s linear infinite;
+        }
+      `}</style>
     </div>
   );
 }
