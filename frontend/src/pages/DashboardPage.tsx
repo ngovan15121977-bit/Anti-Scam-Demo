@@ -110,21 +110,21 @@ const testimonials = [
     author: "Sarah Patel",
     role: "Marketing Director",
     rating: 5,
-    image: "/img/7.jpg",
+    image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop&crop=face",
   },
   {
     text: "The retirement planning team at VaultEdge gave me total peace of mind. Professional, responsive, and results-driven.",
     author: "James Wilson",
     role: "Business Owner",
     rating: 5,
-    image: "/img/8.jpg",
+    image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&crop=face",
   },
   {
     text: "Switched from our old firm and couldn't be happier. Their tax advisory alone saved us thousands in the first year.",
     author: "Michael Chen",
     role: "Startup Founder",
     rating: 5,
-    image: "/img/9.jpg",
+    image: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop&crop=face",
   },
 ];
 
@@ -423,9 +423,11 @@ export default function HomePage() {
                 </div>
                 <p className="text-slate-600 leading-relaxed mb-6 text-lg">"{t.text}"</p>
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
-                    {t.author.charAt(0)}
-                  </div>
+                  <img
+                    src={t.image}
+                    alt={t.author}
+                    className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-md"
+                  />
                   <div>
                     <p className="font-bold text-slate-900">{t.author}</p>
                     <p className="text-sm text-slate-400">{t.role}</p>
