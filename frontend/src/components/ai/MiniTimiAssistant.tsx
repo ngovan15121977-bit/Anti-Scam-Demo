@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, MessageCircle, Minimize2, Send, Sparkles } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 
 import { assistantApi, type AssistantChatTurn } from "@/api/assistant";
 import TimiChibi from "@/components/ai/TimiChibi";
+import { useScamGuardian } from "@/components/guardian/ScamGuardianProvider";
 import { useAuthStore } from "@/stores/authStore";
 import { useTimiAssistantStore } from "@/stores/timiAssistantStore";
 
@@ -64,6 +65,10 @@ export default function MiniTimiAssistant() {
   const user = useAuthStore((state) => state.user);
   const activity = useTimiAssistantStore((state) => state.activity);
   const clearActivity = useTimiAssistantStore((state) => state.clearActivity);
+  const {
+    criticalAlert,
+    risk,
+  } = useScamGuardian();
   const [isOpen, setOpen] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const [tipIndex, setTipIndex] = useState(0);
@@ -75,6 +80,7 @@ export default function MiniTimiAssistant() {
       content: "Chào bạn! Mình có thể hướng dẫn về chuyển tiền, QR, Face ID, PIN và các cảnh báo an toàn của Timi.",
     },
   ]);
+  const handledGuardianAlertRef = useRef<unknown>(null);
   const name = firstName(user?.full_name);
   const tips = useMemo(() => tipsForPath(location.pathname, name), [location.pathname, name]);
   const tip = tips[tipIndex % tips.length];
@@ -133,9 +139,30 @@ export default function MiniTimiAssistant() {
     return () => window.clearTimeout(timer);
   }, [activity.status, clearActivity]);
 
+  useEffect(() => {
+    if (!criticalAlert) return;
+    if (handledGuardianAlertRef.current === criticalAlert) return;
+    handledGuardianAlertRef.current = criticalAlert;
+    const message = [
+      "🚨 Timi vừa phát hiện nguy cơ lừa đảo rất cao trong cuộc gọi.",
+      `Mức nguy cơ hiện tại: ${risk.risk_score}/100.`,
+      risk.explanation,
+      "Bạn hãy dừng cuộc gọi, không chuyển tiền và không cung cấp OTP/PIN. Nếu cần giao dịch, hãy tự gọi lại ngân hàng bằng số chính thức.",
+    ].join("\n\n");
+    setChatMessages((current) => {
+      return [...current, {
+        id: `guardian-alert-${Date.now()}`,
+        role: "assistant",
+        content: message,
+      }];
+    });
+    setOpen(true);
+    setChatOpen(true);
+  }, [criticalAlert, risk.explanation, risk.risk_score]);
+
   // The full transaction-analysis screen already contains the same chibi and
   // conversation, so avoid rendering a duplicate floating assistant there.
-  if (activity.status === "analyzing") return null;
+  if (activity.status === "analyzing" && !criticalAlert) return null;
 
   const submitChat = (event: React.FormEvent) => {
     event.preventDefault();
@@ -162,7 +189,7 @@ export default function MiniTimiAssistant() {
   };
 
   return (
-    <aside className="fixed bottom-20 right-4 z-40 sm:bottom-6 sm:right-6" aria-label="Trợ lý Timi">
+    <aside className={`fixed bottom-20 right-4 sm:bottom-6 sm:right-6 ${criticalAlert ? "z-[100]" : "z-40"}`} aria-label="Trợ lý Timi">
       {isOpen && !chatOpen && (
         <div className="absolute bottom-20 right-0 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-rose-100 bg-white/95 shadow-xl shadow-rose-200/50 backdrop-blur">
           <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-rose-100/70 blur-2xl" />
@@ -176,13 +203,13 @@ export default function MiniTimiAssistant() {
                 </button>
               </div>
               <p className="mt-1 text-xs leading-relaxed text-slate-600">{displayedTip.message}</p>
-              <div className="mt-3 flex items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-rose-500"><Sparkles className="h-3.5 w-3.5" />Timi AI Anti-Scam</span>
-                <button type="button" onClick={() => setChatOpen(true)} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-100">
-                  <MessageCircle className="h-3.5 w-3.5" />Trò chuyện
-                </button>
-              </div>
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold text-rose-500"><Sparkles className="h-3.5 w-3.5" />Timi AI Anti-Scam</span>
+              <button type="button" onClick={() => setChatOpen(true)} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-100">
+                <MessageCircle className="h-3.5 w-3.5" />Trò chuyện
+              </button>
             </div>
+          </div>
           </div>
         </div>
       )}

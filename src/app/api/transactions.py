@@ -19,6 +19,7 @@ from src.agents.transaction_graph import transaction_graph
 from src.app.core.deps import get_current_user
 from src.app.core.security import decode_face_verification_token, decode_recipient_lookup_token, verify_password
 from src.app.db.session import get_db
+from src.app.models.recipient_directory import RecipientDirectory
 from src.app.models.risk_assessment import (
     RiskLevel,
     RiskSignal,
@@ -27,8 +28,8 @@ from src.app.models.risk_assessment import (
     WarningDecision,
     WarningFeedback,
 )
+from src.app.models.scam_guardian import ScamGuardianSession
 from src.app.models.scam_report import ScamReport
-from src.app.models.recipient_directory import RecipientDirectory
 from src.app.models.transaction import Transaction, TransactionEnvironment, TransactionStatus
 from src.app.models.trusted_recipient import TrustedRecipient
 from src.app.models.user import User
@@ -42,7 +43,6 @@ from src.app.schemas.risk import (
     RiskSignalOut,
     TransactionHistoryPage,
     TransactionHistorySummary,
-    TransactionOut,
     TrustedRecipientCreate,
     WarningFeedbackCreate,
     WarningOut,
@@ -60,13 +60,13 @@ from src.app.services.timi_bank import (
     is_timi_bank,
     lock_timi_transfer_parties,
 )
+from src.app.services.transaction_authentication import (
+    requires_face_verification as requires_transfer_face_verification,
+)
 from src.app.services.transaction_telemetry import (
     RiskTelemetry,
     build_risk_telemetry,
     persist_risk_telemetry,
-)
-from src.app.services.transaction_authentication import (
-    requires_face_verification as requires_transfer_face_verification,
 )
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
@@ -224,6 +224,53 @@ def _persist_assessment(
     score, level = graph_result["risk_score"], graph_result["risk_level"]
     explanation = graph_result["explanation"]
     should_warn = level in {RiskLevel.MEDIUM, RiskLevel.HIGH}
+    active_guardian = db.scalar(
+        select(ScamGuardianSession)
+        .where(
+            ScamGuardianSession.user_id == current_user.id,
+            ScamGuardianSession.status == "active",
+            ScamGuardianSession.agent_action.in_(
+                ["MONITOR", "PAUSE", "STOP"]
+            ),
+        )
+        .order_by(desc(ScamGuardianSession.max_risk_score))
+        .limit(1)
+    )
+    if active_guardian is not None:
+        guardian_score = active_guardian.max_risk_score / 100
+        score = max(score, guardian_score)
+        # The Guardian agent owns the risk threshold and action.  The
+        # transaction API only translates that action into an execution
+        # safeguard; it does not derive one from a numeric score.
+        level = (
+            RiskLevel.MEDIUM
+            if active_guardian.agent_action == "MONITOR"
+            else RiskLevel.HIGH
+        )
+        should_warn = active_guardian.agent_action in {"MONITOR", "PAUSE", "STOP"}
+        explanation = (
+            f"Scam Guardian đang theo dõi một cuộc gọi có mức nguy cơ "
+            f"{active_guardian.max_risk_score}/100 và đề xuất "
+            f"{active_guardian.agent_action}. Hãy tạm dừng trước khi chuyển tiền. "
+            f"{explanation}"
+        )
+        candidates = [
+            *candidates,
+            risk_rules.RiskSignalCandidate(
+                signal_type="active_scam_guardian",
+                severity="high",
+                score=guardian_score,
+                explanation=(
+                    "Phiên Scam Guardian đang hoạt động và đã phát hiện tín hiệu "
+                    "đáng ngờ trong cuộc gọi."
+                ),
+                evidence={
+                    "session_id": str(active_guardian.id),
+                    "risk_score": active_guardian.max_risk_score,
+                    "agent_action": active_guardian.agent_action,
+                },
+            ),
+        ]
 
     assessment = TransactionRiskAssessment(
         transaction_id=transaction.id,
@@ -241,6 +288,15 @@ def _persist_assessment(
             "agent": "langgraph",
             "llm_used": graph_result.get("llm_used", False),
             "prompt_injection_detected": graph_result.get("prompt_injection_detected", False),
+            "active_scam_guardian": (
+                {
+                    "session_id": str(active_guardian.id),
+                    "risk_score": active_guardian.max_risk_score,
+                    "agent_action": active_guardian.agent_action,
+                }
+                if active_guardian is not None
+                else None
+            ),
             "telemetry": {
                 "device_context_available": bool(telemetry and telemetry.device_hash),
                 "network_context_available": bool(telemetry and telemetry.ip_hash),
@@ -512,6 +568,30 @@ def submit_decision(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Giao dịch này đã được xử lý hoặc không còn chờ quyết định",
+        )
+
+    active_guardian = db.scalar(
+        select(ScamGuardianSession)
+        .where(
+            ScamGuardianSession.user_id == current_user.id,
+            ScamGuardianSession.status == "active",
+            ScamGuardianSession.agent_action == "STOP",
+        )
+        .order_by(desc(ScamGuardianSession.max_risk_score))
+        .limit(1)
+    )
+    if (
+        active_guardian is not None
+        and payload.decision == WarningDecision.PROCEEDED
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Giao dịch bị tạm chặn vì Scam Guardian đang phát hiện nguy cơ "
+                f"{active_guardian.max_risk_score}/100 và agent đề xuất STOP. "
+                "Hãy kết thúc cuộc gọi, "
+                "tự xác minh qua kênh chính thức rồi thử lại."
+            ),
         )
 
     warning = db.scalar(

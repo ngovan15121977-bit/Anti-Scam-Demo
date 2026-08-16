@@ -1,4 +1,5 @@
 import { useState } from "react";
+import axios from "axios";
 import { MapPin, ShieldCheck } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -19,30 +20,35 @@ function safeReturnPath(value: unknown): string {
     : "/dashboard";
 }
 
-/** Required once per browser session after a successful login. */
+/** Required once per account/browser device until that device is confirmed. */
 export default function LocationSetupPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const token = useAuthStore((state) => state.token);
+  const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const returnTo = safeReturnPath((location.state as { returnTo?: unknown } | null)?.returnTo);
 
   const confirmLocation = async () => {
-    if (!token || saving) return;
+    if (!token || !user?.id || saving) return;
     setError("");
     setSaving(true);
     try {
       const clientContext = await collectLoginRiskContext();
       await authApi.recordLoginLocation({ client_context: clientContext });
-      markLoginLocationConfirmed(token);
+      if (user?.id) markLoginLocationConfirmed(user.id);
       navigate(returnTo, { replace: true });
-    } catch (requestError: any) {
+    } catch (requestError: unknown) {
+      const serverDetail = axios.isAxiosError(requestError)
+        && typeof requestError.response?.data?.detail === "string"
+        ? requestError.response.data.detail
+        : undefined;
       setError(
         requestError instanceof LocationPermissionRequiredError
           ? requestError.message
-          : requestError?.response?.data?.detail || "Không thể xác nhận vị trí. Hãy thử lại.",
+          : serverDetail || "Không thể xác nhận vị trí. Hãy thử lại.",
       );
     } finally {
       setSaving(false);

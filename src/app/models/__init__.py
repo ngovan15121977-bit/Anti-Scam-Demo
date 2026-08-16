@@ -17,11 +17,18 @@ from src.app.models.risk_assessment import (
     WarningDecision,
     WarningFeedback,
 )
+from src.app.models.scam_guardian import (
+    ScamAlert,
+    ScamConversationSegment,
+    ScamGuardianSession,
+    ScamRiskEvent,
+    ScamSignal,
+)
 from src.app.models.scam_pattern import ScamPattern
 from src.app.models.scam_report import ScamReport
+from src.app.models.timi_ledger_entry import TimiLedgerEntry, TimiLedgerEntryType
 from src.app.models.transaction import Transaction, TransactionEnvironment, TransactionStatus
 from src.app.models.transaction_risk_context import TransactionRiskContext
-from src.app.models.timi_ledger_entry import TimiLedgerEntry, TimiLedgerEntryType
 from src.app.models.trusted_recipient import TrustedRecipient
 from src.app.models.user import User, UserRole
 
@@ -40,6 +47,11 @@ __all__ = [
     "RecipientDirectory",
     "ScamPattern",
     "ScamReport",
+    "ScamConversationSegment",
+    "ScamGuardianSession",
+    "ScamAlert",
+    "ScamRiskEvent",
+    "ScamSignal",
     "Transaction",
     "TransactionEnvironment",
     "TransactionRiskAssessment",
