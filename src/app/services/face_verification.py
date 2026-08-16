@@ -1,15 +1,49 @@
-"""Local face matching using the public Hugging Face ArcFace model."""
+"""Lightweight local face matching using OpenCV Zoo SFace and YuNet."""
 
 from __future__ import annotations
 
 import base64
 import io
+import logging
+import os
+import threading
 import urllib.request
 from functools import lru_cache
 
 from fastapi import HTTPException, status
 
 from src.app.config import get_settings
+
+_SFACE_URL = "https://raw.githubusercontent.com/opencv/opencv_zoo/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
+_YUNET_URL = "https://raw.githubusercontent.com/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+_MODEL_INFERENCE_LOCK = threading.Lock()
+_LOGGER = logging.getLogger(__name__)
+
+
+def _download_model(url: str, filename: str) -> str:
+    configured_directory = get_settings().face_model_dir
+    directory = (
+        configured_directory
+        if os.path.isabs(configured_directory)
+        else os.path.join(str(get_settings().project_root), configured_directory)
+    )
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, filename)
+    if not os.path.exists(path) or os.path.getsize(path) < 100_000:
+        temporary = f"{path}.part"
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": "FintechGuard/1.0"})
+            with urllib.request.urlopen(request, timeout=45) as response, open(temporary, "wb") as output:
+                while chunk := response.read(1024 * 1024):
+                    output.write(chunk)
+            os.replace(temporary, path)
+        except Exception as exc:
+            try:
+                os.remove(temporary)
+            except OSError:
+                pass
+            raise HTTPException(status_code=503, detail="Chưa tải được model face OpenCV. Hãy thử lại sau.") from exc
+    return path
 
 def _image_bytes(data_url: str) -> bytes:
     try:
@@ -25,23 +59,18 @@ def _image_bytes(data_url: str) -> bytes:
 @lru_cache(maxsize=1)
 def _model():
     try:
-        import timm
-        import torch
-        from timm.data import create_transform, resolve_data_config
+        import cv2
     except ImportError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Face AI chưa được cài đặt. Chạy pip install -r requirements.txt để tải model Hugging Face.") from exc
-    # Keep the web process within Render's small CPU/RAM budget. This does not
-    # change the embedding model; it only prevents PyTorch from creating a
-    # large thread pool for a single lightweight inference request.
-    torch.set_num_threads(1)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Face AI chưa được cài đặt. Chạy pip install -r requirements.txt.") from exc
     try:
-        torch.set_num_interop_threads(1)
-    except RuntimeError:
-        # PyTorch rejects changing inter-op threads after its runtime started.
-        pass
-    model = timm.create_model(f"hf_hub:{get_settings().face_model_id}", pretrained=True).eval()
-    transform = create_transform(**resolve_data_config(model.pretrained_cfg, model=model))
-    return model, transform, torch
+        recognizer = cv2.FaceRecognizerSF.create(_download_model(_SFACE_URL, "face_recognition_sface_2021dec.onnx"), "")
+        detector = cv2.FaceDetectorYN.create(_download_model(_YUNET_URL, "face_detection_yunet_2023mar.onnx"), "", (320, 320), 0.65, 0.3, 5000)
+    except Exception as exc:
+        if isinstance(exc, HTTPException):
+            raise
+        _LOGGER.exception("OpenCV face models could not be initialized from %s", get_settings().face_model_dir)
+        raise HTTPException(status_code=503, detail="Không thể khởi tạo model face OpenCV.") from exc
+    return cv2, detector, recognizer
 
 
 def _embedding(raw: bytes):
@@ -49,21 +78,28 @@ def _embedding(raw: bytes):
         from PIL import Image
     except ImportError as exc:
         raise HTTPException(status_code=503, detail="Face AI chưa được cài đặt") from exc
-    model, transform, torch = _model()
+    model, detector, recognizer = _model()
     try:
         image = Image.open(io.BytesIO(raw)).convert("RGB")
     except Exception as exc:
         raise HTTPException(status_code=422, detail="Không thể đọc ảnh khuôn mặt") from exc
     image = _crop_primary_face(image)
-    image = _normalize_face_lighting(image)
-    with torch.inference_mode():
-        embedding = model(transform(image).unsqueeze(0))
-        return torch.nn.functional.normalize(embedding, dim=1)
+    frame = model.cvtColor(__import__("numpy").asarray(image), model.COLOR_RGB2BGR)
+    with _MODEL_INFERENCE_LOCK:
+        detector.setInputSize((frame.shape[1], frame.shape[0]))
+        _, faces = detector.detect(frame)
+    if faces is None or len(faces) == 0:
+        raise HTTPException(status_code=422, detail="Không thể căn chỉnh khuôn mặt. Hãy nhìn thẳng camera và giữ yên.")
+    face = max(faces, key=lambda item: float(item[2]) * float(item[3]))
+    with _MODEL_INFERENCE_LOCK:
+        aligned = recognizer.alignCrop(frame, face)
+        feature = recognizer.feature(aligned)
+    return feature / max(float((feature ** 2).sum() ** 0.5), 1e-8)
 
 
 @lru_cache(maxsize=1)
 def _face_detector():
-    """Return OpenCV's local detector; it is cached like the ArcFace model."""
+    """Return OpenCV's local Haar detector for fast quality checks."""
     try:
         import cv2
     except ImportError as exc:
@@ -124,38 +160,18 @@ def _crop_primary_face(image):
     """Keep only one clear, largest face so enrollment and checks use identical input."""
     import numpy as np
 
-    cv2, detector = _face_detector()
+    cv2, detector, _ = _model()
     rgb = np.asarray(image)
-    grayscale = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-    faces = detector.detectMultiScale(
-        grayscale,
-        # A browser frame is compressed before upload. These settings retain
-        # the single-face safeguard while accepting a face at normal webcam
-        # distance instead of requiring it to fill most of a 256px frame.
-        scaleFactor=1.10,
-        minNeighbors=5,
-        minSize=(28, 28),
-    )
+    frame = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    with _MODEL_INFERENCE_LOCK:
+        detector.setInputSize((frame.shape[1], frame.shape[0]))
+        _, detected = detector.detect(frame)
+    faces = [] if detected is None else [face[:4] for face in detected]
     if len(faces) == 0:
         raise HTTPException(
             status_code=422,
             detail="Không nhìn thấy khuôn mặt. Hãy đưa mặt vào giữa khung hình, đến gần hơn và chọn nơi đủ sáng.",
         )
-        # Haar Cascade is intentionally used as a lightweight quality check,
-        # but it is unreliable for some browser webcam frames (backlight,
-        # autofocus and wide-angle cameras). The UI guides the user to centre
-        # their face, so keep the flow usable by falling back to a centred
-        # square crop. ArcFace still produces the actual embedding comparison.
-        side = min(image.width, image.height)
-        if side < 128:
-            raise HTTPException(
-                status_code=422,
-                detail="Ảnh camera quá nhỏ. Hãy mở lại camera và thử lại.",
-            )
-        left = (image.width - side) // 2
-        top = (image.height - side) // 2
-        return image.crop((left, top, left + side, top + side))
-
     # Ignore distant background faces, but reject photos containing two people
     # standing equally close to the camera.
     ordered_faces = sorted(faces, key=lambda face: int(face[2]) * int(face[3]), reverse=True)
@@ -247,18 +263,18 @@ def _normalize_face_lighting(image):
 
 
 def warm_face_model() -> None:
-    """Load the Hugging Face model before the first face request."""
+    """Load the lightweight OpenCV models before the first face request."""
     _model()
     _face_detector()
 
 
 def embedding_from_data_url(data_url: str) -> list[float]:
-    """Produce a normalized ArcFace embedding suitable for encrypted DB storage."""
+    """Produce a normalized SFace embedding suitable for encrypted DB storage."""
     return _embedding(_image_bytes(data_url)).squeeze(0).tolist()
 
 
 def face_quality_rule_from_data_url(data_url: str) -> str:
-    """Return the first failed quality rule without loading the face model."""
+    """Return quality using YuNet, with Haar fallback while models download."""
     import cv2
     import numpy as np
     from PIL import Image
@@ -268,10 +284,24 @@ def face_quality_rule_from_data_url(data_url: str) -> str:
         image = Image.open(io.BytesIO(raw)).convert("RGB")
     except Exception as exc:
         raise HTTPException(status_code=422, detail="invalid_image") from exc
-    cv2_module, detector = _face_detector()
     rgb = np.asarray(image)
-    gray = cv2_module.cvtColor(rgb, cv2_module.COLOR_RGB2GRAY)
-    faces = detector.detectMultiScale(gray, scaleFactor=1.08, minNeighbors=5, minSize=(28, 28))
+    try:
+        cv2_module, detector, _ = _model()
+        frame = cv2_module.cvtColor(rgb, cv2_module.COLOR_RGB2BGR)
+        with _MODEL_INFERENCE_LOCK:
+            detector.setInputSize((frame.shape[1], frame.shape[0]))
+            _, detected = detector.detect(frame)
+        faces = [] if detected is None else [face[:4] for face in detected]
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_503_SERVICE_UNAVAILABLE:
+            raise
+        # Quality feedback must not freeze while the optional DNN files are
+        # downloading. Final enrollment/verification still requires SFace.
+        cv2_module, haar_detector = _face_detector()
+        gray = cv2_module.cvtColor(rgb, cv2_module.COLOR_RGB2GRAY)
+        faces = haar_detector.detectMultiScale(
+            gray, scaleFactor=1.08, minNeighbors=4, minSize=(20, 20)
+        )
     if len(faces) == 0:
         return "no_face"
     ordered = sorted(faces, key=lambda face: int(face[2]) * int(face[3]), reverse=True)
@@ -320,6 +350,34 @@ def face_quality_rule_from_data_url(data_url: str) -> str:
     return "ready"
 
 
+def face_pose_from_data_url(data_url: str) -> str | None:
+    """Estimate left/right head pose from YuNet's facial landmarks."""
+    import numpy as np
+    from PIL import Image
+
+    try:
+        image = Image.open(io.BytesIO(_image_bytes(data_url))).convert("RGB")
+        cv2_module, detector, _ = _model()
+        frame = cv2_module.cvtColor(np.asarray(image), cv2_module.COLOR_RGB2BGR)
+        with _MODEL_INFERENCE_LOCK:
+            detector.setInputSize((frame.shape[1], frame.shape[0]))
+            _, detected = detector.detect(frame)
+        if detected is None or len(detected) == 0:
+            return None
+        face = max(detected, key=lambda item: float(item[2]) * float(item[3]))
+        landmarks = np.asarray(face[4:14], dtype=np.float32).reshape(5, 2)
+        eye_center_x = float((landmarks[0, 0] + landmarks[1, 0]) / 2.0)
+        nose_x = float(landmarks[2, 0])
+        yaw = (nose_x - eye_center_x) / max(float(face[2]), 1.0)
+        if yaw < -0.075:
+            return "left"
+        if yaw > 0.075:
+            return "right"
+        return "center"
+    except Exception:
+        return None
+
+
 def validate_face_quality_from_data_url(data_url: str) -> None:
     rule = face_quality_rule_from_data_url(data_url)
     if rule != "ready":
@@ -327,11 +385,11 @@ def validate_face_quality_from_data_url(data_url: str) -> None:
 
 
 def similarity_from_embedding(*, enrollment_embedding: list[float], selfie_data_url: str) -> float:
-    import torch
-    reference = torch.tensor(enrollment_embedding, dtype=torch.float32).unsqueeze(0)
-    reference = torch.nn.functional.normalize(reference, dim=1)
+    import numpy as np
+    reference = np.asarray(enrollment_embedding, dtype=np.float32)
+    reference = reference / max(float(np.linalg.norm(reference)), 1e-8)
     selfie = _embedding(_image_bytes(selfie_data_url))
-    return float((reference * selfie).sum().item())
+    return float((reference * selfie).sum())
 
 
 def compare_avatar_to_selfie(*, avatar_url: str, selfie_data_url: str) -> float:
@@ -346,4 +404,4 @@ def compare_avatar_to_selfie(*, avatar_url: str, selfie_data_url: str) -> float:
         raise HTTPException(status_code=422, detail="Ảnh khuôn mặt đã đăng ký quá lớn")
     reference_embedding = _embedding(reference)
     selfie_embedding = _embedding(_image_bytes(selfie_data_url))
-    return float((reference_embedding * selfie_embedding).sum().item())
+    return float((reference_embedding * selfie_embedding).sum())

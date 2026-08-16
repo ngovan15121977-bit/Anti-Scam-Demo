@@ -85,13 +85,12 @@ class Settings(BaseSettings):
     # It must be configured separately from JWT_SECRET_KEY in production.
     risk_telemetry_hash_key: str = ""
 
-    # ---- Local Hugging Face face verification ----
-    # Load the model during startup so enrollment does not wait for first-use
-    # model initialization.
+    # ---- Local lightweight OpenCV face verification ----
     face_model_preload: bool = False
-    # Changes whenever preprocessing changes, so incompatible old embeddings are re-enrolled.
-    face_model_id: str = "gaunernst/vit_tiny_patch8_112.arcface_ms1mv3"
-    face_embedding_version: str = "arcface-face-crop-v1"
+    face_model_dir: str = str(PROJECT_ROOT / "models" / "face")
+    # Changes whenever preprocessing/model changes, so old embeddings are re-enrolled.
+    face_model_id: str = "opencv-sface-yunet"
+    face_embedding_version: str = "opencv-sface-face-crop-v1"
     face_similarity_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
     face_transaction_similarity_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
     face_transaction_failure_limit: int = Field(default=5, ge=1)

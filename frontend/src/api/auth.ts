@@ -123,11 +123,13 @@ export const authApi = {
     return response.data;
   },
 
-  checkFaceQuality: async (imageData: string): Promise<{ ready: boolean; rule: string; message: string }> => {
-    const response = await axiosInstance.post<{ ready: boolean; rule: string; message: string }>(
+  checkFaceQuality: async (imageData: string): Promise<{ ready: boolean; rule: string; message: string; pose?: "left" | "right" | "center" | null }> => {
+    const response = await axiosInstance.post<{ ready: boolean; rule: string; message: string; pose?: "left" | "right" | "center" | null }>(
       "/v1/auth/face/quality",
       { image_data: imageData },
-      { timeout: 2_500 },
+      // The first quality request may download the lightweight YuNet/SFace
+      // files on a fresh backend instance. Later requests use the cached model.
+      { timeout: 30_000 },
     );
     return response.data;
   },

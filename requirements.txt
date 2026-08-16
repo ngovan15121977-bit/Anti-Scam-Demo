@@ -27,14 +27,11 @@ pandas>=2.1.0
 openpyxl>=3.1.0
 numpy>=1.26.0,<2.0
 
-# Local face verification using a public Hugging Face ArcFace model.
-timm>=1.0.15
-torch>=2.2.0
-torchvision>=0.17.0
+# Lightweight local face verification using OpenCV Zoo SFace + YuNet.
+# These models are downloaded lazily on the first enrollment/verification.
 Pillow>=10.0.0
-# Detect and crop the single primary face before ArcFace creates an embedding.
-opencv-python-headless==4.10.0.84
-transformers>=4.45.0
+# Detect and crop the single primary face before SFace creates an embedding.
+opencv-contrib-python-headless==4.10.0.84
 
 # Dev tools
 ruff>=0.8.0

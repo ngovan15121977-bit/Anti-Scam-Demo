@@ -38,7 +38,7 @@ export default function FaceVerificationModal({
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [frameQuality, setFrameQuality] = useState<"checking" | "holding" | "ready" | "adjust-light" | "too-dark" | "too-bright" | "invalid">("checking");
   const [frameBrightness, setFrameBrightness] = useState(128);
-  const [frameQualityMessage, setFrameQualityMessage] = useState("Đang kiểm tra khung hình...");
+  const [frameQualityMessage, setFrameQualityMessage] = useState("Đang kiểm tra người dùng trong khung hình...");
   const qualityCheckInFlight = useRef(false);
   const qualityRequestId = useRef(0);
   const lastGoodFrame = useRef<string | null>(null);
@@ -80,11 +80,15 @@ export default function FaceVerificationModal({
     let previousMotionFrame: Uint8ClampedArray | null = null;
     let motionEvents = 0;
     let motionStreak = 0;
-    let motionDirections: Array<"left" | "right"> = [];
+    let motionPhase: "left" | "left_return" | "right" | "right_return" = "left";
     let lastMotionAt = 0;
     let challengeStartedAt = 0;
     let centeredFramesAfterChallenge = 0;
     let centerConfirmationFrames = 0;
+    let directionStreak = 0;
+    let directionStreakValue: "left" | "right" | null = null;
+    let poseStreak = 0;
+    let poseStreakValue: "left" | "right" | null = null;
     const inspectFrame = () => {
       if (!video.videoWidth || !video.videoHeight) return;
       if (motionContext) {
@@ -101,7 +105,9 @@ export default function FaceVerificationModal({
             difference += pixelDifference;
             changedX += pixelDifference * ((index / 4) % 32);
           }
-          const motion = difference / (32 * 32 * 3);
+          // Do not use whole-frame pixel motion for liveness: camera shake or
+          // a moving background must never count as a head turn.
+          const motion = 0;
           const motionCenterX = changedX / Math.max(difference, 1) / 31;
           const now = performance.now();
           if (
@@ -115,20 +121,17 @@ export default function FaceVerificationModal({
               motionEvents += 1;
               motionStreak = 0;
               lastMotionAt = now;
-              const direction = motionCenterX < 0.43 ? "left" : motionCenterX > 0.57 ? "right" : null;
-              if (direction && motionDirections[motionDirections.length - 1] !== direction) {
-                motionDirections.push(direction);
-              }
-              if (motionEvents >= 2 && !livenessPassed.current && mode === "enrollment") {
-                // Complete immediately at 2/2. A quality request started on an
-                // older frame must not restore the turn-left/right message.
-                livenessPassed.current = true;
-                centeredFramesAfterChallenge = 0;
-                setFrameQuality("holding");
-                setFrameQualityMessage("Đã hoàn tất 2/2 chuyển động. Hãy quay mặt về chính giữa và giữ yên...");
-              }
-              if (!livenessPassed.current && mode === "enrollment") {
-                setFrameQualityMessage(`Đã nhận chuyển động ${Math.min(motionEvents, 2)}/2. Hãy quay trái rồi quay phải thật chậm...`);
+              // The webcam stream is mirrored in the preview/capture canvas,
+              // so the raw motion axis must be mapped back to the user's view.
+              const direction = motionCenterX < 0.43 ? "right" : motionCenterX > 0.57 ? "left" : null;
+              if (mode === "enrollment" && !livenessPassed.current) {
+                if (motionPhase === "left" && direction === "left") {
+                  motionPhase = "left_return";
+                  setFrameQualityMessage("Đã nhận quay trái. Hãy quay mặt về chính giữa để hoàn thành 1/2...");
+                } else if (motionPhase === "right" && direction === "right") {
+                  motionPhase = "right_return";
+                  setFrameQualityMessage("Đã nhận quay phải. Hãy quay mặt về chính giữa để hoàn thành 2/2...");
+                }
               }
             }
           } else {
@@ -191,6 +194,27 @@ export default function FaceVerificationModal({
       void authApi.checkFaceQuality(canvas.toDataURL("image/jpeg", 0.85))
         .then((quality) => {
           if (requestId !== qualityRequestId.current) return;
+          if (
+            mode === "enrollment" &&
+            stablePositionReady.current &&
+            challengeStartedAt > 0 &&
+            !livenessPassed.current &&
+            (quality.pose === "left" || quality.pose === "right")
+          ) {
+            const expectedPose = motionPhase === "left" ? "left" : motionPhase === "right" ? "right" : null;
+            if (quality.pose === expectedPose) {
+              poseStreakValue = quality.pose;
+              poseStreak += 1;
+              if (poseStreak >= 2) {
+                motionPhase = quality.pose === "left" ? "left_return" : "right_return";
+                poseStreak = 0;
+                poseStreakValue = null;
+              }
+            } else if (quality.pose !== poseStreakValue) {
+              poseStreak = 0;
+              poseStreakValue = quality.pose;
+            }
+          }
           if (quality.ready) {
             if (!stablePositionReady.current) {
               qualityReady.current = false;
@@ -206,7 +230,11 @@ export default function FaceVerificationModal({
                 }
                 motionEvents = 0;
                 motionStreak = 0;
-                motionDirections = [];
+                motionPhase = "left";
+                directionStreak = 0;
+                directionStreakValue = null;
+                poseStreak = 0;
+                poseStreakValue = null;
                 lastMotionAt = performance.now();
                 centerConfirmationFrames = 0;
                 challengeStartedAt = 0;
@@ -215,13 +243,26 @@ export default function FaceVerificationModal({
               }, 1000);
               return;
             }
-            // Motion detection and quality requests run concurrently. If the
-            // motion loop reached 2/2 between requests, advance here too.
-            if (!livenessPassed.current && motionEvents >= 2 && mode === "enrollment") {
-              livenessPassed.current = true;
-              centeredFramesAfterChallenge = 0;
-              setFrameQuality("holding");
-              setFrameQualityMessage("Đã hoàn tất 2/2 chuyển động. Hãy quay mặt về chính giữa và giữ yên...");
+            // A completed turn is counted only after the face returns to the
+            // center. This prevents a small shake from becoming 1/2 or 2/2.
+            if (mode === "enrollment" && challengeStartedAt > 0 && !livenessPassed.current) {
+              if (motionPhase === "left_return") {
+                motionEvents = 1;
+                motionPhase = "right";
+                qualityReady.current = false;
+                setFrameQuality("holding");
+                setFrameQualityMessage("Đã hoàn thành quay trái về giữa 1/2. Hãy quay phải thật chậm...");
+                return;
+              }
+              if (motionPhase === "right_return") {
+                motionEvents = 2;
+                livenessPassed.current = true;
+                centeredFramesAfterChallenge = 0;
+                qualityReady.current = false;
+                setFrameQuality("holding");
+                setFrameQualityMessage("Đã hoàn thành quay phải về giữa 2/2. Hãy giữ mặt yên...");
+                return;
+              }
             }
             if (!livenessPassed.current) {
               qualityReady.current = false;
@@ -231,12 +272,39 @@ export default function FaceVerificationModal({
                 if (centerConfirmationFrames >= 2) {
                   challengeStartedAt = performance.now();
                   lastMotionAt = performance.now();
-                  setFrameQualityMessage("Đã xác nhận mặt ở giữa khung. Hãy chậm rãi quay đầu sang trái rồi sang phải.");
+                  setFrameQualityMessage("Đã xác nhận mặt ở giữa khung. Bước 1/2: hãy quay sang trái rồi quay về chính giữa.");
                 } else {
                   setFrameQualityMessage("Hãy giữ mặt ở chính giữa khung tròn và giữ yên...");
                 }
               } else {
-                setFrameQualityMessage("Hãy quay đầu sang trái rồi sang phải. Không dùng ảnh hoặc video.");
+                const detectedDirection =
+                  quality.rule === "off_center_left"
+                    ? "right"
+                    : quality.rule === "off_center_right"
+                      ? "left"
+                      : null;
+                const expectedDirection = motionPhase === "left" ? "left" : motionPhase === "right" ? "right" : null;
+                if (detectedDirection && expectedDirection === detectedDirection) {
+                  directionStreakValue = detectedDirection;
+                  directionStreak += 1;
+                  if (directionStreak >= 2) {
+                    motionPhase = detectedDirection === "left" ? "left_return" : "right_return";
+                    directionStreak = 0;
+                    directionStreakValue = null;
+                  }
+                } else if (detectedDirection !== directionStreakValue) {
+                  directionStreak = 0;
+                  directionStreakValue = detectedDirection;
+                }
+                setFrameQualityMessage(
+                  motionPhase === "left_return"
+                    ? "Đã nhận đủ hướng trái. Hãy quay mặt về chính giữa để hoàn thành 1/2..."
+                    : motionPhase === "right_return"
+                      ? "Đã nhận đủ hướng phải. Hãy quay mặt về chính giữa để hoàn thành 2/2..."
+                      : motionPhase === "right"
+                        ? "Đã chuyển sang bước 2/2. Hãy quay sang phải rồi quay về chính giữa..."
+                        : "Đang ở bước 1/2. Hãy quay sang trái rồi quay về chính giữa...",
+                );
               }
               return;
             }
@@ -268,9 +336,11 @@ export default function FaceVerificationModal({
             // strict center box. Keep the liveness challenge alive so the
             // instruction remains visible instead of restarting silently.
             if (
+              mode === "enrollment" &&
               stablePositionReady.current &&
-              performance.now() - challengeStartedAt < 20000 &&
+              (challengeStartedAt === 0 || performance.now() - challengeStartedAt < 20000) &&
               (quality.rule === "no_face" ||
+                quality.rule === "multiple_faces" ||
                 quality.rule === "off_center" ||
                 quality.rule === "off_center_left" ||
                 quality.rule === "off_center_right" ||
@@ -283,8 +353,12 @@ export default function FaceVerificationModal({
             ) {
               setFrameQuality("holding");
               setFrameQualityMessage(
-                quality.rule === "too_far" || quality.rule === "too_near"
+                challengeStartedAt === 0
+                  ? "Hãy giữ toàn bộ khuôn mặt ở giữa khung tròn để bắt đầu quay trái..."
+                  : quality.rule === "too_far" || quality.rule === "too_near"
                   ? quality.message
+                  : quality.rule === "multiple_faces"
+                    ? "Đang quay mặt, hệ thống tạm bỏ qua nhận diện nhầm. Hãy quay chậm và đưa mặt về giữa sau mỗi bên..."
                   : "Đang xác minh chuyển động. Hãy đưa mặt về chính giữa và giữ yên...",
               );
               return;
@@ -293,8 +367,12 @@ export default function FaceVerificationModal({
             livenessPassed.current = false;
             motionEvents = 0;
             motionStreak = 0;
-            motionDirections = [];
+            motionPhase = "left";
             centerConfirmationFrames = 0;
+            directionStreak = 0;
+            directionStreakValue = null;
+            poseStreak = 0;
+            poseStreakValue = null;
             if (stableTimer.current !== null) window.clearTimeout(stableTimer.current);
             setFrameQuality("invalid");
             setFrameQualityMessage(quality.message);
@@ -322,7 +400,7 @@ export default function FaceVerificationModal({
     setVideoLoaded(false);
     setCapturedImage(null);
     setFrameQuality("checking");
-    setFrameQualityMessage("Đang kiểm tra khung hình...");
+    setFrameQualityMessage("Đang kiểm tra người dùng trong khung hình...");
     qualityReady.current = false;
     stablePositionReady.current = false;
     livenessPassed.current = false;

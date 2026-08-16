@@ -44,6 +44,7 @@ from src.app.schemas.user import UserOut
 from src.app.services.audit import add_audit_log
 from src.app.services.face_verification import (
     embedding_from_data_url,
+    face_pose_from_data_url,
     face_quality_rule_from_data_url,
     similarity_from_embedding,
 )
@@ -292,6 +293,7 @@ def face_quality(
     return {
         "ready": rule == "ready",
         "rule": rule,
+        "pose": face_pose_from_data_url(payload.image_data),
         "message": messages.get(rule, "Khung hình chưa đạt yêu cầu."),
     }
 

@@ -14,6 +14,7 @@ WORKDIR /app
 # Avoid a thread explosion on Render's small CPU instance. Face AI is loaded
 # lazily on the first enrollment/verification request, not during health boot.
 ENV FACE_MODEL_PRELOAD=false \
+    FACE_MODEL_DIR=/opt/face-models \
     OMP_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1
@@ -27,6 +28,12 @@ RUN useradd -m appuser
 
 # Copy application code
 COPY . .
+
+# Use the model files committed with the project. Render does not need to
+# download them during build or during a user's first camera request.
+RUN mkdir -p /opt/face-models && \
+    cp /app/models/face/face_detection_yunet_2023mar.onnx /opt/face-models/ && \
+    cp /app/models/face/face_recognition_sface_2021dec.onnx /opt/face-models/
 
 # Create data directory with correct ownership
 RUN mkdir -p /app/data && chown -R appuser:appuser /app

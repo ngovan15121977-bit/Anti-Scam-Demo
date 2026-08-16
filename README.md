@@ -28,7 +28,7 @@ Timi là ứng dụng ngân hàng mô phỏng tập trung vào việc phát hi�
 - Đăng ký/đăng nhập bằng email, mật khẩu và số điện thoại Timi 10 chữ số.
 - Sau khi đăng nhập, xác nhận vị trí gần đúng là bước bắt buộc trước khi vào các trang chức năng trên thiết bị chưa được ghi nhận. Cùng tài khoản trên cùng browser/device ID sẽ không bị hỏi lại ở các phiên sau; thiết bị mới vẫn phải cấp quyền.
 - Thiết lập PIN giao dịch; PIN chỉ được lưu dưới dạng hash.
-- Đăng ký và xác thực khuôn mặt bằng model ArcFace chạy local; ngưỡng hiện tại là 65%.
+- Đăng ký và xác thực khuôn mặt bằng OpenCV Zoo SFace + YuNet chạy local; ngưỡng mặc định hiện tại là 70%.
 - Tài khoản Timi dùng số điện thoại làm số tài khoản.
 - Chuyển tiền Timi nội bộ theo giao dịch nguyên tử: khóa hai tài khoản, kiểm tra số dư, ghi sổ và cập nhật transaction trong cùng DB transaction.
 - Lịch sử giao dịch phân trang bằng cursor.
@@ -121,7 +121,16 @@ FastAPI (src/app)
 - PostgreSQL hoặc Neon PostgreSQL; bật pgvector nếu dùng vector store.
 - Docker Desktop + Linux containers/WSL 2 nếu chạy Docker.
 - Trình duyệt có camera và quyền định vị. Camera trên deployment phải chạy HTTPS; localhost được phép trong development.
-- Lần đầu dùng Face ID cần internet để tải model Hugging Face và đủ RAM/CPU.
+- Face ID dùng hai model ONNX nhẹ được lưu trong `models/face/`; không dùng Hugging Face/PyTorch.
+
+Hai file model cần có:
+
+```text
+models/face/face_detection_yunet_2023mar.onnx
+models/face/face_recognition_sface_2021dec.onnx
+```
+
+Các file model được đóng gói vào Docker image tại `/opt/face-models`. Khi đổi model hoặc preprocessing, người dùng cần đăng ký Face ID lại.
 
 ## Cấu hình biến môi trường
 
@@ -153,8 +162,9 @@ Không commit .env. Các biến quan trọng:
 | OPENAI_API_KEY | Không | Nhánh giải thích transaction legacy khi bật LLM |
 | LLM_EXPLANATION_ENABLED | Không | Mặc định false; risk score vẫn chạy khi tắt |
 | RISK_TELEMETRY_HASH_KEY | Production | HMAC IP/device telemetry, phải khác JWT secret |
-| FACE_MODEL_ID | Không | Model Hugging Face cho Face ID |
-| FACE_SIMILARITY_THRESHOLD | Không | Ngưỡng hiện tại 0.65 |
+| FACE_MODEL_ID | Không | Nhận diện `opencv-sface-yunet` |
+| FACE_MODEL_DIR | Không | Thư mục chứa 2 model ONNX; local mặc định `models/face`, Docker dùng `/opt/face-models` |
+| FACE_SIMILARITY_THRESHOLD | Không | Ngưỡng mặc định 0.70 |
 | FACE_MODEL_PRELOAD | Không | true preload model; false lazy-load |
 | CLOUDINARY_* | Tuỳ chọn | Upload avatar |
 | LANGCHAIN_*, AI_LOG_* | Tuỳ chọn | Tracing/logging local hoặc production |
@@ -400,7 +410,7 @@ Mở bằng http://localhost:5173 hoặc HTTPS, cấp quyền camera cho đúng 
 
 ### Face ID không nhận diện
 
-Đảm bảo đã cài requirements.txt, model tải được từ Hugging Face, ảnh dưới 5 MB, đủ sáng, chỉ một người và nhìn thẳng. Lần đầu load model có thể chậm.
+Đảm bảo đã cài `requirements.txt`, có đủ 2 file trong `models/face/`, ảnh dưới 5 MB, đủ sáng, chỉ một người và nhìn thẳng. Khi đăng ký, giữ mặt giữa khung rồi quay trái và quay về giữa (`1/2`), sau đó quay phải và quay về giữa (`2/2`).
 
 ### Không kết nối Neon
 
