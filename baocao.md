@@ -1,4 +1,4 @@
-# Báo Cáo Các Hạng Mục Đã Bổ Sung
+# Báo Cáo Các Hạng Mục Bổ Sung
 
 ## 1. Database và Migration
 
