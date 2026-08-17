@@ -21,11 +21,15 @@ Examples:
 """
 import argparse
 import json
+from json import tool
 import os
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import result
+
+from typer import prompt
 
 VN_TZ = timezone(timedelta(hours=7))
 
@@ -83,16 +87,17 @@ def main():
         print("[log] Run: git config user.email \"your@vinuni.edu.vn\"", file=sys.stderr)
 
     entry = {
-        "tool": tool,
-        "event": "ManualLog",
-        "entry_id": f"manual-{datetime.now(VN_TZ).strftime('%Y%m%d-%H%M%S')}",
-        "model": model,
-        "repo": git("git remote get-url origin").split("/")[-1].replace(".git", ""),
-        "branch": git("git rev-parse --abbrev-ref HEAD"),
-        "commit": git("git rev-parse --short HEAD"),
-        "student": student,
-        "prompt": prompt[:1000],
-        "response_summary": result[:500] if result else "",
+    "tool": tool,
+    "event": "ManualLog",
+    "entry_id": f"manual-{datetime.now(VN_TZ).strftime('%Y%m%d-%H%M%S')}",
+    "timestamp": datetime.now(VN_TZ).isoformat(),
+    "model": model,
+    "repo": git("git remote get-url origin").split("/")[-1].replace(".git", ""),
+    "branch": git("git rev-parse --abbrev-ref HEAD"),
+    "commit": git("git rev-parse --short HEAD"),
+    "student": student,
+    "prompt": prompt[:1000],
+    "response_summary": result[:500] if result else "",
     }
 
     log_dir = Path(os.environ.get("AI_LOG_DIR", ".ai-log"))
