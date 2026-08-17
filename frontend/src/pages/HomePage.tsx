@@ -9,7 +9,6 @@ import {
   CreditCard,
   Users,
   Headphones,
-  TrendingUp,
   CheckCircle2,
   ShieldCheck,
   Building2,
@@ -25,15 +24,15 @@ import { useState, useEffect } from "react";
 /* ------------------------------------------------------------------ */
 
 const trustRow = [
-  { icon: Users, title: "Hàng triệu người tin dùng", desc: "Timi xử lý hàng trăm ngàn giao dịch mỗi ngày trên khắp Việt Nam", image: "img/41.jpg" },
-  { icon: Star, title: "Đánh giá 4.8/5 sao", desc: "Từ hơn 200.000 lượt đánh giá của người dùng trên App Store & Google Play", image: "img/42.jpg" },
-  { icon: Headphones, title: "Hỗ trợ 24/7", desc: "Đội ngũ chuyên gia sẵn sàng hỗ trợ bạn mọi lúc qua chat, điện thoại", image: "img/43.jpg" },
+  { icon: Users, title: "Hàng triệu người tin dùng", desc: "Timi xử lý hàng trăm ngàn giao dịch mỗi ngày trên khắp Việt Nam", image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/41.jpg" },
+  { icon: Star, title: "Đánh giá 4.8/5 sao", desc: "Từ hơn 200.000 lượt đánh giá của người dùng trên App Store & Google Play", image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/42.jpg" },
+  { icon: Headphones, title: "Hỗ trợ 24/7", desc: "Đội ngũ chuyên gia sẵn sàng hỗ trợ bạn mọi lúc qua chat, điện thoại", image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/43.png" },
 ];
 
 const protectionRow = [
-  { icon: ShieldCheck, title: "Đội ngũ chống lừa đảo AI", desc: "Giám sát và phân tích rủi ro theo thời gian thực", image: "img/44.png" },
-  { icon: KeyRound, title: "Xác thực 2 lớp", desc: "Bảo vệ tài khoản bằng sinh trắc học và OTP", image: "img/45.jpg" },
-  { icon: Building2, title: "Hợp tác cùng tổ chức uy tín", desc: "Liên kết dữ liệu cảnh báo với ngân hàng và cơ quan an ninh mạng", image: "img/46.jpg" },
+  { icon: ShieldCheck, title: "Đội ngũ chống lừa đảo AI", desc: "Giám sát và phân tích rủi ro theo thời gian thực", image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/44.png" },
+  { icon: KeyRound, title: "Xác thực 2 lớp", desc: "Bảo vệ tài khoản bằng sinh trắc học và OTP", image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/45.jpg" },
+  { icon: Building2, title: "Hợp tác cùng tổ chức uy tín", desc: "Liên kết dữ liệu cảnh báo với ngân hàng và cơ quan an ninh mạng", image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/46.jpg" },
 ];
 
 const testimonials = [
@@ -43,7 +42,7 @@ const testimonials = [
       "Timi giúp mình chuyển tiền cho gia đình ở quê chỉ trong vài giây, lại còn cảnh báo trước khi mình chuyển nhầm vào tài khoản lừa đảo.",
     name: "Minh Anh",
     theme: "light",
-    image: "img/41.jpg",
+    image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/41.jpg",
   },
   {
     flag: "🇻🇳",
@@ -51,7 +50,7 @@ const testimonials = [
       "Ứng dụng quản lý chi tiêu tự động, mình tiết kiệm được rõ rệt sau 3 tháng dùng Timi.",
     name: "Quốc Huy",
     theme: "dark",
-    image: "img/42.jpg",
+    image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/42.jpg",
   },
   {
     flag: "🇻🇳",
@@ -59,7 +58,7 @@ const testimonials = [
       "Cảnh báo AI Anti-Scam đã chặn một giao dịch mình suýt bị lừa. Cảm giác an tâm hơn hẳn.",
     name: "Thu Trang",
     theme: "light",
-    image: "img/43.jpg",
+    image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/43.png",
   },
 ];
 
@@ -68,28 +67,28 @@ const features = [
     icon: ArrowRight,
     title: "Chuyển tiền siêu tốc",
     desc: "Chuyển tiền 24/7 đến mọi ngân hàng, chỉ cần số điện thoại",
-    image: "img/32.jpg",
+    image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/32.jpg",
   },
   {
     icon: CreditCard,
     title: "Thanh toán mọi dịch vụ",
     desc: "Hóa đơn điện nước, nạp điện thoại, vé xem phim... tất cả trong 1 chạm",
-    image: "img/32.jpg",
+    image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/32.jpg",
   },
   {
     icon: Shield,
     title: "AI Anti-Scam",
     desc: "Trí tuệ nhân tạo phân tích real-time, chặn giao dịch rủi ro trước khi xảy ra",
-    image: "img/32.jpg",
+    image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/32.jpg",
   },
 ];
 
 const heroBanners = [
-  "img/13.jpg",
-  "img/14.jpg",
-  "img/22.jpg",
-  "img/23.jpg",
-  "img/35.png",
+  "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/13.jpg",
+  "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/14.jpg",
+  "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/22.jpg",
+  "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/23.jpg",
+  "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/35.png",
 ];
 
 /* ------------------------------------------------------------------ */
@@ -99,7 +98,7 @@ const heroBanners = [
 export default function HomePage() {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [slide, setSlide] = useState(0);
+  const [, setSlide] = useState(0);
   const [activeBanner, setActiveBanner] = useState(0);
 
   useEffect(() => {
@@ -238,7 +237,7 @@ export default function HomePage() {
 
             {/* Ảnh minh hoạ ổ khoá */}
             <div className="flex justify-center lg:justify-end">
-              <img src="img/40.png" alt="Bảo mật Timi" className="w-64 h-64 object-contain" />
+              <img src="https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/40.png" alt="Bảo mật Timi" className="w-64 h-64 object-contain" />
             </div>
           </div>
 
@@ -308,7 +307,7 @@ export default function HomePage() {
           <div className="mt-16 bg-gradient-to-br from-[#3D5AFB] to-[#6C4CE0] rounded-[2.5rem] px-8 py-16 lg:py-24 flex flex-col items-center text-center relative overflow-hidden">
             {/* Khung placeholder cho ảnh trái đất của bạn */}
             <div className="mb-8 w-40 h-40 flex items-center justify-center">
-              <img src="img/plant.png" alt="Timi" className="w-full h-full object-contain" />
+              <img src="https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/plant.png" alt="Timi" className="w-full h-full object-contain" />
             </div>
             <h2 className="font-display text-3xl lg:text-5xl font-bold text-white leading-tight max-w-2xl">
               TIỀN BẠC KHÔNG<br />CÒN GIỚI HẠN

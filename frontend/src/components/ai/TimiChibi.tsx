@@ -1,4 +1,4 @@
-import { Sparkles, Zap, Shield } from "lucide-react";
+import { Sparkles, Shield } from "lucide-react";
 
 type TimiChibiProps = {
   compact?: boolean;
