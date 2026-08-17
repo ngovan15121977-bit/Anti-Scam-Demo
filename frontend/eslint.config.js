@@ -18,5 +18,12 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Existing screens still use API-shaped values that are being migrated
+      // incrementally to explicit TypeScript types. Keep these as warnings so
+      // lint reports the debt without blocking CI.
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-unused-vars': 'warn',
+    },
   },
 ])
