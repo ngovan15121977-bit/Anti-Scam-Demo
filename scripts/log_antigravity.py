@@ -44,7 +44,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Fix Windows console encoding so VN diacritics in prompts print cleanly.
@@ -55,7 +55,6 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-VN_TZ = timezone(timedelta(hours=7))
 GEMINI_HOME = Path.home() / ".gemini"
 
 # Antigravity has shipped under two folder names; prefer the newer IDE one.
@@ -265,18 +264,17 @@ def iter_user_inputs(brain_dirs: list[Path], cutoff: datetime | None,
 def build_entry(msg: dict, repo: str, branch: str, commit: str,
                 student: str) -> dict:
     ts = msg["timestamp"]
-    if ts.endswith("Z"):
+    if ts:
         try:
-            ts = (
-                datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                .astimezone(VN_TZ)
-                .isoformat()
-            )
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            ts = dt.astimezone(UTC).isoformat()
         except ValueError:
             pass
 
     return {
-        "ts": ts or datetime.now(VN_TZ).isoformat(),
+        "ts": ts or datetime.now(UTC).isoformat(),
         "tool": "antigravity",
         "event": "UserPrompt",
         "entry_id": f"antigravity-{msg['conv_id']}-{msg['step_index']:05d}",
@@ -332,7 +330,7 @@ def main() -> None:
 
     cutoff = None
     if not args.all:
-        cutoff = datetime.now(tz=VN_TZ) - timedelta(hours=args.hours)
+        cutoff = datetime.now(tz=UTC) - timedelta(hours=args.hours)
 
     repo_root_n = "" if args.no_repo_filter else _normalize(str(Path.cwd()))
 
@@ -380,12 +378,12 @@ def main() -> None:
 # ---------------------------------------------------------------------------
 
 def _legacy_log(summary: str, model: str) -> None:
-    ts = datetime.now(VN_TZ).isoformat()
+    ts = datetime.now(UTC).isoformat()
     entry = {
         "ts": ts,
         "tool": "antigravity",
         "event": "TaskComplete",
-        "entry_id": f"antigravity-{datetime.now(VN_TZ).strftime('%Y%m%d-%H%M%S')}",
+        "entry_id": f"antigravity-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}",
         "model": model,
         "repo": git("git remote get-url origin").split("/")[-1].replace(".git", ""),
         "branch": git("git rev-parse --abbrev-ref HEAD"),

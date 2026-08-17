@@ -15,10 +15,8 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
-VN_TZ = timezone(timedelta(hours=7))
 
 
 def git(cmd):
@@ -91,7 +89,7 @@ def build_entry(tool, prompt, model="", result=""):
     Both `timestamp` and `created_at` are included for compatibility
     with dashboards/server schemas.
     """
-    now = datetime.now(VN_TZ)
+    now = datetime.now(UTC)
     iso_time = now.isoformat()
 
     return {

@@ -7,10 +7,8 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
-VN_TZ = timezone(timedelta(hours=7))
 
 
 def git(cmd):
@@ -53,7 +51,7 @@ def detect_tool(data: dict) -> str:
 def normalize(data: dict, tool: str) -> dict | None:
     """Normalize tool-specific payload to common log entry."""
     event = data.get("hook_event_name") or data.get("event", "")
-    ts = datetime.now(VN_TZ).isoformat()
+    ts = datetime.now(UTC).isoformat()
 
     # Resolve repo from git origin. When cwd is not a git working tree (or
     # origin isn't set), skip the event entirely — these entries can't be
