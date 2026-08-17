@@ -110,21 +110,21 @@ const testimonials = [
     author: "Sarah Patel",
     role: "Marketing Director",
     rating: 5,
-    image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop&crop=face",
+    image: "img/26.jpg",
   },
   {
     text: "The retirement planning team at VaultEdge gave me total peace of mind. Professional, responsive, and results-driven.",
     author: "James Wilson",
     role: "Business Owner",
     rating: 5,
-    image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&crop=face",
+    image: "img/33.jpg",
   },
   {
     text: "Switched from our old firm and couldn't be happier. Their tax advisory alone saved us thousands in the first year.",
     author: "Michael Chen",
     role: "Startup Founder",
     rating: 5,
-    image: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop&crop=face",
+    image: "img/32.jpg",
   },
 ];
 
