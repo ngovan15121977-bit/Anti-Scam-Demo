@@ -49,6 +49,11 @@ def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        # Never leave a partially mutated unit of work attached to a pooled
+        # connection when an endpoint raises before its explicit commit.
+        db.rollback()
+        raise
     finally:
         db.close()
 

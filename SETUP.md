@@ -117,8 +117,16 @@ Backend:
 
 ```powershell
 \.venv\Scripts\python.exe -m pip install -r requirements.txt
+\.venv\Scripts\python.exe -c "import cv2; print(cv2.__version__)"
 \.venv\Scripts\python.exe -m alembic upgrade head
 \.venv\Scripts\python.exe -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Luôn khởi động backend bằng `\.venv\Scripts\python.exe -m uvicorn`, không dùng trực tiếp lệnh `uvicorn` của Python global. Nếu log hiển thị đường dẫn kiểu `C:\Users\...\Python311\Lib\site-packages` và gặp `No module named 'cv2'`, hãy cài dependency vào đúng môi trường:
+
+```powershell
+\.venv\Scripts\python.exe -m pip install -r requirements.txt
+\.venv\Scripts\python.exe -c "import cv2; print(cv2.__version__)"
 ```
 
 Frontend, ở terminal khác:

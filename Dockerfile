@@ -13,7 +13,8 @@ WORKDIR /app
 
 # Avoid a thread explosion on Render's small CPU instance. Face AI is loaded
 # lazily on the first enrollment/verification request, not during health boot.
-ENV FACE_MODEL_PRELOAD=false \
+ENV FACE_MODEL_PRELOAD=true \
+    FACE_MODEL_ALLOW_DOWNLOAD=false \
     FACE_MODEL_DIR=/opt/face-models \
     OMP_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \

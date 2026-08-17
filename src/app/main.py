@@ -44,11 +44,8 @@ app.include_router(guardian.router, prefix="/api/v1")
 
 @app.on_event("startup")
 def preload_face_ai() -> None:
-    """Optionally warm face AI; lazy loading is safer on small deployments."""
-    # Render's small instances must stay healthy before the first face request.
-    # Loading the face models here can delay health checks on small instances,
-    # so production always uses lazy loading.
-    if settings.app_env == "production" or not settings.face_model_preload:
+    """Warm Face ID when the deployment explicitly ships/preloads the models."""
+    if not settings.face_model_preload:
         return
     try:
         warm_face_model()

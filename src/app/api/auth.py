@@ -1,9 +1,7 @@
 """Authentication, independent face enrollment, and account profile APIs."""
 
 import base64
-import time
-from threading import Lock
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import cloudinary
 import cloudinary.uploader
@@ -23,6 +21,7 @@ from src.app.core.security import (
 from src.app.db.session import get_db
 from src.app.models.face_enrollment import FaceEnrollment
 from src.app.models.face_verification_log import FaceVerificationLog
+from src.app.models.face_verification_state import FaceVerificationState
 from src.app.models.transaction import Transaction
 from src.app.models.user import User, UserRole
 from src.app.schemas.auth import (
@@ -54,32 +53,31 @@ from src.app.services.transaction_telemetry import build_risk_telemetry, persist
 router = APIRouter(prefix="/auth", tags=["auth"])
 _AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 _MAX_IMAGE_SIZE = 5 * 1024 * 1024
-_face_failure_state: dict[str, tuple[int, float]] = {}
-_face_failure_state_lock = Lock()
+def _face_state_for_update(db: Session, user_id) -> FaceVerificationState:
+    """Lock shared Face ID state so lockout applies across all workers."""
+    state = db.scalar(
+        select(FaceVerificationState)
+        .where(FaceVerificationState.user_id == user_id)
+        .with_for_update()
+    )
+    if state is None:
+        # Migrations seed this row for existing users; this fallback covers
+        # isolated test databases and users created before the migration.
+        state = FaceVerificationState(user_id=user_id)
+        db.add(state)
+        db.flush()
+    return state
 
 
-def _face_lock_remaining(user_id: str) -> int:
-    with _face_failure_state_lock:
-        _failures, locked_until = _face_failure_state.get(user_id, (0, 0.0))
-        remaining = max(0, int(locked_until - time.monotonic()))
-        if remaining == 0 and locked_until:
-            _face_failure_state.pop(user_id, None)
-        return remaining
-
-
-def _record_face_failure(user_id: str, settings) -> tuple[int, int]:
-    with _face_failure_state_lock:
-        failures, locked_until = _face_failure_state.get(user_id, (0, 0.0))
-        failures += 1
-        if failures >= settings.face_transaction_failure_limit:
-            locked_until = time.monotonic() + settings.face_transaction_lock_seconds
-        _face_failure_state[user_id] = (failures, locked_until)
-        return failures, max(0, int(locked_until - time.monotonic()))
-
-
-def _reset_face_failures(user_id: str) -> None:
-    with _face_failure_state_lock:
-        _face_failure_state.pop(user_id, None)
+def _face_lock_remaining(state: FaceVerificationState) -> int:
+    if state.locked_until is None:
+        return 0
+    remaining = int((state.locked_until - datetime.now(UTC)).total_seconds())
+    if remaining <= 0:
+        state.failure_count = 0
+        state.locked_until = None
+        return 0
+    return remaining
 
 
 def _configure_cloudinary() -> None:
@@ -155,6 +153,8 @@ def register(
     )
     db.add(user)
     try:
+        db.flush()
+        db.add(FaceVerificationState(user_id=user.id))
         db.commit()
     except IntegrityError:
         # The partial unique index is the race-safe final authority when two
@@ -302,8 +302,10 @@ def face_quality(
 def verify_face(payload: FaceVerificationRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> FaceVerificationResponse:
     settings = get_settings()
     is_transaction_verification = payload.transaction_id is not None
+    face_state = None
     if is_transaction_verification:
-        remaining = _face_lock_remaining(str(current_user.id))
+        face_state = _face_state_for_update(db, current_user.id)
+        remaining = _face_lock_remaining(face_state)
         if remaining > 0:
             raise HTTPException(
                 status_code=429,
@@ -319,14 +321,21 @@ def verify_face(payload: FaceVerificationRequest, db: Session = Depends(get_db),
     threshold = settings.face_transaction_similarity_threshold if is_transaction_verification else float(enrollment.similarity_threshold)
     matched = similarity >= float(threshold)
     db.add(FaceVerificationLog(user_id=current_user.id, enrollment_id=enrollment.id, transaction_id=payload.transaction_id, purpose="transaction" if is_transaction_verification else "login", similarity=similarity, threshold=float(threshold), matched=matched, model_id=enrollment.model_id, failure_reason=None if matched else "similarity_below_threshold", created_at=datetime.now(UTC)))
-    db.commit()
+    locked_for = 0
+    failures = 0
     if is_transaction_verification:
         if matched:
-            _reset_face_failures(str(current_user.id))
+            face_state.failure_count = 0
+            face_state.locked_until = None
         else:
-            failures, locked_for = _record_face_failure(str(current_user.id), settings)
-            if locked_for > 0:
-                raise HTTPException(status_code=429, headers={"Retry-After": str(locked_for)}, detail=f"Bạn đã xác thực Face ID sai {failures} lần. Chức năng tạm khóa {locked_for} giây.")
+            face_state.failure_count += 1
+            failures = face_state.failure_count
+            if failures >= settings.face_transaction_failure_limit:
+                face_state.locked_until = datetime.now(UTC) + timedelta(seconds=settings.face_transaction_lock_seconds)
+            locked_for = _face_lock_remaining(face_state)
+    db.commit()
+    if is_transaction_verification and not matched and locked_for > 0:
+        raise HTTPException(status_code=429, headers={"Retry-After": str(locked_for)}, detail=f"Bạn đã xác thực Face ID sai {failures} lần. Chức năng tạm khóa {locked_for} giây.")
     token = create_face_verification_token(user_id=str(current_user.id), transaction_id=str(payload.transaction_id) if payload.transaction_id else None) if matched else None
     return FaceVerificationResponse(matched=matched, similarity=similarity, threshold=float(threshold), message="Khuôn mặt khớp với dữ liệu đã đăng ký." if matched else "Khuôn mặt chưa đủ độ khớp. Hãy chụp lại ở nơi đủ sáng.", verification_token=token)
 

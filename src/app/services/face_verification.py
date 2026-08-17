@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import logging
 import os
@@ -16,6 +17,10 @@ from src.app.config import get_settings
 
 _SFACE_URL = "https://raw.githubusercontent.com/opencv/opencv_zoo/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
 _YUNET_URL = "https://raw.githubusercontent.com/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+_MODEL_SHA256 = {
+    "face_detection_yunet_2023mar.onnx": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+    "face_recognition_sface_2021dec.onnx": "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",
+}
 _MODEL_INFERENCE_LOCK = threading.Lock()
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,20 +34,39 @@ def _download_model(url: str, filename: str) -> str:
     )
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, filename)
-    if not os.path.exists(path) or os.path.getsize(path) < 100_000:
-        temporary = f"{path}.part"
+    expected_hash = _MODEL_SHA256.get(filename)
+    if expected_hash is None:
+        raise HTTPException(status_code=503, detail="Model face OpenCV không nằm trong danh sách tin cậy.")
+
+    def is_verified_model(candidate: str) -> bool:
+        if not os.path.isfile(candidate) or os.path.getsize(candidate) < 100_000:
+            return False
+        digest = hashlib.sha256()
+        with open(candidate, "rb") as model_file:
+            for chunk in iter(lambda: model_file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest() == expected_hash
+
+    if is_verified_model(path):
+        return path
+    if not get_settings().face_model_allow_download:
+        raise HTTPException(status_code=503, detail="Model face OpenCV chưa có hoặc không hợp lệ.")
+
+    temporary = f"{path}.part"
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": "FintechGuard/1.0"})
+        with urllib.request.urlopen(request, timeout=45) as response, open(temporary, "wb") as output:
+            while chunk := response.read(1024 * 1024):
+                output.write(chunk)
+        if not is_verified_model(temporary):
+            raise ValueError(f"SHA-256 mismatch for {filename}")
+        os.replace(temporary, path)
+    except Exception as exc:
         try:
-            request = urllib.request.Request(url, headers={"User-Agent": "FintechGuard/1.0"})
-            with urllib.request.urlopen(request, timeout=45) as response, open(temporary, "wb") as output:
-                while chunk := response.read(1024 * 1024):
-                    output.write(chunk)
-            os.replace(temporary, path)
-        except Exception as exc:
-            try:
-                os.remove(temporary)
-            except OSError:
-                pass
-            raise HTTPException(status_code=503, detail="Chưa tải được model face OpenCV. Hãy thử lại sau.") from exc
+            os.remove(temporary)
+        except OSError:
+            pass
+        raise HTTPException(status_code=503, detail="Chưa tải được model face OpenCV. Hãy thử lại sau.") from exc
     return path
 
 def _image_bytes(data_url: str) -> bytes:
@@ -275,7 +299,13 @@ def embedding_from_data_url(data_url: str) -> list[float]:
 
 def face_quality_rule_from_data_url(data_url: str) -> str:
     """Return quality using YuNet, with Haar fallback while models download."""
-    import cv2
+    try:
+        import cv2
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Face AI chưa được cài đặt. Hãy chạy pip install -r requirements.txt bằng đúng Python environment.",
+        ) from exc
     import numpy as np
     from PIL import Image
 

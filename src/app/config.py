@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "dev-only-insecure-secret-change-me"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = Field(default=60, ge=1)
+    history_cursor_secret: str = ""
 
     # ---- Cloudinary media storage ----
     cloudinary_cloud_name: str = ""
@@ -87,6 +88,9 @@ class Settings(BaseSettings):
 
     # ---- Local lightweight OpenCV face verification ----
     face_model_preload: bool = False
+    # Production images ship verified models; do not fetch executable model
+    # files from the network during a user request unless explicitly enabled.
+    face_model_allow_download: bool = True
     face_model_dir: str = str(PROJECT_ROOT / "models" / "face")
     # Changes whenever preprocessing/model changes, so old embeddings are re-enrolled.
     face_model_id: str = "opencv-sface-yunet"

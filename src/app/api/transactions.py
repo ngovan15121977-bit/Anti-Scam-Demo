@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import base64
 import json
+import hashlib
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from cryptography.fernet import Fernet, InvalidToken
 from jose import JWTError
 from sqlalchemy import and_, desc, func, lateral, or_, select, true, union_all
 from sqlalchemy.orm import Session, aliased
@@ -17,6 +19,7 @@ from sqlalchemy.orm import Session, aliased
 from src.agents.intervention_graph import intervention_graph
 from src.agents.transaction_graph import transaction_graph
 from src.app.core.deps import get_current_user
+from src.app.config import get_settings
 from src.app.core.security import decode_face_verification_token, decode_recipient_lookup_token, verify_password
 from src.app.db.session import get_db
 from src.app.models.recipient_directory import RecipientDirectory
@@ -766,21 +769,22 @@ def _encode_history_cursor(transaction: Transaction) -> str:
         "created_at": transaction.created_at.astimezone(UTC).isoformat(),
         "id": str(transaction.id),
     }
-    return base64.urlsafe_b64encode(
-        json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    ).decode("ascii").rstrip("=")
+    secret = get_settings().history_cursor_secret or get_settings().jwt_secret_key
+    key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode("utf-8")).digest())
+    return Fernet(key).encrypt(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii")
 
 
 def _decode_history_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
     try:
-        decoded = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
-        payload = json.loads(decoded.decode("utf-8"))
+        secret = get_settings().history_cursor_secret or get_settings().jwt_secret_key
+        key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode("utf-8")).digest())
+        payload = json.loads(Fernet(key).decrypt(cursor.encode("ascii")).decode("utf-8"))
         created_at = datetime.fromisoformat(payload["created_at"])
         transaction_id = uuid.UUID(payload["id"])
         if created_at.tzinfo is None:
             raise ValueError("cursor timestamp has no timezone")
         return created_at.astimezone(UTC), transaction_id
-    except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+    except (InvalidToken, KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
         raise HTTPException(status_code=422, detail="Cursor lịch sử giao dịch không hợp lệ") from None
 
 
