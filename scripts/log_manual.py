@@ -29,6 +29,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import result
 
+from django.utils.timezone import now
 from typer import prompt
 
 VN_TZ = timezone(timedelta(hours=7))
@@ -91,6 +92,7 @@ def main():
     "event": "ManualLog",
     "entry_id": f"manual-{datetime.now(VN_TZ).strftime('%Y%m%d-%H%M%S')}",
     "timestamp": datetime.now(VN_TZ).isoformat(),
+    "created_at": now.isoformat(),
     "model": model,
     "repo": git("git remote get-url origin").split("/")[-1].replace(".git", ""),
     "branch": git("git rev-parse --abbrev-ref HEAD"),
