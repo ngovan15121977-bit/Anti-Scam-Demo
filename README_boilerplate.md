@@ -1,4 +1,4 @@
-# [Tên Dự Án]
+# [FIN-19] - Đã check
 
 > Tóm tắt 1 câu: [Vấn đề] → [Giải pháp AI] cho [Target User]
 
