@@ -21,6 +21,13 @@ import {
   ShieldCheck,
   Wifi,
   X,
+  Search,
+  Bell,
+  Share2,
+  Shield,
+  Info,
+  ChevronRight,
+  Wallet,
 } from "lucide-react";
 
 import {
@@ -44,9 +51,8 @@ type UrlSafetyState =
   | { status: "blocked"; hostname: string | null; reason: string }
   | { status: "unavailable" };
 
-const formatMoney = (amount?: number) => (
-  amount ? `${new Intl.NumberFormat("vi-VN").format(amount)} đ` : "Không cố định"
-);
+const formatMoney = (amount?: number) =>
+  amount ? `${new Intl.NumberFormat("vi-VN").format(amount)} đ` : "Không cố định";
 
 function cameraErrorMessage(error: unknown): string {
   if (typeof error === "string" && error.trim()) return error;
@@ -80,15 +86,17 @@ export default function QrPaymentPage() {
     amount: "",
     note: "",
   });
-  const [generatedQr, setGeneratedQr] = useState<{ image: string; payload: string; payment: PaymentQrData } | null>(null);
+  const [generatedQr, setGeneratedQr] = useState<{
+    image: string;
+    payload: string;
+    payment: PaymentQrData;
+  } | null>(null);
   const [createError, setCreateError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const ownAccountNumber = user?.phone?.trim() ?? "";
   const ownAccountName = user?.full_name.trim() ?? "";
   const canCreateOwnQr = Boolean(
-    user?.timi_bank_enabled
-    && /^\d{10}$/.test(ownAccountNumber)
-    && ownAccountName,
+    user?.timi_bank_enabled && /^\d{10}$/.test(ownAccountNumber) && ownAccountName,
   );
 
   const stopScanner = useCallback(async () => {
@@ -108,7 +116,9 @@ export default function QrPaymentPage() {
     }
   }, []);
 
-  useEffect(() => () => { void stopScanner(); }, [stopScanner]);
+  useEffect(() => () => {
+    void stopScanner();
+  }, [stopScanner]);
 
   const resetUrlSafety = useCallback(() => {
     urlSafetyRequestRef.current += 1;
@@ -123,13 +133,15 @@ export default function QrPaymentPage() {
     try {
       const result = await urlSafetyApi.check(url);
       if (requestId !== urlSafetyRequestRef.current) return;
-      setUrlSafetyState(result.blocked
-        ? {
-            status: "blocked",
-            hostname: result.hostname,
-            reason: result.reason ?? "Tên miền này nằm trong blacklist URL lừa đảo.",
-          }
-        : { status: "clear", hostname: result.hostname });
+      setUrlSafetyState(
+        result.blocked
+          ? {
+              status: "blocked",
+              hostname: result.hostname,
+              reason: result.reason ?? "Tên miền này nằm trong blacklist URL lừa đảo.",
+            }
+          : { status: "clear", hostname: result.hostname },
+      );
     } catch {
       if (requestId === urlSafetyRequestRef.current) {
         // A link must not become openable merely because the safety service is
@@ -148,30 +160,33 @@ export default function QrPaymentPage() {
     setMode(nextMode);
   };
 
-  const handleDecodedText = useCallback((decodedText: string) => {
-    const content = parseQrContent(decodedText);
-    setScanError("");
-    setScannerState("idle");
-    void stopScanner();
+  const handleDecodedText = useCallback(
+    (decodedText: string) => {
+      const content = parseQrContent(decodedText);
+      setScanError("");
+      setScannerState("idle");
+      void stopScanner();
 
-    if (content.kind === "payment") {
-      resetUrlSafety();
-      // A successful payment QR goes straight to the transfer form. The
-      // transfer page deliberately performs a fresh recipient lookup first.
-      navigate("/transfer", { state: { QrPayment: content.payment } });
+      if (content.kind === "payment") {
+        resetUrlSafety();
+        // A successful payment QR goes straight to the transfer form. The
+        // transfer page deliberately performs a fresh recipient lookup first.
+        navigate("/transfer", { state: { QrPayment: content.payment } });
+        return true;
+      }
+
+      // Never open URLs, call phone numbers, or join Wi-Fi automatically. The
+      // result panel makes the scanned content and link risk signals explicit.
+      setDecodedContent(content);
+      if (content.kind === "url" && content.normalizedUrl) {
+        void checkUrlSafety(content.normalizedUrl);
+      } else {
+        resetUrlSafety();
+      }
       return true;
-    }
-
-    // Never open URLs, call phone numbers, or join Wi-Fi automatically. The
-    // result panel makes the scanned content and link risk signals explicit.
-    setDecodedContent(content);
-    if (content.kind === "url" && content.normalizedUrl) {
-      void checkUrlSafety(content.normalizedUrl);
-    } else {
-      resetUrlSafety();
-    }
-    return true;
-  }, [checkUrlSafety, navigate, resetUrlSafety, stopScanner]);
+    },
+    [checkUrlSafety, navigate, resetUrlSafety, stopScanner],
+  );
 
   const startScanner = async () => {
     if (scannerRef.current) return;
@@ -193,7 +208,12 @@ export default function QrPaymentPage() {
       try {
         // On mobile this normally selects the rear camera without requiring a
         // device-specific id.
-        await scanner.start({ facingMode: { ideal: "environment" } }, scanConfig, handleDecodedText, () => undefined);
+        await scanner.start(
+          { facingMode: { ideal: "environment" } },
+          scanConfig,
+          handleDecodedText,
+          () => undefined,
+        );
       } catch (preferredCameraError) {
         // Some desktop browsers reject facingMode constraints even though a
         // permitted camera exists. Do not reuse the failed scanner here: its
@@ -205,7 +225,8 @@ export default function QrPaymentPage() {
           // The failed scanner may not have rendered a reader yet.
         }
         const cameras = await Html5Qrcode.getCameras();
-        const preferredCamera = cameras.find((camera) => /back|rear|environment/i.test(camera.label)) ?? cameras[0];
+        const preferredCamera =
+          cameras.find((camera) => /back|rear|environment/i.test(camera.label)) ?? cameras[0];
         if (!preferredCamera) throw preferredCameraError;
         scanner = new Html5Qrcode(CAMERA_READER_ID, {
           formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
@@ -247,7 +268,9 @@ export default function QrPaymentPage() {
       const decodedText = await scanner.scanFile(file, true);
       handleDecodedText(decodedText);
     } catch {
-      setScanError("Không thể đọc QR từ ảnh này. Hãy dùng ảnh rõ nét, không bị cắt mất viền QR.");
+      setScanError(
+        "Không thể đọc QR từ ảnh này. Hãy dùng ảnh rõ nét, không bị cắt mất viền QR.",
+      );
     } finally {
       setScannerState("idle");
       await stopScanner();
@@ -258,7 +281,9 @@ export default function QrPaymentPage() {
     event.preventDefault();
     setCreateError("");
     if (!canCreateOwnQr) {
-      setCreateError("Tài khoản Timi Bank chưa sẵn sàng. Hãy cập nhật số điện thoại gồm đúng 10 chữ số trong hồ sơ.");
+      setCreateError(
+        "Tài khoản Timi Bank chưa sẵn sàng. Hãy cập nhật số điện thoại gồm đúng 10 chữ số trong hồ sơ.",
+      );
       return;
     }
     const amount = form.amount.trim() ? Number(form.amount) : undefined;
@@ -271,7 +296,9 @@ export default function QrPaymentPage() {
     };
     const payload = createPaymentQr(payment);
     if (!payload) {
-      setCreateError("Kiểm tra lại ngân hàng, số tài khoản (6–19 chữ số), số tiền và nội dung.");
+      setCreateError(
+        "Kiểm tra lại ngân hàng, số tài khoản (6–19 chữ số), số tiền và nội dung.",
+      );
       return;
     }
 
@@ -295,139 +322,644 @@ export default function QrPaymentPage() {
     if (!generatedQr) return;
     const link = document.createElement("a");
     link.href = generatedQr.image;
-    link.download = "timi-qr-thanh-toan-.png";
+    link.download = "timi-qr-thanh-toan.png";
     link.click();
   };
 
+  const shareQr = async () => {
+    if (!generatedQr) return;
+    try {
+      if (navigator.share) {
+        // Convert data URL to blob for native share
+        const res = await fetch(generatedQr.image);
+        const blob = await res.blob();
+        const file = new File([blob], "timi-qr.png", { type: "image/png" });
+        await navigator.share({
+          title: "Mã QR nhận tiền Timi",
+          text: "Quét mã này để chuyển tiền cho tôi qua Timi",
+          files: [file],
+        });
+      } else {
+        // Fallback: copy payload
+        await navigator.clipboard.writeText(generatedQr.payload);
+        alert("Đã sao chép nội dung QR vào clipboard.");
+      }
+    } catch {
+      // User cancelled or share failed – ignore
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 w-full">
-      <header className="bg-white border-b border-gray-100 px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-3 sticky top-0 z-20">
-        <button onClick={() => navigate("/dashboard")} className="p-2 hover:bg-gray-100 rounded-full transition-colors" aria-label="Quay lại trang chủ">
-          <ArrowLeft className="w-5 h-5 text-gray-600" />
-        </button>
-        <div>
-          <h1 className="text-lg font-bold text-gray-800">QR thanh toán </h1>
-          <p className="text-xs text-gray-500">Quét hoặc tạo mã cho luồng mô phỏng của Timi</p>
-        </div>
-      </header>
+    <div className="min-h-screen bg-[#f5f3ff] w-full relative overflow-x-hidden">
+      {/* Soft background blobs */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute -top-32 -left-32 w-[480px] h-[480px] bg-violet-200/40 rounded-full blur-3xl" />
+        <div className="absolute top-1/3 -right-24 w-[420px] h-[420px] bg-fuchsia-200/30 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 w-[380px] h-[380px] bg-indigo-200/25 rounded-full blur-3xl" />
+      </div>
 
-      <main className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-
-        <div className="grid lg:grid-cols-[0.9fr_1.1fr] gap-6">
-          <section className="bg-white rounded-3xl p-5 sm:p-7 border border-gray-100 shadow-sm">
-            <div className="flex rounded-xl bg-gray-100 p-1 mb-6" role="tablist" aria-label="Chức năng QR">
-              <button type="button" role="tab" aria-selected={mode === "scan"} onClick={() => void switchMode("scan")} className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-colors ${mode === "scan" ? "bg-white text-rose-600 shadow-sm" : "text-gray-500"}`}>
-                <span className="flex items-center justify-center gap-2"><ScanLine className="w-4 h-4" />Quét QR</span>
-              </button>
-              <button type="button" role="tab" aria-selected={mode === "create"} onClick={() => void switchMode("create")} className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-colors ${mode === "create" ? "bg-white text-rose-600 shadow-sm" : "text-gray-500"}`}>
-                <span className="flex items-center justify-center gap-2"><QrCode className="w-4 h-4" />Tạo QR</span>
-              </button>
+      <div className="relative z-10 max-w-[1400px] mx-auto">
+        {/* ===== TOP HEADER ===== */}
+        <header className="px-4 sm:px-6 lg:px-8 pt-5 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate("/dashboard")}
+              className="p-2 hover:bg-white/70 rounded-full transition-colors"
+              aria-label="Quay lại"
+            >
+              <ArrowLeft className="w-5 h-5 text-slate-600" />
+            </button>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                {mode === "scan" ? "Quét Mã QR" : "Nhận tiền"}
+              </h1>
+              <p className="text-sm text-slate-500 mt-0.5">
+                {mode === "scan"
+                  ? "Thanh toán nhanh chóng và an toàn với mã QR"
+                  : "Chia sẻ mã QR hoặc thông tin thanh toán để nhận tiền"}
+              </p>
             </div>
+          </div>
 
-            {mode === "scan" ? (
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">Quét QR bằng camera</h2>
-                <p className="mt-1 text-sm text-gray-500">Quét QR thanh toán, đường dẫn, Wi-Fi, danh thiếp hoặc nội dung văn bản.</p>
-                <div className="relative mt-5 overflow-hidden rounded-2xl bg-gray-950 aspect-square grid place-items-center">
-                  <div id={CAMERA_READER_ID} className="w-full [&_video]:w-full [&_video]:h-full [&_video]:object-cover" />
-                  {scannerState !== "scanning" && (
-                    <div className="absolute text-center text-white px-6">
-                      <Camera className="w-10 h-10 mx-auto mb-3 text-rose-300" />
-                      <p className="text-sm text-gray-200">Camera chỉ được mở khi bạn bấm nút bên dưới.</p>
+          <div className="flex items-center gap-3">
+            <div className="hidden md:flex items-center gap-2 bg-white rounded-full px-4 py-2.5 shadow-sm border border-violet-100 w-64">
+              <Search className="w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Tìm kiếm giao dịch..."
+                className="bg-transparent text-sm text-slate-700 outline-none w-full placeholder:text-slate-400"
+                readOnly
+              />
+            </div>
+            <button className="relative p-2.5 bg-white rounded-full shadow-sm border border-violet-100 hover:bg-violet-50 transition-colors">
+              <Bell className="w-5 h-5 text-slate-600" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-violet-500 rounded-full" />
+            </button>
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-white font-semibold text-sm shadow-md">
+              {user?.full_name?.charAt(0)?.toUpperCase() || "U"}
+            </div>
+          </div>
+        </header>
+
+        {/* ===== MAIN CONTENT ===== */}
+        <div className="px-4 sm:px-6 lg:px-8 pb-10">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6">
+            {/* ---------- LEFT COLUMN ---------- */}
+            <div className="lg:col-span-7 space-y-5">
+              {/* Mode tabs */}
+              <div className="bg-white rounded-2xl p-1.5 shadow-sm border border-violet-100/80 flex">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === "scan"}
+                  onClick={() => void switchMode("scan")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${
+                    mode === "scan"
+                      ? "bg-violet-600 text-white shadow-md shadow-violet-200"
+                      : "text-slate-500 hover:text-violet-600 hover:bg-violet-50"
+                  }`}
+                >
+                  <ScanLine className="w-4 h-4" />
+                  Quét QR
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === "create"}
+                  onClick={() => void switchMode("create")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${
+                    mode === "create"
+                      ? "bg-violet-600 text-white shadow-md shadow-violet-200"
+                      : "text-slate-500 hover:text-violet-600 hover:bg-violet-50"
+                  }`}
+                >
+                  <QrCode className="w-4 h-4" />
+                  Mã QR của tôi
+                </button>
+              </div>
+
+              {/* ===== SCAN MODE ===== */}
+              {mode === "scan" && (
+                <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-violet-100/80">
+                  {/* Camera viewfinder */}
+                  <div className="relative overflow-hidden rounded-2xl bg-slate-950 aspect-square max-h-[420px] mx-auto grid place-items-center">
+                    <div
+                      id={CAMERA_READER_ID}
+                      className="w-full h-full [&_video]:w-full [&_video]:h-full [&_video]:object-cover"
+                    />
+
+                    {/* Corner brackets overlay (when not scanning) */}
+                    {scannerState !== "scanning" && (
+                      <div className="absolute inset-0 pointer-events-none">
+                        {/* Top-left */}
+                        <div className="absolute top-6 left-6 w-10 h-10 border-t-4 border-l-4 border-violet-400 rounded-tl-lg" />
+                        {/* Top-right */}
+                        <div className="absolute top-6 right-6 w-10 h-10 border-t-4 border-r-4 border-violet-400 rounded-tr-lg" />
+                        {/* Bottom-left */}
+                        <div className="absolute bottom-6 left-6 w-10 h-10 border-b-4 border-l-4 border-violet-400 rounded-bl-lg" />
+                        {/* Bottom-right */}
+                        <div className="absolute bottom-6 right-6 w-10 h-10 border-b-4 border-r-4 border-violet-400 rounded-br-lg" />
+                      </div>
+                    )}
+
+                    {scannerState !== "scanning" && (
+                      <div className="absolute text-center text-white px-6 z-10">
+                        <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-white/10 backdrop-blur flex items-center justify-center">
+                          <Camera className="w-8 h-8 text-violet-300" />
+                        </div>
+                        <p className="text-sm font-medium text-white/90">
+                          Hướng camera vào mã QR
+                        </p>
+                        <p className="text-xs text-white/60 mt-1">
+                          Đặt mã QR trong khung hình để quét thanh toán
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {scannerState === "scanning" ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void stopScanner();
+                          setScannerState("idle");
+                        }}
+                        className="py-3 rounded-xl bg-slate-100 text-slate-700 font-bold hover:bg-slate-200 flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <X className="w-5 h-5" />
+                        Tắt camera
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void startScanner()}
+                        disabled={scannerState === "starting"}
+                        className="py-3 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white font-bold hover:shadow-lg shadow-violet-200 disabled:opacity-60 flex items-center justify-center gap-2 transition-all"
+                      >
+                        {scannerState === "starting" ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                          <Camera className="w-5 h-5" />
+                        )}
+                        {scannerState === "starting" ? "Đang mở camera..." : "Mở camera"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={scannerState === "starting"}
+                      className="py-3 rounded-xl bg-white border border-violet-200 text-violet-700 font-bold hover:bg-violet-50 disabled:opacity-60 flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <ImageUp className="w-5 h-5" />
+                      Chọn từ thư viện
+                    </button>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.currentTarget.value = "";
+                      if (file) void scanImageFile(file);
+                    }}
+                  />
+                  {scanError && (
+                    <p className="mt-4 rounded-xl bg-rose-50 border border-rose-100 px-4 py-3 text-sm text-rose-700">
+                      {scanError}
+                    </p>
+                  )}
+
+                  {/* Timi Security note */}
+                  <div className="mt-5 flex items-start gap-3 p-4 rounded-xl bg-violet-50 border border-violet-100">
+                    <ShieldCheck className="w-5 h-5 text-violet-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-violet-900">
+                        Timi Security
+                      </p>
+                      <p className="text-xs text-violet-700 mt-0.5 leading-relaxed">
+                        Chúng tôi sẽ kiểm tra mã QR để đảm bảo an toàn cho bạn.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ===== CREATE MODE ===== */}
+              {mode === "create" && (
+                <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-violet-100/80">
+                  {!generatedQr ? (
+                    <form onSubmit={handleCreate} className="space-y-5">
+                      <div className="text-center mb-2">
+                        <h2 className="text-lg font-bold text-slate-900">
+                          Tạo mã QR nhận tiền
+                        </h2>
+                        <p className="text-sm text-slate-500 mt-1">
+                          QR luôn nhận tiền về tài khoản Timi Bank của bạn
+                        </p>
+                      </div>
+
+                      {/* Own account info */}
+                      <div className="rounded-2xl border border-violet-100 bg-violet-50/50 p-4">
+                        <div className="flex items-center gap-2 text-sm font-bold text-slate-800 mb-3">
+                          <Building2 className="h-5 w-5 text-violet-600" />
+                          Tài khoản nhận tiền của bạn
+                        </div>
+                        <div className="grid gap-3 text-sm sm:grid-cols-2">
+                          <div>
+                            <p className="text-slate-500 text-xs">Ngân hàng</p>
+                            <p className="font-semibold text-slate-900">Timi Bank</p>
+                          </div>
+                          <div>
+                            <p className="text-slate-500 text-xs">Số tài khoản</p>
+                            <p className="font-mono font-bold text-slate-900">
+                              {ownAccountNumber || "Chưa cập nhật"}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-500">
+                          Chủ tài khoản:{" "}
+                          <span className="font-semibold text-slate-800">
+                            {ownAccountName || "Chưa cập nhật"}
+                          </span>
+                        </p>
+                        {!canCreateOwnQr && (
+                          <p className="mt-3 text-xs font-medium text-rose-600 bg-rose-50 rounded-lg px-3 py-2">
+                            Cần số điện thoại gồm đúng 10 chữ số và tài khoản Timi Bank
+                            đang hoạt động để tạo QR.
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                          Số tiền <span className="font-normal text-slate-400">(tuỳ chọn)</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            inputMode="numeric"
+                            value={form.amount}
+                            onChange={(event) =>
+                              setForm({
+                                ...form,
+                                amount: event.target.value.replace(/\D/g, ""),
+                              })
+                            }
+                            placeholder="0"
+                            className="w-full rounded-xl bg-slate-50 border border-transparent px-4 py-3 text-slate-900 font-semibold outline-none focus:ring-2 focus:ring-violet-400 transition-all"
+                          />
+                          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">
+                            VND
+                          </span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                          Nội dung <span className="font-normal text-slate-400">(tuỳ chọn)</span>
+                        </label>
+                        <input
+                          maxLength={500}
+                          value={form.note}
+                          onChange={(event) =>
+                            setForm({ ...form, note: event.target.value })
+                          }
+                          placeholder="Ví dụ: Thanh toán đơn hàng"
+                          className="w-full rounded-xl bg-slate-50 border border-transparent px-4 py-3 text-slate-800 outline-none focus:ring-2 focus:ring-violet-400 transition-all"
+                        />
+                      </div>
+
+                      {createError && (
+                        <p className="rounded-xl bg-rose-50 border border-rose-100 px-4 py-3 text-sm text-rose-700">
+                          {createError}
+                        </p>
+                      )}
+
+                      <button
+                        disabled={isCreating || !canCreateOwnQr}
+                        className="w-full py-3.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white font-bold hover:shadow-lg shadow-violet-200 disabled:opacity-50 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                      >
+                        {isCreating ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                          <QrCode className="w-5 h-5" />
+                        )}
+                        {isCreating ? "Đang tạo QR..." : "Tạo mã QR"}
+                      </button>
+                    </form>
+                  ) : (
+                    /* Generated QR display – matches Receive Money image */
+                    <div className="flex flex-col items-center text-center">
+                      <p className="text-sm font-semibold text-slate-500 mb-1">
+                        Scan to pay with Timi
+                      </p>
+                      <p className="text-xs text-slate-400 mb-5">
+                        Chia sẻ mã QR này với người gửi
+                      </p>
+
+                      <div className="relative bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                        <img
+                          src={generatedQr.image}
+                          alt="Mã QR thanh toán Timi"
+                          className="w-full max-w-[280px] rounded-xl"
+                        />
+                        {/* Center shield badge like the image */}
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <div className="w-12 h-12 rounded-xl bg-white shadow-md flex items-center justify-center border border-violet-100">
+                            <Shield className="w-6 h-6 text-violet-600" />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-5 flex gap-3 w-full max-w-xs">
+                        <button
+                          type="button"
+                          onClick={downloadQr}
+                          className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold hover:bg-slate-200 flex items-center justify-center gap-2 transition-colors text-sm"
+                        >
+                          <Download className="w-4 h-4" />
+                          Download
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void shareQr()}
+                          className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-semibold hover:bg-slate-200 flex items-center justify-center gap-2 transition-colors text-sm"
+                        >
+                          <Share2 className="w-4 h-4" />
+                          Share
+                        </button>
+                      </div>
+
+                      <div className="mt-5 w-full flex items-start gap-2.5 p-3.5 rounded-xl bg-violet-50 border border-violet-100 text-left">
+                        <ShieldCheck className="w-4 h-4 text-violet-600 shrink-0 mt-0.5" />
+                        <p className="text-xs text-violet-800 leading-relaxed">
+                          Mã QR của bạn được bảo vệ bởi{" "}
+                          <span className="font-semibold">Timi Security</span>. Chỉ
+                          chấp nhận thanh toán từ ứng dụng và ngân hàng đáng tin cậy.
+                        </p>
+                      </div>
+
+                      <PaymentSummary payment={generatedQr.payment} compact />
+
+                      <button
+                        type="button"
+                        onClick={() => setGeneratedQr(null)}
+                        className="mt-4 text-sm font-semibold text-violet-600 hover:text-violet-700"
+                      >
+                        Tạo mã QR khác
+                      </button>
                     </div>
                   )}
                 </div>
-                <div className="mt-4 flex gap-3">
-                  {scannerState === "scanning" ? (
-                    <button type="button" onClick={() => { void stopScanner(); setScannerState("idle"); }} className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-bold hover:bg-gray-200 flex items-center justify-center gap-2">
-                      <X className="w-5 h-5" />Tắt camera
-                    </button>
-                  ) : (
-                    <button type="button" onClick={() => void startScanner()} disabled={scannerState === "starting"} className="flex-1 py-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold hover:shadow-lg disabled:opacity-60 flex items-center justify-center gap-2">
-                      {scannerState === "starting" ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
-                      {scannerState === "starting" ? "Đang mở camera..." : "Mở camera"}
-                    </button>
-                  )}
-                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={scannerState === "starting"} className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-bold hover:bg-gray-200 disabled:opacity-60 flex items-center justify-center gap-2">
-                    <ImageUp className="w-5 h-5" />Quét từ ảnh
+              )}
+            </div>
+
+            {/* ---------- RIGHT COLUMN ---------- */}
+            <div className="lg:col-span-5 space-y-4">
+              {/* AI Protection / Security card */}
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-violet-100/80">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
+                    <Shield className="w-5 h-5 text-violet-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm">
+                      Thanh toán an toàn cùng Timi
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                      Hệ thống AI sẽ kiểm tra mã QR và người nhận để phát hiện các dấu
+                      hiệu lừa đảo trước khi giao dịch.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Transaction / Result panel */}
+              {mode === "scan" && decodedContent ? (
+                <DecodedQrSummary
+                  content={decodedContent}
+                  urlSafetyState={urlSafetyState}
+                />
+              ) : mode === "create" && !generatedQr ? (
+                /* Request amount form style card (visual match to image 1) */
+                <div className="bg-gradient-to-br from-violet-600 to-fuchsia-600 rounded-2xl p-5 text-white shadow-lg shadow-violet-200/60">
+                  <p className="text-sm font-semibold text-violet-100 mb-3">
+                    Request Amount <span className="opacity-70">(optional)</span>
+                  </p>
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="text-2xl font-bold">₫</span>
+                    <input
+                      inputMode="numeric"
+                      value={form.amount}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          amount: e.target.value.replace(/\D/g, ""),
+                        })
+                      }
+                      placeholder="0"
+                      className="bg-transparent text-2xl font-bold text-white outline-none placeholder-white/40 w-full"
+                    />
+                    <span className="text-sm font-medium text-violet-200 shrink-0">
+                      VND
+                    </span>
+                  </div>
+                  <input
+                    value={form.note}
+                    onChange={(e) => setForm({ ...form, note: e.target.value })}
+                    placeholder="Add a note for the sender (optional)"
+                    className="w-full bg-white/10 border border-white/20 rounded-xl px-3 py-2.5 text-sm text-white placeholder-white/50 outline-none focus:bg-white/15 transition-colors mb-4"
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      // Trigger the same create logic
+                      const formEl = document.querySelector(
+                        "form",
+                      ) as HTMLFormElement | null;
+                      if (formEl) formEl.requestSubmit();
+                    }}
+                    disabled={isCreating || !canCreateOwnQr}
+                    className="w-full py-3 rounded-xl bg-white text-violet-700 font-bold hover:bg-violet-50 disabled:opacity-50 transition-colors"
+                  >
+                    {isCreating ? "Đang tạo..." : "Create Payment Request"}
                   </button>
                 </div>
-                <input ref={fileInputRef} type="file" accept="image/*" className="sr-only" onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.currentTarget.value = "";
-                  if (file) void scanImageFile(file);
-                }} />
-                {scanError && <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{scanError}</p>}
-              </div>
-            ) : (
-              <form onSubmit={handleCreate} className="space-y-4">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">Tạo QR nhận tiền </h2>
-                  <p className="mt-1 text-sm text-gray-500">QR luôn nhận tiền về tài khoản Timi Bank của bạn.</p>
-                </div>
-                <div className="rounded-2xl border border-rose-100 bg-rose-50/60 p-4">
-                  <div className="flex items-center gap-2 text-sm font-bold text-gray-800">
-                    <Building2 className="h-5 w-5 text-rose-500" />Tài khoản nhận tiền của bạn
+              ) : mode === "scan" ? (
+                /* Empty scan state – transaction info placeholders */
+                <div className="bg-white rounded-2xl p-5 shadow-sm border border-violet-100/80">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Thông tin giao dịch
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => navigate("/history")}
+                      className="text-xs font-semibold text-violet-600 hover:text-violet-700 flex items-center gap-1"
+                    >
+                      Xem lịch sử
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
-                  <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                    <div><p className="text-gray-500">Ngân hàng</p><p className="font-semibold text-gray-900">Timi Bank</p></div>
-                    <div><p className="text-gray-500">Số tài khoản</p><p className="font-mono font-bold text-gray-900">{ownAccountNumber || "Chưa cập nhật"}</p></div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                      <span className="text-sm text-slate-500">Số tiền</span>
+                      <span className="font-bold text-slate-900">0 ₫</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                      <span className="text-sm text-slate-500 flex items-center gap-1.5">
+                        <Wallet className="w-3.5 h-3.5" /> Người nhận
+                      </span>
+                      <span className="text-sm text-slate-400">—</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                      <span className="text-sm text-slate-500 flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5" /> Ngân hàng
+                      </span>
+                      <span className="text-sm text-slate-400">—</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2">
+                      <span className="text-sm text-slate-500 flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5" /> Nội dung
+                      </span>
+                      <span className="text-sm text-slate-400">—</span>
+                    </div>
                   </div>
-                  <p className="mt-2 text-sm text-gray-500">Chủ tài khoản: <span className="font-semibold text-gray-800">{ownAccountName || "Chưa cập nhật"}</span></p>
-                  {!canCreateOwnQr && <p className="mt-3 text-xs font-medium text-rose-700">Cần số điện thoại gồm đúng 10 chữ số và tài khoản Timi Bank đang hoạt động để tạo QR.</p>}
+                  <p className="mt-4 text-center text-xs text-slate-400">
+                    Chưa quét mã
+                  </p>
                 </div>
-                <label className="block text-sm font-semibold text-gray-700">Số tiền <span className="font-normal text-gray-400">(tùy chọn)</span>
-                  <input inputMode="numeric" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value.replace(/\D/g, "") })} placeholder="Để trống nếu người quét tự nhập" className="mt-1.5 w-full rounded-xl bg-gray-50 px-3 py-2.5 outline-none focus:ring-2 focus:ring-rose-500" />
-                </label>
-                <label className="block text-sm font-semibold text-gray-700">Nội dung <span className="font-normal text-gray-400">(tùy chọn)</span>
-                  <input maxLength={500} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} placeholder="Ví dụ: Thanh toán đơn hàng" className="mt-1.5 w-full rounded-xl bg-gray-50 px-3 py-2.5 outline-none focus:ring-2 focus:ring-rose-500" />
-                </label>
-                {createError && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{createError}</p>}
-                <button disabled={isCreating || !canCreateOwnQr} className="w-full py-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold hover:shadow-lg disabled:opacity-60 flex items-center justify-center gap-2">
-                  {isCreating ? <Loader2 className="w-5 h-5 animate-spin" /> : <QrCode className="w-5 h-5" />}
-                  {isCreating ? "Đang tạo QR..." : "Tạo QR"}
-                </button>
-              </form>
-            )}
-          </section>
+              ) : null}
 
-          <section className="bg-white rounded-3xl p-5 sm:p-7 border border-gray-100 shadow-sm flex flex-col">
-            {mode === "create" && generatedQr ? (
-              <div className="h-full flex flex-col items-center text-center">
-                <div className="flex items-center gap-2 text-emerald-600 self-start"><CheckCircle2 className="w-6 h-6" /><span className="font-bold">QR đã sẵn sàng</span></div>
-                <img src={generatedQr.image} alt="Mã QR thanh toán  Timi" className="mt-5 w-full max-w-[340px] rounded-2xl border border-gray-100" />
-                <PaymentSummary payment={generatedQr.payment} compact />
-                <button type="button" onClick={downloadQr} className="mt-auto pt-6 w-full py-3 rounded-xl bg-gray-100 text-gray-700 font-bold hover:bg-gray-200 flex items-center justify-center gap-2"><Download className="w-5 h-5" />Tải ảnh QR</button>
-              </div>
-            ) : mode === "scan" && decodedContent ? (
-              <DecodedQrSummary content={decodedContent} urlSafetyState={urlSafetyState} />
-            ) : (
-              <div className="h-full min-h-[440px] grid place-items-center text-center px-6">
-                <div>
-                  <div className="mx-auto grid place-items-center w-16 h-16 rounded-2xl bg-rose-50"><QrCode className="w-8 h-8 text-rose-500" /></div>
-                  <h2 className="mt-5 text-xl font-bold text-gray-900">{mode === "scan" ? "Sẵn sàng quét QR" : "QR sẽ hiển thị ở đây"}</h2>
-                  <p className="mt-2 text-sm leading-relaxed text-gray-500">{mode === "scan" ? "Mở camera hoặc chọn ảnh QR. Link sẽ được phân tích trước khi bạn có thể mở." : "Nhập số tiền hoặc nội dung để tạo QR nhận tiền cho chính bạn."}</p>
+              {/* Tips card */}
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-violet-100/80">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center">
+                    <Info className="w-4 h-4 text-violet-600" />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    {mode === "scan" ? "Lưu ý khi quét" : "Tips for Receiving Money"}
+                  </h3>
                 </div>
+                <ul className="space-y-2.5">
+                  {(mode === "scan"
+                    ? [
+                        "Chỉ quét mã QR từ nguồn đáng tin cậy.",
+                        "Kiểm tra kỹ thông tin người nhận trước khi thanh toán.",
+                        "Timi sẽ cảnh báo nếu phát hiện mã QR có dấu hiệu rủi ro.",
+                      ]
+                    : [
+                        "Share your QR code only with trusted people",
+                        "Verify the sender's identity before confirming",
+                        "Contact support if you notice anything suspicious",
+                      ]
+                  ).map((tip, i) => (
+                    <li key={i} className="flex items-start gap-2.5 text-xs text-slate-600 leading-relaxed">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-violet-500 shrink-0 mt-0.5" />
+                      {tip}
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  className="mt-3 text-xs font-semibold text-violet-600 hover:text-violet-700 flex items-center gap-1"
+                >
+                  Learn more about safe receiving
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
               </div>
-            )}
-          </section>
+            </div>
+          </div>
         </div>
-      </main>
+
+        {/* Footer */}
+        <footer className="relative z-10 px-4 sm:px-6 lg:px-8 pb-8 pt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
+          <p>© 2024 Timi. All rights reserved.</p>
+          <div className="flex items-center gap-4">
+            <button className="hover:text-slate-600 transition-colors">
+              Privacy Policy
+            </button>
+            <button className="hover:text-slate-600 transition-colors">
+              Terms of Service
+            </button>
+            <button className="hover:text-slate-600 transition-colors">
+              Help Center
+            </button>
+          </div>
+        </footer>
+      </div>
+
+      {/* Decorative wave — fixed full-width at bottom of viewport */}
+      <div
+        className="pointer-events-none fixed bottom-0 left-0 right-0 z-0 h-48 sm:h-56 md:h-72 overflow-hidden opacity-30 select-none"
+        aria-hidden="true"
+      >
+        <img
+          src="/wave-footer.png"
+          alt=""
+          className="w-full h-full object-cover object-bottom"
+        />
+      </div>
     </div>
   );
 }
 
-function PaymentSummary({ payment, compact = false }: { payment: PaymentQrData; compact?: boolean }) {
-  const bank = payment.bankName ?? paymentBanks.find((item) => item.code === payment.bankCode)?.name ?? payment.bankCode;
+function PaymentSummary({
+  payment,
+  compact = false,
+}: {
+  payment: PaymentQrData;
+  compact?: boolean;
+}) {
+  const bank =
+    payment.bankName ??
+    paymentBanks.find((item) => item.code === payment.bankCode)?.name ??
+    payment.bankCode;
   return (
-    <div className={`w-full mt-5 rounded-2xl bg-gray-50 text-left ${compact ? "p-4" : "p-5"}`}>
-      <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Thông tin nhận tiền</p>
+    <div
+      className={`w-full mt-5 rounded-2xl bg-slate-50 text-left border border-slate-100 ${
+        compact ? "p-4" : "p-5"
+      }`}
+    >
+      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+        Thông tin nhận tiền
+      </p>
       <div className="mt-3 space-y-2 text-sm">
-        <div className="flex justify-between gap-4"><span className="text-gray-500">Ngân hàng</span><span className="font-semibold text-gray-800 text-right">{bank}</span></div>
-        <div className="flex justify-between gap-4"><span className="text-gray-500">Số tài khoản</span><span className="font-mono font-bold text-gray-900 text-right">{payment.accountNumber}</span></div>
-        {payment.accountName && <div className="flex justify-between gap-4"><span className="text-gray-500">Người nhận</span><span className="font-semibold text-gray-800 text-right">{payment.accountName}</span></div>}
-        <div className="flex justify-between gap-4"><span className="text-gray-500">Số tiền</span><span className="font-bold text-rose-600 text-right">{formatMoney(payment.amount)}</span></div>
-        {payment.note && <div className="flex justify-between gap-4"><span className="text-gray-500">Nội dung</span><span className="font-medium text-gray-800 text-right break-words">{payment.note}</span></div>}
+        <div className="flex justify-between gap-4">
+          <span className="text-slate-500">Ngân hàng</span>
+          <span className="font-semibold text-slate-800 text-right">{bank}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-slate-500">Số tài khoản</span>
+          <span className="font-mono font-bold text-slate-900 text-right">
+            {payment.accountNumber}
+          </span>
+        </div>
+        {payment.accountName && (
+          <div className="flex justify-between gap-4">
+            <span className="text-slate-500">Người nhận</span>
+            <span className="font-semibold text-slate-800 text-right">
+              {payment.accountName}
+            </span>
+          </div>
+        )}
+        <div className="flex justify-between gap-4">
+          <span className="text-slate-500">Số tiền</span>
+          <span className="font-bold text-violet-600 text-right">
+            {formatMoney(payment.amount)}
+          </span>
+        </div>
+        {payment.note && (
+          <div className="flex justify-between gap-4">
+            <span className="text-slate-500">Nội dung</span>
+            <span className="font-medium text-slate-800 text-right break-words">
+              {payment.note}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -449,7 +981,9 @@ function DecodedQrSummary({
       await navigator.clipboard.writeText(content.rawValue);
       setCopyStatus("Đã sao chép nội dung QR.");
     } catch {
-      setCopyStatus("Không thể sao chép tự động. Hãy chọn và sao chép nội dung bên dưới.");
+      setCopyStatus(
+        "Không thể sao chép tự động. Hãy chọn và sao chép nội dung bên dưới.",
+      );
     }
   };
 
@@ -463,13 +997,15 @@ function DecodedQrSummary({
       },
       caution: {
         title: "Link cần kiểm tra thêm",
-        description: "Link có một số đặc điểm thường dùng để che giấu địa chỉ đích.",
+        description:
+          "Link có một số đặc điểm thường dùng để che giấu địa chỉ đích.",
         className: "border-amber-100 bg-amber-50 text-amber-900",
         icon: AlertTriangle,
       },
       danger: {
         title: "Không mở tự động",
-        description: "Link không hợp lệ hoặc có tín hiệu rủi ro cao. Timi đã chặn thao tác mở từ màn hình này.",
+        description:
+          "Link không hợp lệ hoặc có tín hiệu rủi ro cao. Timi đã chặn thao tác mở từ màn hình này.",
         className: "border-rose-100 bg-rose-50 text-rose-800",
         icon: ShieldAlert,
       },
@@ -487,54 +1023,79 @@ function DecodedQrSummary({
     // The database blacklist is the access-control decision. Local signals
     // remain visible to help the user judge a link, but a URL that is not
     // blacklisted can be opened immediately once the API has confirmed it.
-    const mayOpen = content.normalizedUrl !== null && urlSafetyState.status === "clear";
+    const mayOpen =
+      content.normalizedUrl !== null && urlSafetyState.status === "clear";
     const mayCopy = !isBlacklisted;
-    const safetyStatus = urlSafetyState.status === "checking"
-      ? "Đang đối chiếu tên miền với blacklist URL…"
-      : urlSafetyState.status === "unavailable"
-        ? "Không thể đối chiếu blacklist URL. Timi sẽ không mở link này."
-        : urlSafetyState.status === "clear"
-          ? "Tên miền không nằm trong blacklist URL hiện tại."
-          : null;
+    const safetyStatus =
+      urlSafetyState.status === "checking"
+        ? "Đang đối chiếu tên miền với blacklist URL…"
+        : urlSafetyState.status === "unavailable"
+          ? "Không thể đối chiếu blacklist URL. Timi sẽ không mở link này."
+          : urlSafetyState.status === "clear"
+            ? "Tên miền không nằm trong blacklist URL hiện tại."
+            : null;
 
     return (
-      <div className="h-full min-h-[440px] flex flex-col">
-        <div className="flex items-center gap-2 text-gray-800">
-          <Link2 className="w-6 h-6 text-rose-500" />
-          <span className="font-bold">QR chứa đường dẫn</span>
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-violet-100/80 flex flex-col min-h-[380px]">
+        <div className="flex items-center gap-2 text-slate-800">
+          <Link2 className="w-5 h-5 text-violet-600" />
+          <span className="font-bold text-sm">QR chứa đường dẫn</span>
         </div>
 
-        <div className={`mt-5 rounded-2xl border p-4 ${riskPresentation.className}`}>
-          <div className="flex items-start gap-3">
-            <RiskIcon className="mt-0.5 h-5 w-5 shrink-0" />
+        <div className={`mt-4 rounded-xl border p-3.5 ${riskPresentation.className}`}>
+          <div className="flex items-start gap-2.5">
+            <RiskIcon className="mt-0.5 h-4 w-4 shrink-0" />
             <div>
-              <p className="font-bold">{riskPresentation.title}</p>
-              <p className="mt-1 text-sm leading-relaxed">{riskPresentation.description}</p>
+              <p className="font-bold text-sm">{riskPresentation.title}</p>
+              {riskPresentation.description && (
+                <p className="mt-1 text-xs leading-relaxed">
+                  {riskPresentation.description}
+                </p>
+              )}
             </div>
           </div>
         </div>
 
         {safetyStatus && (
-          <p className={`mt-3 rounded-xl px-3 py-2 text-sm ${urlSafetyState.status === "unavailable" ? "bg-amber-50 text-amber-800" : "bg-gray-50 text-gray-600"}`}>
-            {urlSafetyState.status === "checking" && <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />}
+          <p
+            className={`mt-3 rounded-xl px-3 py-2 text-xs ${
+              urlSafetyState.status === "unavailable"
+                ? "bg-amber-50 text-amber-800"
+                : "bg-slate-50 text-slate-600"
+            }`}
+          >
+            {urlSafetyState.status === "checking" && (
+              <Loader2 className="mr-1.5 inline h-3.5 w-3.5 animate-spin" />
+            )}
             {safetyStatus}
           </p>
         )}
 
-        <div className="mt-5 rounded-2xl bg-gray-50 p-4">
-          <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Tên miền nhận diện</p>
-          <p className="mt-1.5 break-all font-semibold text-gray-900">{content.hostname ?? "Không xác định được tên miền"}</p>
-          <p className="mt-4 text-xs font-bold uppercase tracking-wider text-gray-400">Nội dung QR</p>
-          <p className="mt-1.5 max-h-28 overflow-y-auto break-all rounded-lg bg-white px-3 py-2 font-mono text-xs leading-relaxed text-gray-700">{content.rawValue}</p>
+        <div className="mt-4 rounded-xl bg-slate-50 p-3.5">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Tên miền nhận diện
+          </p>
+          <p className="mt-1 break-all font-semibold text-slate-900 text-sm">
+            {content.hostname ?? "Không xác định được tên miền"}
+          </p>
+          <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Nội dung QR
+          </p>
+          <p className="mt-1 max-h-24 overflow-y-auto break-all rounded-lg bg-white px-2.5 py-2 font-mono text-[11px] leading-relaxed text-slate-700">
+            {content.rawValue}
+          </p>
         </div>
 
         {content.signals.length > 0 && (
-          <div className="mt-4">
-            <p className="text-sm font-bold text-gray-800">Tín hiệu cần lưu ý</p>
-            <ul className="mt-2 space-y-2">
+          <div className="mt-3">
+            <p className="text-xs font-bold text-slate-800">Tín hiệu cần lưu ý</p>
+            <ul className="mt-1.5 space-y-1.5">
               {content.signals.map((signal) => (
-                <li key={signal.code} className="flex gap-2 text-sm leading-relaxed text-gray-600">
-                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" />
+                <li
+                  key={signal.code}
+                  className="flex gap-2 text-xs leading-relaxed text-slate-600"
+                >
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" />
                   {signal.message}
                 </li>
               ))}
@@ -542,18 +1103,31 @@ function DecodedQrSummary({
           </div>
         )}
 
-        <div className="mt-auto space-y-3 pt-6">
-          {copyStatus && <p className="text-center text-xs text-gray-500">{copyStatus}</p>}
+        <div className="mt-auto space-y-2.5 pt-5">
+          {copyStatus && (
+            <p className="text-center text-[11px] text-slate-500">{copyStatus}</p>
+          )}
           {mayCopy && (
-            <button type="button" onClick={() => void copyRawValue()} className="w-full rounded-xl bg-gray-100 py-3 font-bold text-gray-700 hover:bg-gray-200 flex items-center justify-center gap-2">
-              <Copy className="w-4 h-4" />Sao chép
+            <button
+              type="button"
+              onClick={() => void copyRawValue()}
+              className="w-full rounded-xl bg-slate-100 py-2.5 font-bold text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-2 text-sm transition-colors"
+            >
+              <Copy className="w-4 h-4" />
+              Sao chép
             </button>
           )}
           {mayOpen && (
             <button
               type="button"
-              onClick={() => window.open(content.normalizedUrl!, "_blank", "noopener,noreferrer")}
-              className={`w-full rounded-xl py-3 font-bold text-white flex items-center justify-center gap-2 ${content.riskLevel === "caution" ? "bg-amber-600 hover:bg-amber-700" : "bg-rose-500 hover:bg-rose-600"}`}
+              onClick={() =>
+                window.open(content.normalizedUrl!, "_blank", "noopener,noreferrer")
+              }
+              className={`w-full rounded-xl py-2.5 font-bold text-white flex items-center justify-center gap-2 text-sm transition-colors ${
+                content.riskLevel === "caution"
+                  ? "bg-amber-600 hover:bg-amber-700"
+                  : "bg-violet-600 hover:bg-violet-700"
+              }`}
             >
               <ExternalLink className="w-4 h-4" />
               Truy cập website
@@ -565,29 +1139,64 @@ function DecodedQrSummary({
   }
 
   const nonLinkContent = {
-    wifi: { title: "Thông tin Wi-Fi", description: "Timi không tự kết nối vào mạng Wi-Fi từ QR này.", icon: Wifi },
-    contact: { title: "Danh thiếp", description: "Timi không tự thêm liên hệ từ QR này.", icon: FileText },
-    phone: { title: "Số điện thoại", description: "Timi không tự gọi số điện thoại từ QR này.", icon: FileText },
-    email: { title: "Địa chỉ email", description: "Timi không tự tạo email từ QR này.", icon: FileText },
-    sms: { title: "Tin nhắn", description: "Timi không tự gửi tin nhắn từ QR này.", icon: FileText },
-    text: { title: "Nội dung văn bản", description: "Nội dung được đọc từ mã QR.", icon: FileText },
+    wifi: {
+      title: "Thông tin Wi-Fi",
+      description: "Timi không tự kết nối vào mạng Wi-Fi từ QR này.",
+      icon: Wifi,
+    },
+    contact: {
+      title: "Danh thiếp",
+      description: "Timi không tự thêm liên hệ từ QR này.",
+      icon: FileText,
+    },
+    phone: {
+      title: "Số điện thoại",
+      description: "Timi không tự gọi số điện thoại từ QR này.",
+      icon: FileText,
+    },
+    email: {
+      title: "Địa chỉ email",
+      description: "Timi không tự tạo email từ QR này.",
+      icon: FileText,
+    },
+    sms: {
+      title: "Tin nhắn",
+      description: "Timi không tự gửi tin nhắn từ QR này.",
+      icon: FileText,
+    },
+    text: {
+      title: "Nội dung văn bản",
+      description: "Nội dung được đọc từ mã QR.",
+      icon: FileText,
+    },
   }[content.kind];
   const ContentIcon = nonLinkContent.icon;
 
   return (
-    <div className="h-full min-h-[440px] flex flex-col">
-      <div className="flex items-center gap-2 text-gray-800">
-        <ContentIcon className="w-6 h-6 text-rose-500" />
-        <span className="font-bold">{nonLinkContent.title}</span>
+    <div className="bg-white rounded-2xl p-5 shadow-sm border border-violet-100/80 flex flex-col min-h-[380px]">
+      <div className="flex items-center gap-2 text-slate-800">
+        <ContentIcon className="w-5 h-5 text-violet-600" />
+        <span className="font-bold text-sm">{nonLinkContent.title}</span>
       </div>
-      <p className="mt-3 text-sm leading-relaxed text-gray-500">{nonLinkContent.description}</p>
-      <div className="mt-5 max-h-72 overflow-y-auto rounded-2xl bg-gray-50 p-4">
-        <p className="break-all whitespace-pre-wrap font-mono text-sm leading-relaxed text-gray-700">{content.rawValue}</p>
+      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+        {nonLinkContent.description}
+      </p>
+      <div className="mt-4 max-h-56 overflow-y-auto rounded-xl bg-slate-50 p-3.5">
+        <p className="break-all whitespace-pre-wrap font-mono text-xs leading-relaxed text-slate-700">
+          {content.rawValue}
+        </p>
       </div>
-      <div className="mt-auto space-y-3 pt-6">
-        {copyStatus && <p className="text-center text-xs text-gray-500">{copyStatus}</p>}
-        <button type="button" onClick={() => void copyRawValue()} className="w-full rounded-xl bg-gray-100 py-3 font-bold text-gray-700 hover:bg-gray-200 flex items-center justify-center gap-2">
-          <Copy className="w-4 h-4" />Sao chép
+      <div className="mt-auto space-y-2.5 pt-5">
+        {copyStatus && (
+          <p className="text-center text-[11px] text-slate-500">{copyStatus}</p>
+        )}
+        <button
+          type="button"
+          onClick={() => void copyRawValue()}
+          className="w-full rounded-xl bg-slate-100 py-2.5 font-bold text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-2 text-sm transition-colors"
+        >
+          <Copy className="w-4 h-4" />
+          Sao chép
         </button>
       </div>
     </div>

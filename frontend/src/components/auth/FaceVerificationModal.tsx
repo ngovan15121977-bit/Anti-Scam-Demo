@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, KeyRound, Loader2, ScanFace, ShieldAlert } from "lucide-react";
+import {
+  Camera,
+  KeyRound,
+  Loader2,
+  ScanFace,
+  ShieldAlert,
+  Shield,
+  Lock,
+} from "lucide-react";
 import { authApi } from "@/api/auth";
 
 export interface FaceMatchResult {
@@ -36,7 +44,15 @@ export default function FaceVerificationModal({
   const [needsFaceSetup, setNeedsFaceSetup] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [frameQuality, setFrameQuality] = useState<"checking" | "holding" | "ready" | "adjust-light" | "too-dark" | "too-bright" | "invalid">("checking");
+  const [frameQuality, setFrameQuality] = useState<
+    | "checking"
+    | "holding"
+    | "ready"
+    | "adjust-light"
+    | "too-dark"
+    | "too-bright"
+    | "invalid"
+  >("checking");
   const [frameBrightness, setFrameBrightness] = useState(128);
   const [frameQualityMessage, setFrameQualityMessage] = useState("Đang kiểm tra người dùng trong khung hình...");
   const [autoCaptureCounting, setAutoCaptureCounting] = useState(false);
@@ -83,11 +99,14 @@ export default function FaceVerificationModal({
     const motionCanvas = document.createElement("canvas");
     motionCanvas.width = 32;
     motionCanvas.height = 32;
-    const motionContext = motionCanvas.getContext("2d", { willReadFrequently: true });
+    const motionContext = motionCanvas.getContext("2d", {
+      willReadFrequently: true,
+    });
     let previousMotionFrame: Uint8ClampedArray | null = null;
     let motionEvents = 0;
     let motionStreak = 0;
-    let motionPhase: "left" | "left_return" | "right" | "right_return" = "left";
+    let motionPhase: "left" | "left_return" | "right" | "right_return" =
+      "left";
     let lastMotionAt = 0;
     let challengeStartedAt = 0;
     let centeredFramesAfterChallenge = 0;
@@ -107,8 +126,12 @@ export default function FaceVerificationModal({
           for (let index = 0; index < currentFrame.length; index += 4) {
             const pixelDifference =
               Math.abs(currentFrame[index] - previousMotionFrame[index]) +
-              Math.abs(currentFrame[index + 1] - previousMotionFrame[index + 1]) +
-              Math.abs(currentFrame[index + 2] - previousMotionFrame[index + 2]);
+              Math.abs(
+                currentFrame[index + 1] - previousMotionFrame[index + 1],
+              ) +
+              Math.abs(
+                currentFrame[index + 2] - previousMotionFrame[index + 2],
+              );
             difference += pixelDifference;
             changedX += pixelDifference * ((index / 4) % 32);
           }
@@ -130,14 +153,23 @@ export default function FaceVerificationModal({
               lastMotionAt = now;
               // The webcam stream is mirrored in the preview/capture canvas,
               // so the raw motion axis must be mapped back to the user's view.
-              const direction = motionCenterX < 0.43 ? "right" : motionCenterX > 0.57 ? "left" : null;
+              const direction =
+                motionCenterX < 0.43
+                  ? "right"
+                  : motionCenterX > 0.57
+                    ? "left"
+                    : null;
               if (mode === "enrollment" && !livenessPassed.current) {
                 if (motionPhase === "left" && direction === "left") {
                   motionPhase = "left_return";
-                  setFrameQualityMessage("Đã nhận quay trái. Hãy quay mặt về chính giữa để hoàn thành 1/2...");
+                  setFrameQualityMessage(
+                    "Đã nhận quay trái. Hãy quay mặt về chính giữa để hoàn thành 1/2...",
+                  );
                 } else if (motionPhase === "right" && direction === "right") {
                   motionPhase = "right_return";
-                  setFrameQualityMessage("Đã nhận quay phải. Hãy quay mặt về chính giữa để hoàn thành 2/2...");
+                  setFrameQualityMessage(
+                    "Đã nhận quay phải. Hãy quay mặt về chính giữa để hoàn thành 2/2...",
+                  );
                 }
               }
             }
@@ -157,30 +189,44 @@ export default function FaceVerificationModal({
             }
             if (mode === "enrollment" && livenessWasPending) {
               centeredFramesAfterChallenge = 0;
-              setFrameQualityMessage("Đã nhận đủ chuyển động. Hãy quay mặt trở lại chính giữa khung...");
+              setFrameQualityMessage(
+                "Đã nhận đủ chuyển động. Hãy quay mặt trở lại chính giữa khung...",
+              );
             }
           }
         }
         previousMotionFrame = new Uint8ClampedArray(currentFrame);
       }
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      const pixels = context.getImageData(
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      ).data;
       let total = 0;
       for (let index = 0; index < pixels.length; index += 4) {
-        total += 0.299 * pixels[index] + 0.587 * pixels[index + 1] + 0.114 * pixels[index + 2];
+        total +=
+          0.299 * pixels[index] +
+          0.587 * pixels[index + 1] +
+          0.114 * pixels[index + 2];
       }
       const brightness = total / (pixels.length / 4);
       setFrameBrightness(brightness);
       if (brightness < 45) {
         qualityReady.current = false;
         setFrameQuality("too-dark");
-        setFrameQualityMessage("Ánh sáng quá yếu. Hãy bật đèn hoặc di chuyển đến nơi sáng hơn.");
+        setFrameQualityMessage(
+          "Ánh sáng quá yếu. Hãy bật đèn hoặc di chuyển đến nơi sáng hơn.",
+        );
         return;
       }
       if (brightness > 225) {
         qualityReady.current = false;
         setFrameQuality("too-bright");
-        setFrameQualityMessage("Ảnh đang bị chói. Hãy tránh ánh sáng chiếu thẳng vào camera.");
+        setFrameQualityMessage(
+          "Ảnh đang bị chói. Hãy tránh ánh sáng chiếu thẳng vào camera.",
+        );
         return;
       }
       if (qualityCheckInFlight.current) return;
@@ -195,10 +241,21 @@ export default function FaceVerificationModal({
       context.save();
       context.translate(canvas.width, 0);
       context.scale(-1, 1);
-      context.drawImage(video, cropX, cropY, cropSize, cropSize, 0, 0, canvas.width, canvas.height);
+      context.drawImage(
+        video,
+        cropX,
+        cropY,
+        cropSize,
+        cropSize,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
       context.restore();
       context.filter = "none";
-      void authApi.checkFaceQuality(canvas.toDataURL("image/jpeg", 0.85))
+      void authApi
+        .checkFaceQuality(canvas.toDataURL("image/jpeg", 0.85))
         .then((quality) => {
           if (requestId !== qualityRequestId.current) return;
           if (
@@ -208,12 +265,18 @@ export default function FaceVerificationModal({
             !livenessPassed.current &&
             (quality.pose === "left" || quality.pose === "right")
           ) {
-            const expectedPose = motionPhase === "left" ? "left" : motionPhase === "right" ? "right" : null;
+            const expectedPose =
+              motionPhase === "left"
+                ? "left"
+                : motionPhase === "right"
+                  ? "right"
+                  : null;
             if (quality.pose === expectedPose) {
               poseStreakValue = quality.pose;
               poseStreak += 1;
               if (poseStreak >= 2) {
-                motionPhase = quality.pose === "left" ? "left_return" : "right_return";
+                motionPhase =
+                  quality.pose === "left" ? "left_return" : "right_return";
                 poseStreak = 0;
                 poseStreakValue = null;
               }
@@ -225,14 +288,19 @@ export default function FaceVerificationModal({
           if (quality.ready) {
             if (!stablePositionReady.current) {
               qualityReady.current = false;
-              if (stableTimer.current !== null) window.clearTimeout(stableTimer.current);
+              if (stableTimer.current !== null)
+                window.clearTimeout(stableTimer.current);
               setFrameQuality("holding");
-              setFrameQualityMessage("Đã nhận diện khuôn mặt. Hãy giữ nguyên vị trí trong 1 giây...");
+              setFrameQualityMessage(
+                "Đã nhận diện khuôn mặt. Hãy giữ nguyên vị trí trong 1 giây...",
+              );
               stableTimer.current = window.setTimeout(() => {
                 stablePositionReady.current = true;
                 if (mode !== "enrollment") {
                   livenessPassed.current = true;
-                  setFrameQualityMessage("Đã ổn định. Đang tiếp tục xác thực...");
+                  setFrameQualityMessage(
+                    "Đã ổn định. Đang tiếp tục xác thực...",
+                  );
                   return;
                 }
                 motionEvents = 0;
@@ -246,19 +314,27 @@ export default function FaceVerificationModal({
                 centerConfirmationFrames = 0;
                 challengeStartedAt = 0;
                 setFrameQuality("holding");
-                setFrameQualityMessage("Đã ổn định. Hãy giữ mặt đúng giữa khung tròn thêm một chút...");
+                setFrameQualityMessage(
+                  "Đã ổn định. Hãy giữ mặt đúng giữa khung tròn thêm một chút...",
+                );
               }, 1000);
               return;
             }
             // A completed turn is counted only after the face returns to the
             // center. This prevents a small shake from becoming 1/2 or 2/2.
-            if (mode === "enrollment" && challengeStartedAt > 0 && !livenessPassed.current) {
+            if (
+              mode === "enrollment" &&
+              challengeStartedAt > 0 &&
+              !livenessPassed.current
+            ) {
               if (motionPhase === "left_return") {
                 motionEvents = 1;
                 motionPhase = "right";
                 qualityReady.current = false;
                 setFrameQuality("holding");
-                setFrameQualityMessage("Đã hoàn thành quay trái về giữa 1/2. Hãy quay phải thật chậm...");
+                setFrameQualityMessage(
+                  "Đã hoàn thành quay trái về giữa 1/2. Hãy quay phải thật chậm...",
+                );
                 return;
               }
               if (motionPhase === "right_return") {
@@ -267,7 +343,9 @@ export default function FaceVerificationModal({
                 centeredFramesAfterChallenge = 0;
                 qualityReady.current = false;
                 setFrameQuality("holding");
-                setFrameQualityMessage("Đã hoàn thành quay phải về giữa 2/2. Hãy giữ mặt yên...");
+                setFrameQualityMessage(
+                  "Đã hoàn thành quay phải về giữa 2/2. Hãy giữ mặt yên...",
+                );
                 return;
               }
             }
@@ -279,9 +357,13 @@ export default function FaceVerificationModal({
                 if (centerConfirmationFrames >= 2) {
                   challengeStartedAt = performance.now();
                   lastMotionAt = performance.now();
-                  setFrameQualityMessage("Đã xác nhận mặt ở giữa khung. Bước 1/2: hãy quay sang trái rồi quay về chính giữa.");
+                  setFrameQualityMessage(
+                    "Đã xác nhận mặt ở giữa khung. Bước 1/2: hãy quay sang trái rồi quay về chính giữa.",
+                  );
                 } else {
-                  setFrameQualityMessage("Hãy giữ mặt ở chính giữa khung tròn và giữ yên...");
+                  setFrameQualityMessage(
+                    "Hãy giữ mặt ở chính giữa khung tròn và giữ yên...",
+                  );
                 }
               } else {
                 const detectedDirection =
@@ -290,12 +372,23 @@ export default function FaceVerificationModal({
                     : quality.rule === "off_center_right"
                       ? "left"
                       : null;
-                const expectedDirection = motionPhase === "left" ? "left" : motionPhase === "right" ? "right" : null;
-                if (detectedDirection && expectedDirection === detectedDirection) {
+                const expectedDirection =
+                  motionPhase === "left"
+                    ? "left"
+                    : motionPhase === "right"
+                      ? "right"
+                      : null;
+                if (
+                  detectedDirection &&
+                  expectedDirection === detectedDirection
+                ) {
                   directionStreakValue = detectedDirection;
                   directionStreak += 1;
                   if (directionStreak >= 2) {
-                    motionPhase = detectedDirection === "left" ? "left_return" : "right_return";
+                    motionPhase =
+                      detectedDirection === "left"
+                        ? "left_return"
+                        : "right_return";
                     directionStreak = 0;
                     directionStreakValue = null;
                   }
@@ -370,7 +463,8 @@ export default function FaceVerificationModal({
             if (
               mode === "enrollment" &&
               stablePositionReady.current &&
-              (challengeStartedAt === 0 || performance.now() - challengeStartedAt < 20000) &&
+              (challengeStartedAt === 0 ||
+                performance.now() - challengeStartedAt < 20000) &&
               (quality.rule === "no_face" ||
                 quality.rule === "multiple_faces" ||
                 quality.rule === "off_center" ||
@@ -388,10 +482,10 @@ export default function FaceVerificationModal({
                 challengeStartedAt === 0
                   ? "Hãy giữ toàn bộ khuôn mặt ở giữa khung tròn để bắt đầu quay trái..."
                   : quality.rule === "too_far" || quality.rule === "too_near"
-                  ? quality.message
-                  : quality.rule === "multiple_faces"
-                    ? "Đang quay mặt, hệ thống tạm bỏ qua nhận diện nhầm. Hãy quay chậm và đưa mặt về giữa sau mỗi bên..."
-                  : "Đang xác minh chuyển động. Hãy đưa mặt về chính giữa và giữ yên...",
+                    ? quality.message
+                    : quality.rule === "multiple_faces"
+                      ? "Đang quay mặt, hệ thống tạm bỏ qua nhận diện nhầm. Hãy quay chậm và đưa mặt về giữa sau mỗi bên..."
+                      : "Đang xác minh chuyển động. Hãy đưa mặt về chính giữa và giữ yên...",
               );
               return;
             }
@@ -418,7 +512,9 @@ export default function FaceVerificationModal({
         .catch(() => {
           if (requestId !== qualityRequestId.current) return;
           setFrameQuality("invalid");
-          setFrameQualityMessage("Đưa mặt vào giữa khung, đến gần hơn, giữ yên và đảm bảo đủ sáng.");
+          setFrameQualityMessage(
+            "Đưa mặt vào giữa khung, đến gần hơn, giữ yên và đảm bảo đủ sáng.",
+          );
         })
         .finally(() => {
           qualityCheckInFlight.current = false;
@@ -469,11 +565,16 @@ export default function FaceVerificationModal({
           whiteBalanceMode?: string[];
         };
         const advanced: Record<string, string> = {};
-        if (capabilities.focusMode?.includes("continuous")) advanced.focusMode = "continuous";
-        if (capabilities.exposureMode?.includes("continuous")) advanced.exposureMode = "continuous";
-        if (capabilities.whiteBalanceMode?.includes("continuous")) advanced.whiteBalanceMode = "continuous";
+        if (capabilities.focusMode?.includes("continuous"))
+          advanced.focusMode = "continuous";
+        if (capabilities.exposureMode?.includes("continuous"))
+          advanced.exposureMode = "continuous";
+        if (capabilities.whiteBalanceMode?.includes("continuous"))
+          advanced.whiteBalanceMode = "continuous";
         if (Object.keys(advanced).length > 0) {
-          await track.applyConstraints({ advanced: [advanced] } as MediaTrackConstraints);
+          await track.applyConstraints({
+            advanced: [advanced],
+          } as MediaTrackConstraints);
         }
       }
       setCameraReady(true);
@@ -495,7 +596,9 @@ export default function FaceVerificationModal({
   const verify = async (automatic = false) => {
     if (isSubmitting || isLoading) return;
     if (!automatic && frameQuality !== "ready") {
-      setError("Khung hình chưa đạt điều kiện. Hãy căn giữa khuôn mặt và điều chỉnh ánh sáng rồi thử lại.");
+      setError(
+        "Khung hình chưa đạt điều kiện. Hãy căn giữa khuôn mặt và điều chỉnh ánh sáng rồi thử lại.",
+      );
       return;
     }
     const video = videoRef.current;
@@ -542,9 +645,10 @@ export default function FaceVerificationModal({
     // Reuse the exact frame that passed the quality gate for automatic
     // enrollment/verification. Capturing a new frame here could catch a
     // movement or obstruction after the UI already reported "ready".
-    const imageData = automatic && lastGoodFrame.current
-      ? lastGoodFrame.current
-      : canvas.toDataURL("image/jpeg", 0.88);
+    const imageData =
+      automatic && lastGoodFrame.current
+        ? lastGoodFrame.current
+        : canvas.toDataURL("image/jpeg", 0.88);
     setError("");
     setResult(null);
     setNeedsFaceSetup(false);
@@ -575,9 +679,12 @@ export default function FaceVerificationModal({
       if (matched) stopCamera();
       if (!matched && !requirePin) {
         qualityReady.current = false;
-        if (stableTimer.current !== null) window.clearTimeout(stableTimer.current);
+        if (stableTimer.current !== null)
+          window.clearTimeout(stableTimer.current);
         setFrameQuality("checking");
-        setFrameQualityMessage("Chưa đủ độ khớp. Đang lấy lại khung hình để xác thực lại...");
+        setFrameQualityMessage(
+          "Chưa đủ độ khớp. Đang lấy lại khung hình để xác thực lại...",
+        );
       }
     } catch (requestError: any) {
       const detail = requestError?.response?.data?.detail;
@@ -591,10 +698,11 @@ export default function FaceVerificationModal({
             : responseStatus === 502
               ? "Không thể lưu ảnh khuôn mặt lên máy chủ lưu trữ. Hãy kiểm tra kết nối mạng rồi thử lại."
               : responseStatus === 503
-                ? detail || "Dịch vụ Face ID chưa sẵn sàng. Hãy kiểm tra cấu hình model và Cloudinary."
-          : detail ||
-              requestError?.message ||
-              "Không thể xác thực khuôn mặt. Hãy thử lại.",
+                ? detail ||
+                  "Dịch vụ Face ID chưa sẵn sàng. Hãy kiểm tra cấu hình model và Cloudinary."
+                : detail ||
+                  requestError?.message ||
+                  "Không thể xác thực khuôn mặt. Hãy thử lại.",
       );
     } finally {
       if (!matched) setCapturedImage(null);
@@ -606,47 +714,60 @@ export default function FaceVerificationModal({
   const isPinStep = step === "pin";
   const isEnrollment = mode === "enrollment";
   const isBusy = isLoading || isSubmitting;
-  const faceTitle = isEnrollment ? "Đăng ký khuôn mặt" : "Xác thực khuôn mặt";
+  const faceTitle = isEnrollment
+    ? "Đăng ký khuôn mặt"
+    : "Xác thực khuôn mặt";
   const faceDescription = isEnrollment
     ? "Đặt khuôn mặt vào khung hình để tạo dữ liệu khuôn mặt riêng cho tài khoản của bạn. Ảnh đại diện không được dùng để xác thực."
     : "Đặt khuôn mặt vào khung hình để AI đối chiếu với dữ liệu đã đăng ký.";
+
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center overflow-hidden bg-slate-950/70 p-4 backdrop-blur-sm">
-      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-3xl bg-white p-6 shadow-2xl">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-rose-100">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center overflow-hidden bg-slate-950/60 p-4 backdrop-blur-md">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-3xl bg-white p-6 sm:p-7 shadow-2xl border border-violet-100/80">
+        {/* Icon */}
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-lg shadow-violet-200">
           {isPinStep ? (
-            <KeyRound className="h-7 w-7 text-rose-600" />
+            <KeyRound className="h-8 w-8 text-white" />
           ) : (
-            <ScanFace className="h-7 w-7 text-rose-600" />
+            <ScanFace className="h-8 w-8 text-white" />
           )}
         </div>
-        <h2 className="mt-4 text-center text-xl font-bold text-slate-900">
+
+        <h2 className="mt-5 text-center text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
           {isPinStep ? "Xác nhận mã PIN" : faceTitle}
         </h2>
-        <p className="mt-2 text-center text-sm leading-relaxed text-slate-600">
+        <p className="mt-2 text-center text-sm leading-relaxed text-slate-500">
           {isPinStep
             ? "Bạn cần xác nhận mã PIN giao dịch trước khi quét khuôn mặt."
             : faceDescription}
         </p>
+
         {!isPinStep && (
-          <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-center text-xs font-semibold text-amber-800">
-            Vui lòng loại bỏ các vật cản khỏi khuôn mặt trước khi quét.
-          </p>
+          <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-violet-100 bg-violet-50/80 px-3.5 py-2.5">
+            <Shield className="h-4 w-4 text-violet-600 shrink-0 mt-0.5" />
+            <p className="text-xs font-medium text-violet-800 leading-relaxed">
+              Vui lòng loại bỏ các vật cản khỏi khuôn mặt trước khi quét.
+            </p>
+          </div>
         )}
+
         {isPinStep ? (
-          <input
-            autoFocus
-            value={pin}
-            onChange={(event) =>
-              setPin(event.target.value.replace(/\D/g, "").slice(0, 6))
-            }
-            inputMode="numeric"
-            type="password"
-            placeholder="Nhập PIN giao dịch"
-            className="mt-5 w-full rounded-xl border border-slate-200 p-4 text-center text-xl tracking-[0.45em] outline-none focus:ring-2 focus:ring-rose-300"
-          />
+          <div className="relative mt-6">
+            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+            <input
+              autoFocus
+              value={pin}
+              onChange={(event) =>
+                setPin(event.target.value.replace(/\D/g, "").slice(0, 6))
+              }
+              inputMode="numeric"
+              type="password"
+              placeholder="••••••"
+              className="w-full rounded-xl border border-transparent bg-slate-50 py-4 pl-11 pr-4 text-center text-xl tracking-[0.45em] outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-300 transition-all text-slate-900"
+            />
+          </div>
         ) : (
-          <div className="relative mt-5 aspect-square overflow-hidden rounded-2xl bg-slate-900">
+          <div className="relative mt-5 aspect-square overflow-hidden rounded-2xl bg-slate-900 ring-2 ring-violet-100">
             {cameraReady ? (
               <video
                 ref={videoRef}
@@ -655,12 +776,20 @@ export default function FaceVerificationModal({
                 muted
                 playsInline
                 autoPlay
-                style={{ filter: `${frameBrightness < 110 ? `brightness(${Math.min(1.35, 128 / Math.max(frameBrightness, 45))}) ` : ""}contrast(1.12) saturate(1.05)` }}
+                style={{
+                  filter: `${
+                    frameBrightness < 110
+                      ? `brightness(${Math.min(1.35, 128 / Math.max(frameBrightness, 45))}) `
+                      : ""
+                  }contrast(1.12) saturate(1.05)`,
+                }}
                 className="h-full w-full -scale-x-100 object-cover object-center"
               />
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-slate-300">
-                <Camera className="h-10 w-10" />
+                <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center">
+                  <Camera className="h-7 w-7" />
+                </div>
                 <span className="text-sm">
                   Camera chỉ được dùng trong phiên này.
                 </span>
@@ -674,15 +803,23 @@ export default function FaceVerificationModal({
               />
             )}
             {cameraReady && (
-              <div className="pointer-events-none absolute inset-[15%] rounded-[45%] border-2 border-emerald-300 shadow-[0_0_0_999px_rgba(15,23,42,.18)]" />
+              <div
+                className={`pointer-events-none absolute inset-[15%] rounded-[45%] border-2 shadow-[0_0_0_999px_rgba(15,23,42,.18)] transition-colors ${
+                  frameQuality === "ready"
+                    ? "border-emerald-400"
+                    : frameQuality === "holding"
+                      ? "border-amber-300"
+                      : "border-violet-300"
+                }`}
+              />
             )}
             {cameraReady && !isBusy && (
-              <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-xl bg-slate-950/65 px-3 py-2 text-center text-xs font-medium text-white">
+              <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-xl bg-slate-950/70 px-3 py-2 text-center text-xs font-medium text-white backdrop-blur-sm">
                 Đặt mặt gần, nằm giữa khung, nhìn rõ và giữ yên ở nơi đủ sáng.
               </div>
             )}
             {cameraReady && !isBusy && frameQuality !== "ready" && (
-              <div className="pointer-events-none absolute inset-x-3 top-3 rounded-xl bg-amber-950/75 px-3 py-2 text-center text-xs font-semibold text-amber-100">
+              <div className="pointer-events-none absolute inset-x-3 top-3 rounded-xl bg-violet-950/80 px-3 py-2 text-center text-xs font-semibold text-violet-100 backdrop-blur-sm">
                 {frameQualityMessage}
               </div>
             )}
@@ -692,16 +829,18 @@ export default function FaceVerificationModal({
               </div>
             )}
             {isBusy && !isPinStep && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/65 text-center text-white">
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/70 text-center text-white backdrop-blur-sm">
                 <div className="relative h-20 w-20">
-                  <div className="absolute inset-0 rounded-full border-4 border-white/25" />
-                  <div className="absolute inset-0 animate-spin rounded-full border-4 border-transparent border-t-emerald-300 border-r-emerald-300" />
+                  <div className="absolute inset-0 rounded-full border-4 border-white/20" />
+                  <div className="absolute inset-0 animate-spin rounded-full border-4 border-transparent border-t-violet-300 border-r-fuchsia-300" />
                   <ScanFace className="absolute inset-0 m-auto h-8 w-8 text-white" />
                 </div>
                 <p className="mt-4 text-sm font-bold">
-                  {isEnrollment ? "Đang tạo dữ liệu khuôn mặt..." : "AI đang đối chiếu khuôn mặt..."}
+                  {isEnrollment
+                    ? "Đang tạo dữ liệu khuôn mặt..."
+                    : "AI đang đối chiếu khuôn mặt..."}
                 </p>
-                <p className="mt-1 text-xs text-slate-200">
+                <p className="mt-1.5 text-xs text-slate-300 max-w-[240px]">
                   {isEnrollment
                     ? "Ảnh đã được chụp. Hệ thống đang lưu dữ liệu; bạn không cần tiếp tục giữ mặt trong khung."
                     : "Ảnh đã được chụp. Vui lòng không rời khỏi màn hình."}
@@ -710,58 +849,67 @@ export default function FaceVerificationModal({
             )}
           </div>
         )}
+
         {error && (
-          <p className="mt-3 flex max-h-28 min-w-0 gap-2 overflow-y-auto overflow-x-hidden break-words rounded-xl bg-rose-50 p-3 text-sm leading-5 text-rose-700">
-            <ShieldAlert className="h-5 w-5 shrink-0" />
+          <p className="mt-4 flex max-h-28 min-w-0 gap-2.5 overflow-y-auto overflow-x-hidden break-words rounded-xl border border-rose-100 bg-rose-50 p-3.5 text-sm leading-5 text-rose-700">
+            <ShieldAlert className="h-5 w-5 shrink-0 mt-0.5" />
             <span className="min-w-0 break-words">{error}</span>
           </p>
         )}
+
         {needsFaceSetup && onSetupFace && (
           <button
             onClick={onSetupFace}
-            className="mt-3 w-full rounded-xl bg-amber-100 py-3 text-sm font-bold text-amber-900"
+            className="mt-3 w-full rounded-xl bg-amber-50 border border-amber-200 py-3 text-sm font-bold text-amber-900 hover:bg-amber-100 transition-colors"
           >
             Đi tới cài đặt khuôn mặt
           </button>
         )}
+
         {result && (
           <p
-            className={`mt-3 rounded-xl p-3 text-sm ${result.matched ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}
+            className={`mt-3 rounded-xl border p-3.5 text-sm ${
+              result.matched
+                ? "bg-emerald-50 border-emerald-100 text-emerald-700"
+                : "bg-rose-50 border-rose-100 text-rose-700"
+            }`}
           >
             {result.message} Độ khớp:{" "}
             <strong>{Math.round(result.similarity * 100)}%</strong>.
           </p>
         )}
-        <div className="mt-5 flex gap-3">
+
+        <div className="mt-6 flex gap-3">
           <button
             onClick={() => {
               stopCamera();
               onCancel();
             }}
             disabled={isBusy}
-            className="flex-1 rounded-xl bg-slate-100 px-4 py-3 font-semibold text-slate-700"
+            className="flex-1 rounded-xl bg-slate-100 px-4 py-3.5 font-semibold text-slate-700 hover:bg-slate-200 transition-colors disabled:opacity-50"
           >
             Hủy
           </button>
           {isPinStep ? (
             <button
               onClick={proceedToFace}
-              className="flex-1 rounded-xl bg-rose-600 px-4 py-3 font-semibold text-white"
+              className="flex-1 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3.5 font-semibold text-white shadow-md shadow-violet-200 hover:shadow-lg transition-all"
             >
               Tiếp tục
             </button>
           ) : !cameraReady ? (
             <button
               onClick={() => void startCamera()}
-              className="flex-1 rounded-xl bg-rose-600 px-4 py-3 font-semibold text-white"
+              className="flex-1 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3.5 font-semibold text-white shadow-md shadow-violet-200 hover:shadow-lg transition-all flex items-center justify-center gap-2"
             >
+              <Camera className="h-4 w-4" />
               Mở camera
             </button>
           ) : (
             <button
               onClick={() => void verify()}
               disabled={isBusy || !videoLoaded || frameQuality !== "ready"}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-3 font-semibold text-white disabled:opacity-50"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3.5 font-semibold text-white shadow-md shadow-violet-200 hover:shadow-lg transition-all disabled:opacity-50 disabled:shadow-none"
             >
               {isBusy && <Loader2 className="h-4 w-4 animate-spin" />}
               {autoCaptureCounting
