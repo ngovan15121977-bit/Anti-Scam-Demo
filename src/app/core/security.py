@@ -82,7 +82,13 @@ def decode_recipient_lookup_token(token: str, *, user_id: str) -> dict[str, str]
     return {field: payload[field] for field in required_fields}
 
 
-def create_face_verification_token(*, user_id: str, transaction_id: str | None = None) -> str:
+def create_face_verification_token(
+    *,
+    user_id: str,
+    transaction_id: str | None = None,
+    nonce: str | None = None,
+    amount: int | None = None,
+) -> str:
     """A short-lived proof that the server completed face matching."""
     payload: dict[str, Any] = {
         "sub": user_id,
@@ -91,16 +97,31 @@ def create_face_verification_token(*, user_id: str, transaction_id: str | None =
     }
     if transaction_id:
         payload["transaction_id"] = transaction_id
+    if nonce:
+        payload["nonce"] = nonce
+    if amount is not None:
+        payload["amount"] = int(amount)
     settings = get_settings()
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def decode_face_verification_token(token: str, *, user_id: str, transaction_id: str | None = None) -> None:
+def decode_face_verification_token(
+    token: str,
+    *,
+    user_id: str,
+    transaction_id: str | None = None,
+    nonce: str | None = None,
+    amount: int | None = None,
+) -> None:
     payload = decode_access_token(token)
     if payload.get("purpose") != "face_verification" or payload.get("sub") != user_id:
         raise ValueError("Face verification token does not belong to this user")
     if transaction_id is not None and payload.get("transaction_id") != transaction_id:
         raise ValueError("Face verification token does not belong to this transaction")
+    if nonce is not None and payload.get("nonce") != nonce:
+        raise ValueError("Face verification token does not match the current challenge")
+    if amount is not None and int(payload.get("amount", -1)) != int(amount):
+        raise ValueError("Face verification token does not match this transfer amount")
 
 
 # Backward-compatible aliases for files that have not been mounted by app.main.

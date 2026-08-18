@@ -42,6 +42,7 @@ from src.app.schemas.auth import (
 from src.app.schemas.user import UserOut
 from src.app.services.audit import add_audit_log
 from src.app.services.face_verification import (
+    aggregate_embeddings,
     embedding_from_data_url,
     face_pose_from_data_url,
     face_quality_rule_from_data_url,
@@ -95,6 +96,14 @@ def _data_url_bytes(value: str) -> bytes:
     if not raw or len(raw) > _MAX_IMAGE_SIZE:
         raise HTTPException(status_code=422, detail="Ảnh khuôn mặt phải có dung lượng tối đa 5 MB")
     return raw
+
+
+def _face_frames(value: str | list[str]) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list) and value and all(isinstance(item, str) for item in value):
+        return value
+    raise HTTPException(status_code=422, detail="Ảnh khuôn mặt không hợp lệ")
 
 
 def _record_login_context(
@@ -235,8 +244,11 @@ def enroll_face(payload: FaceEnrollmentRequest, db: Session = Depends(get_db), c
     if not payload.consent:
         raise HTTPException(status_code=422, detail="Cần đồng ý lưu dữ liệu khuôn mặt để đăng ký")
     settings = get_settings(); _configure_cloudinary()
-    image = _data_url_bytes(payload.image_data)
-    embedding = embedding_from_data_url(payload.image_data)
+    frames = _face_frames(payload.image_data)
+    embeddings = [embedding_from_data_url(frame) for frame in frames]
+    aggregate_embedding = aggregate_embeddings(embeddings)
+    reference_frame = frames[0]
+    image = _data_url_bytes(reference_frame)
     try:
         # The embedding service already validates and crops the primary face.
         # Store a smaller face-focused reference so uploads and future reads
@@ -246,13 +258,13 @@ def enroll_face(payload: FaceEnrollmentRequest, db: Session = Depends(get_db), c
         raise HTTPException(status_code=502, detail="Không thể lưu ảnh khuôn mặt lên Cloudinary") from exc
     row = db.scalar(select(FaceEnrollment).where(FaceEnrollment.user_id == current_user.id))
     if row is None:
-        row = FaceEnrollment(user_id=current_user.id, reference_image_url=uploaded["secure_url"], reference_embedding=embedding, model_id=settings.face_embedding_version, similarity_threshold=settings.face_similarity_threshold, consent_at=datetime.now(UTC), is_active=True)
+        row = FaceEnrollment(user_id=current_user.id, reference_image_url=uploaded["secure_url"], reference_embedding=aggregate_embedding.tolist(), model_id=settings.face_embedding_version, similarity_threshold=settings.face_similarity_threshold, consent_at=datetime.now(UTC), is_active=True)
         db.add(row); db.flush()
     else:
-        row.reference_image_url, row.reference_embedding = uploaded["secure_url"], embedding
+        row.reference_image_url, row.reference_embedding = uploaded["secure_url"], aggregate_embedding.tolist()
         row.model_id, row.similarity_threshold, row.consent_at, row.is_active, row.revoked_at = settings.face_embedding_version, settings.face_similarity_threshold, datetime.now(UTC), True, None
     db.add(FaceVerificationLog(user_id=current_user.id, enrollment_id=row.id, purpose="enrollment", similarity=1, threshold=settings.face_similarity_threshold, matched=True, model_id=settings.face_embedding_version, created_at=datetime.now(UTC)))
-    add_audit_log(db, action="auth.face_enrolled", actor_id=current_user.id, resource_type="face_enrollment", resource_id=row.id, metadata={"model_id": settings.face_embedding_version})
+    add_audit_log(db, action="auth.face_enrolled", actor_id=current_user.id, resource_type="face_enrollment", resource_id=row.id, metadata={"model_id": settings.face_embedding_version, "sample_count": len(embeddings)})
     db.commit()
     return FaceVerificationResponse(matched=True, similarity=1, threshold=settings.face_similarity_threshold, message="Đã đăng ký khuôn mặt độc lập với ảnh đại diện.")
 
@@ -317,7 +329,10 @@ def verify_face(payload: FaceVerificationRequest, db: Session = Depends(get_db),
         raise HTTPException(status_code=409, detail="Bạn chưa đăng ký khuôn mặt")
     if enrollment.model_id != settings.face_embedding_version:
         raise HTTPException(status_code=409, detail="Dữ liệu khuôn mặt cần được đăng ký lại để dùng chuẩn quét khuôn mặt mới")
-    similarity = similarity_from_embedding(enrollment_embedding=enrollment.reference_embedding, selfie_data_url=payload.image_data)
+
+    frames = _face_frames(payload.image_data)
+    selfie = frames[0]
+    similarity = similarity_from_embedding(enrollment_embedding=enrollment.reference_embedding, selfie_data_url=selfie)
     threshold = settings.face_transaction_similarity_threshold if is_transaction_verification else float(enrollment.similarity_threshold)
     matched = similarity >= float(threshold)
     db.add(FaceVerificationLog(user_id=current_user.id, enrollment_id=enrollment.id, transaction_id=payload.transaction_id, purpose="transaction" if is_transaction_verification else "login", similarity=similarity, threshold=float(threshold), matched=matched, model_id=enrollment.model_id, failure_reason=None if matched else "similarity_below_threshold", created_at=datetime.now(UTC)))
@@ -336,7 +351,12 @@ def verify_face(payload: FaceVerificationRequest, db: Session = Depends(get_db),
     db.commit()
     if is_transaction_verification and not matched and locked_for > 0:
         raise HTTPException(status_code=429, headers={"Retry-After": str(locked_for)}, detail=f"Bạn đã xác thực Face ID sai {failures} lần. Chức năng tạm khóa {locked_for} giây.")
-    token = create_face_verification_token(user_id=str(current_user.id), transaction_id=str(payload.transaction_id) if payload.transaction_id else None) if matched else None
+    token = create_face_verification_token(
+        user_id=str(current_user.id),
+        transaction_id=str(payload.transaction_id) if payload.transaction_id else None,
+        nonce=payload.nonce,
+        amount=int(payload.amount) if payload.amount is not None else None,
+    ) if matched else None
     return FaceVerificationResponse(matched=matched, similarity=similarity, threshold=float(threshold), message="Khuôn mặt khớp với dữ liệu đã đăng ký." if matched else "Khuôn mặt chưa đủ độ khớp. Hãy chụp lại ở nơi đủ sáng.", verification_token=token)
 
 

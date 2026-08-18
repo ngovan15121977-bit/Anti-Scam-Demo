@@ -160,6 +160,17 @@ def _response_from_assessment(
     signals: list[RiskSignal],
     warning: TransactionWarning | None,
 ) -> AssessResponse:
+    requires_face_verification = requires_transfer_face_verification(
+        amount=transaction.amount,
+        risk_level=assessment.risk_level,
+        blacklist_match_found=assessment.blacklist_match_found,
+    )
+    face_verification_nonce = None
+    face_verification_expires_at = None
+    if requires_face_verification:
+        face_verification_nonce = uuid.uuid4().hex
+        face_verification_expires_at = datetime.now(UTC) + timedelta(minutes=3)
+
     return AssessResponse(
         transaction_id=transaction.id,
         assessment_id=assessment.id,
@@ -182,11 +193,9 @@ def _response_from_assessment(
             else risk_rules.recommendation(assessment.risk_level)
         ),
         should_warn=assessment.should_warn,
-        requires_face_verification=requires_transfer_face_verification(
-            amount=transaction.amount,
-            risk_level=assessment.risk_level,
-            blacklist_match_found=assessment.blacklist_match_found,
-        ),
+        requires_face_verification=requires_face_verification,
+        face_verification_nonce=face_verification_nonce,
+        face_verification_expires_at=face_verification_expires_at,
         warning=(
             WarningOut(
                 id=warning.id,
@@ -656,6 +665,7 @@ def submit_decision(
                     payload.face_verification_token,
                     user_id=str(current_user.id),
                     transaction_id=str(transaction.id),
+                    amount=transaction.amount,
                 )
             except (JWTError, ValueError):
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Xác thực khuôn mặt không hợp lệ hoặc đã hết hạn.") from None

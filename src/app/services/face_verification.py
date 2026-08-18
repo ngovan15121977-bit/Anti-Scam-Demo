@@ -174,10 +174,29 @@ def _obstruction_rule(image, face_box) -> str:
 
 
 def _anti_spoof_rule(image, face_box) -> str:
-    # Liveness is confirmed by the browser's frame-motion challenge. Keeping
-    # The browser performs a frame-motion challenge before this backend call.
-    del image, face_box
-    return "live"
+    """Passive anti-spoof check using texture, frequency, and motion analysis."""
+    try:
+        from src.app.services.passive_liveness import passive_liveness_check
+        
+        result = passive_liveness_check(image, face_box)
+        
+        if not result["is_live"]:
+            # Log the spoof indicators for audit
+            indicators = result.get("indicators", {})
+            spoof_score = indicators.get("weighted_spoof_score", 0.0)
+            _LOGGER.warning(
+                "Passive liveness check failed: spoof_score=%.2f, texture=%.2f, freq=%.2f",
+                spoof_score,
+                indicators.get("texture_spoof_score", 0.0),
+                indicators.get("frequency_artifacts", 0.0),
+            )
+            return "spoof_detected"
+        
+        return "live"
+    except Exception as exc:
+        _LOGGER.exception("Passive liveness check failed with exception")
+        # Fall back to accepting frame if check fails (don't block on error)
+        return "live"
 
 
 def _crop_primary_face(image):
@@ -412,6 +431,86 @@ def validate_face_quality_from_data_url(data_url: str) -> None:
     rule = face_quality_rule_from_data_url(data_url)
     if rule != "ready":
         raise HTTPException(status_code=422, detail=f"FACE_QUALITY:{rule}")
+
+
+def aggregate_embeddings(embeddings: list[list[float]] | list[tuple[float, ...]]) -> "numpy.ndarray":
+    """Average several accepted frames into a stable reference embedding."""
+    import numpy as np
+
+    if not embeddings:
+        raise HTTPException(status_code=422, detail="Không có dữ liệu khuôn mặt để tổng hợp.")
+    matrix = np.asarray(embeddings, dtype=np.float32)
+    if matrix.ndim != 2:
+        raise HTTPException(status_code=422, detail="Dữ liệu embedding khuôn mặt không hợp lệ.")
+    mean = matrix.mean(axis=0)
+    norm = float(np.linalg.norm(mean))
+    if norm < 1e-8:
+        raise HTTPException(status_code=422, detail="Embedding trung bình của khuôn mặt không hợp lệ.")
+    return mean / norm
+
+
+def validate_multiframe_liveness(image_data_urls: list[str]) -> dict:
+    """
+    Validate liveness across multiple frames (e.g., multi-frame enrollment).
+    
+    Returns dict with:
+    - is_live: bool
+    - confidence: float
+    - consistency_score: float
+    - indicators: dict
+    """
+    from PIL import Image
+    from src.app.services.passive_liveness import multiframe_liveness_check
+    import numpy as np
+    
+    if not image_data_urls or len(image_data_urls) == 0:
+        raise HTTPException(status_code=422, detail="Không có ảnh khuôn mặt để kiểm tra.")
+    
+    # Convert data URLs to numpy arrays
+    frames = []
+    face_boxes = []
+    
+    for data_url in image_data_urls:
+        try:
+            raw = _image_bytes(data_url)
+            image = Image.open(io.BytesIO(raw))
+            
+            # Detect face to get bounding box
+            rgb = np.asarray(image)
+            cv2, detector, _ = _model()
+            frame = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            
+            with _MODEL_INFERENCE_LOCK:
+                detector.setInputSize((frame.shape[1], frame.shape[0]))
+                _, detected = detector.detect(frame)
+            
+            if detected is None or len(detected) == 0:
+                continue
+            
+            face = detected[0][:4]
+            frames.append(rgb)
+            face_boxes.append(tuple(map(int, face)))
+        except Exception as exc:
+            _LOGGER.warning(f"Could not process frame for liveness check: {exc}")
+            continue
+    
+    if len(frames) < len(image_data_urls) // 2:
+        raise HTTPException(status_code=422, detail="Không thể phát hiện khuôn mặt trong đủ số lượng khung hình.")
+    
+    result = multiframe_liveness_check(frames, face_boxes)
+    
+    if not result["is_live"]:
+        _LOGGER.warning(
+            "Multi-frame liveness check failed: consistency=%.2f, avg_spoof=%.2f",
+            result.get("consistency_score", 0.0),
+            result.get("indicators", {}).get("avg_spoof_score", 0.0),
+        )
+        raise HTTPException(
+            status_code=422,
+            detail="Kiểm tra tính xác thực khuôn mặt không thành công. Có thể bạn đang dùng ảnh hoặc video ghi sẵn.",
+        )
+    
+    return result
 
 
 def similarity_from_embedding(*, enrollment_embedding: list[float], selfie_data_url: str) -> float:

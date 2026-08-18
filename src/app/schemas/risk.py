@@ -71,6 +71,8 @@ class AssessResponse(BaseModel):
     recommendation: str
     should_warn: bool
     requires_face_verification: bool = False
+    face_verification_nonce: str | None = None
+    face_verification_expires_at: datetime | None = None
     warning: WarningOut | None = None
     requires_user_decision: bool = True
     intervention: "InterventionOut | None" = None

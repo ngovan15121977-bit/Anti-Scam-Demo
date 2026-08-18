@@ -50,8 +50,10 @@ class TransactionPinRequest(BaseModel):
 
 
 class FaceVerificationRequest(BaseModel):
-    image_data: str = Field(..., min_length=20, max_length=7_000_000)
+    image_data: str | list[str] = Field(..., min_length=20, max_length=7_000_000)
     transaction_id: uuid.UUID | None = None
+    nonce: str | None = Field(default=None, min_length=8, max_length=256)
+    amount: int | None = Field(default=None, ge=0, le=10_000_000_000)
 
 
 class FaceLoginRequest(LoginRequest):
@@ -60,7 +62,7 @@ class FaceLoginRequest(LoginRequest):
 
 
 class FaceEnrollmentRequest(BaseModel):
-    image_data: str = Field(..., min_length=20, max_length=7_000_000)
+    image_data: str | list[str] = Field(..., min_length=20, max_length=7_000_000)
     consent: bool
 
 
