@@ -1167,7 +1167,7 @@ export default function TransferPage() {
           </div>
 
           {/* Footer */}
-          <footer className="px-4 sm:px-6 lg:px-8 pb-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
+          <footer className="relative z-10 px-4 sm:px-6 lg:px-8 pb-8 pt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
             <p>© 2024 Timi. All rights reserved.</p>
             <div className="flex items-center gap-4">
               <button className="hover:text-slate-600 transition-colors">
@@ -1181,6 +1181,18 @@ export default function TransferPage() {
               </button>
             </div>
           </footer>
+        </div>
+
+        {/* Decorative wave — fixed full-width at bottom of viewport */}
+        <div
+          className="pointer-events-none fixed bottom-0 left-0 right-0 z-0 h-48 sm:h-56 md:h-72 overflow-hidden opacity-30 select-none"
+          aria-hidden="true"
+        >
+          <img
+            src="/wave-footer.png"
+            alt=""
+            className="w-full h-full object-cover object-bottom"
+          />
         </div>
       </div>
     );
