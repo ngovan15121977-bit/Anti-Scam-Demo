@@ -1,7 +1,15 @@
 import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Lock, ShieldCheck } from "lucide-react";
+import {
+  Eye,
+  EyeOff,
+  Lock,
+  ShieldCheck,
+  Loader2,
+  ArrowLeft,
+  Shield,
+} from "lucide-react";
 import { authApi } from "@/api/auth";
 
 const PIN_REVEAL_DURATION_MS = 500;
@@ -49,30 +57,65 @@ export default function PinSetupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-rose-500 via-pink-600 to-fuchsia-700 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#f5f3ff] w-full relative overflow-hidden flex items-center justify-center p-4">
+      {/* Soft background blobs */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute -top-32 -left-32 w-[480px] h-[480px] bg-violet-200/50 rounded-full blur-3xl" />
+        <div className="absolute top-1/3 -right-24 w-[420px] h-[420px] bg-fuchsia-200/40 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 w-[380px] h-[380px] bg-indigo-200/30 rounded-full blur-3xl" />
+      </div>
+
+      {/* Decorative wave */}
+      <div
+        className="pointer-events-none fixed bottom-0 left-0 right-0 z-0 h-40 sm:h-52 md:h-64 overflow-hidden opacity-30 select-none"
+        aria-hidden="true"
+      >
+        <img
+          src="/wave-footer.png"
+          alt=""
+          className="w-full h-full object-cover object-bottom"
+        />
+      </div>
+
       <form
         onSubmit={save}
-        className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl"
+        className="relative z-10 w-full max-w-md rounded-3xl bg-white p-8 sm:p-10 shadow-xl shadow-violet-100/60 border border-violet-100/80"
       >
-        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-rose-100">
-          <ShieldCheck className="h-8 w-8 text-rose-600" />
+        {/* Icon */}
+        <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-lg shadow-violet-200">
+          <ShieldCheck className="h-9 w-9 text-white" strokeWidth={2} />
         </div>
-        <h1 className="text-center text-2xl font-bold text-gray-900">
+
+        <h1 className="text-center text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
           Tạo mã PIN giao dịch
         </h1>
-        <p className="mt-2 text-center text-sm text-gray-500">
+        <p className="mt-3 text-center text-base text-slate-500 leading-relaxed">
           Bạn cần tạo PIN trước khi thực hiện giao dịch chuyển tiền.
         </p>
+
+        {/* Trust note */}
+        <div className="mt-5 flex items-start gap-3 rounded-2xl border border-violet-100 bg-violet-50/80 p-4 text-left">
+          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100">
+            <Shield className="h-4 w-4 text-violet-600" />
+          </div>
+          <p className="text-xs leading-relaxed text-violet-700">
+            PIN gồm 4–6 chữ số, dùng để xác nhận mỗi lần chuyển tiền. Không chia
+            sẻ PIN với bất kỳ ai.
+          </p>
+        </div>
+
         {error && (
-          <p className="mt-4 rounded-xl bg-red-50 p-3 text-center text-sm text-red-600">
+          <p className="mt-5 rounded-xl bg-red-50 border border-red-100 p-3.5 text-center text-sm text-red-600">
             {error}
           </p>
         )}
-        <label className="mt-5 block text-sm font-medium text-gray-700">
+
+        {/* PIN input */}
+        <label className="mt-6 block text-sm font-semibold text-slate-700">
           Mã PIN mới
         </label>
         <div className="relative mt-2">
-          <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+          <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
           <input
             value={pin}
             onChange={(event) =>
@@ -81,13 +124,13 @@ export default function PinSetupPage() {
             type={visiblePin === "pin" ? "text" : "password"}
             inputMode="numeric"
             autoComplete="new-password"
-            className="w-full rounded-xl border border-gray-200 py-3 pl-10 pr-3 text-center tracking-[0.4em] outline-none focus:ring-2 focus:ring-indigo-400"
-            placeholder="4–6 số"
+            className="w-full rounded-xl border border-transparent bg-slate-50 py-3.5 pl-11 pr-12 text-center text-lg tracking-[0.4em] outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-300 transition-all text-slate-900"
+            placeholder="••••••"
           />
           <button
             type="button"
             onClick={() => revealPin("pin")}
-            className="absolute right-3 top-3 text-gray-400"
+            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-violet-600 transition-colors"
             aria-label="Hiện PIN trong 0.5 giây"
           >
             {visiblePin === "pin" ? (
@@ -97,43 +140,70 @@ export default function PinSetupPage() {
             )}
           </button>
         </div>
-        <label className="mt-4 block text-sm font-medium text-gray-700">
+
+        {/* Confirm PIN */}
+        <label className="mt-5 block text-sm font-semibold text-slate-700">
           Nhập lại mã PIN
         </label>
-        <input
-          value={confirm}
-          onChange={(event) =>
-            setConfirm(event.target.value.replace(/\D/g, "").slice(0, 6))
-          }
-          type={visiblePin === "confirm" ? "text" : "password"}
-          inputMode="numeric"
-          autoComplete="new-password"
-          className="mt-2 w-full rounded-xl border border-gray-200 p-3 text-center tracking-[0.4em] outline-none focus:ring-2 focus:ring-indigo-400"
-          placeholder="Nhập lại PIN"
-        />
+        <div className="relative mt-2">
+          <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+          <input
+            value={confirm}
+            onChange={(event) =>
+              setConfirm(event.target.value.replace(/\D/g, "").slice(0, 6))
+            }
+            type={visiblePin === "confirm" ? "text" : "password"}
+            inputMode="numeric"
+            autoComplete="new-password"
+            className="w-full rounded-xl border border-transparent bg-slate-50 py-3.5 pl-11 pr-12 text-center text-lg tracking-[0.4em] outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-300 transition-all text-slate-900"
+            placeholder="••••••"
+          />
+          <button
+            type="button"
+            onClick={() => revealPin("confirm")}
+            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-violet-600 transition-colors"
+            aria-label="Hiện PIN xác nhận trong 0.5 giây"
+          >
+            {visiblePin === "confirm" ? (
+              <EyeOff className="h-5 w-5" />
+            ) : (
+              <Eye className="h-5 w-5" />
+            )}
+          </button>
+        </div>
+
+        {/* Match indicator */}
+        {confirm.length >= 4 && (
+          <p
+            className={`mt-2 text-xs font-medium ${
+              pin === confirm ? "text-emerald-600" : "text-amber-600"
+            }`}
+          >
+            {pin === confirm ? "✓ Hai mã PIN trùng khớp" : "Hai mã PIN chưa trùng"}
+          </p>
+        )}
+
         <button
-          type="button"
-          onClick={() => revealPin("confirm")}
-          className="relative float-right -mt-9 mr-3 text-gray-400"
-          aria-label="Hiện PIN xác nhận trong 0.5 giây"
+          type="submit"
+          disabled={saving || !/^\d{4,6}$/.test(pin) || pin !== confirm}
+          className="mt-7 w-full rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 py-3.5 font-bold text-white shadow-lg shadow-violet-200 hover:shadow-xl hover:from-violet-700 hover:to-fuchsia-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
         >
-          {visiblePin === "confirm" ? (
-            <EyeOff className="h-5 w-5" />
+          {saving ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Đang lưu...
+            </>
           ) : (
-            <Eye className="h-5 w-5" />
+            "Tạo PIN và tiếp tục"
           )}
         </button>
-        <button
-          disabled={saving || !/^\d{4,6}$/.test(pin) || pin !== confirm}
-          className="mt-6 w-full rounded-xl bg-rose-600 py-3 font-bold text-white disabled:opacity-50"
-        >
-          {saving ? "Đang lưu..." : "Tạo PIN và tiếp tục"}
-        </button>
+
         <button
           type="button"
           onClick={() => navigate("/dashboard")}
-          className="mt-3 w-full rounded-xl bg-gray-100 py-3 font-semibold text-gray-700"
+          className="mt-3 w-full rounded-xl bg-slate-100 py-3.5 font-semibold text-slate-700 hover:bg-slate-200 transition-colors flex items-center justify-center gap-2"
         >
+          <ArrowLeft className="h-4 w-4" />
           Quay lại Dashboard
         </button>
       </form>
