@@ -115,10 +115,12 @@ export const authApi = {
     return response.data;
   },
 
-  verifyFace: async (imageData: string, transactionId?: string): Promise<FaceVerificationResponse> => {
+  verifyFace: async (imageData: string | string[], transactionId?: string, nonce?: string, amount?: number): Promise<FaceVerificationResponse> => {
     const response = await axiosInstance.post<FaceVerificationResponse>("/v1/auth/face/verify", {
       image_data: imageData,
       transaction_id: transactionId,
+      nonce,
+      amount,
     }, { timeout: 120_000 });
     return response.data;
   },

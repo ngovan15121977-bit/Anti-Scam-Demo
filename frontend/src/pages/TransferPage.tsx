@@ -425,7 +425,13 @@ export default function TransferPage() {
   };
   const handleFaceVerified = async (imageData: string) => {
     if (!txId) throw new Error("Không tìm thấy giao dịch cần xác thực");
-    const result = await authApi.verifyFace(imageData, txId);
+    const amount = Number(form.amount || 0);
+    const result = await authApi.verifyFace(
+      imageData,
+      txId,
+      riskData?.face_verification_nonce ?? undefined,
+      Number.isFinite(amount) ? amount : undefined,
+    );
     if (!result.matched || !result.verification_token) return result;
     decisionMutation.mutate({
       transactionId: txId,

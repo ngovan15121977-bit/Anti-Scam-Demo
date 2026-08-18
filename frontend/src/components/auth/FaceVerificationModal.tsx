@@ -39,6 +39,7 @@ export default function FaceVerificationModal({
   const [frameQuality, setFrameQuality] = useState<"checking" | "holding" | "ready" | "adjust-light" | "too-dark" | "too-bright" | "invalid">("checking");
   const [frameBrightness, setFrameBrightness] = useState(128);
   const [frameQualityMessage, setFrameQualityMessage] = useState("Đang kiểm tra người dùng trong khung hình...");
+  const [autoCaptureCounting, setAutoCaptureCounting] = useState(false);
   const qualityCheckInFlight = useRef(false);
   const qualityRequestId = useRef(0);
   const lastGoodFrame = useRef<string | null>(null);
@@ -47,9 +48,15 @@ export default function FaceVerificationModal({
   const livenessPassed = useRef(false);
   const stableTimer = useRef<number | null>(null);
   const verifyRef = useRef<((automatic?: boolean) => Promise<void>) | null>(null);
+  const autoVerifyTimerRef = useRef<number | null>(null);
+  const frameScoresRef = useRef<Array<{ score: number; timestamp: number }>>([]);
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    if (autoVerifyTimerRef.current !== null) {
+      window.clearTimeout(autoVerifyTimerRef.current);
+      autoVerifyTimerRef.current = null;
+    }
   };
   useEffect(() => () => stopCamera(), []);
   useEffect(() => {
@@ -328,10 +335,35 @@ export default function FaceVerificationModal({
                 ? "Đã hoàn thành quay trái/phải. Đang lưu dữ liệu khuôn mặt..."
                 : "Đã xác minh người thật. Đang tiếp tục...",
             );
-            window.setTimeout(() => void verifyRef.current?.(true), mode === "enrollment" ? 300 : 150);
+            // Track frame quality score and auto-capture with best-frame selection
+            const now = performance.now();
+            frameScoresRef.current.push({ score: quality.ready ? 1.0 : 0.8, timestamp: now });
+            // Keep only recent scores (last 2 seconds)
+            frameScoresRef.current = frameScoresRef.current.filter((f) => now - f.timestamp < 2000);
+            // Calculate average quality score from recent frames
+            const avgScore =
+              frameScoresRef.current.length > 0
+                ? frameScoresRef.current.reduce((sum, f) => sum + f.score, 0) / frameScoresRef.current.length
+                : 0;
+            // Auto-capture after a short delay to ensure we have multiple good frames
+            if (frameScoresRef.current.length >= 2 && avgScore >= 0.9 && !autoVerifyTimerRef.current) {
+              setAutoCaptureCounting(true);
+              const captureDelay = mode === "enrollment" ? 600 : 300;
+              autoVerifyTimerRef.current = window.setTimeout(() => {
+                autoVerifyTimerRef.current = null;
+                setAutoCaptureCounting(false);
+                void verifyRef.current?.(true);
+              }, captureDelay);
+            }
           } else {
             lastGoodFrame.current = null;
             qualityReady.current = false;
+            frameScoresRef.current = [];
+            if (autoVerifyTimerRef.current !== null) {
+              window.clearTimeout(autoVerifyTimerRef.current);
+              autoVerifyTimerRef.current = null;
+            }
+            setAutoCaptureCounting(false);
             // A deliberate head turn can briefly move the face outside the
             // strict center box. Keep the liveness challenge alive so the
             // instruction remains visible instead of restarting silently.
@@ -374,6 +406,11 @@ export default function FaceVerificationModal({
             poseStreak = 0;
             poseStreakValue = null;
             if (stableTimer.current !== null) window.clearTimeout(stableTimer.current);
+            if (autoVerifyTimerRef.current !== null) {
+              window.clearTimeout(autoVerifyTimerRef.current);
+              autoVerifyTimerRef.current = null;
+            }
+            setAutoCaptureCounting(false);
             setFrameQuality("invalid");
             setFrameQualityMessage(quality.message);
           }
@@ -401,11 +438,17 @@ export default function FaceVerificationModal({
     setCapturedImage(null);
     setFrameQuality("checking");
     setFrameQualityMessage("Đang kiểm tra người dùng trong khung hình...");
+    setAutoCaptureCounting(false);
     qualityReady.current = false;
     stablePositionReady.current = false;
     livenessPassed.current = false;
     lastGoodFrame.current = null;
+    frameScoresRef.current = [];
     if (stableTimer.current !== null) window.clearTimeout(stableTimer.current);
+    if (autoVerifyTimerRef.current !== null) {
+      window.clearTimeout(autoVerifyTimerRef.current);
+      autoVerifyTimerRef.current = null;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -643,6 +686,11 @@ export default function FaceVerificationModal({
                 {frameQualityMessage}
               </div>
             )}
+            {cameraReady && !isBusy && frameQuality === "ready" && autoCaptureCounting && (
+              <div className="pointer-events-none absolute inset-x-3 top-3 rounded-xl bg-emerald-950/75 px-3 py-2 text-center text-xs font-semibold text-emerald-100 animate-pulse">
+                ✓ Chất lượng tốt. Tự động chụp trong giây lát...
+              </div>
+            )}
             {isBusy && !isPinStep && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/65 text-center text-white">
                 <div className="relative h-20 w-20">
@@ -716,15 +764,19 @@ export default function FaceVerificationModal({
               className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-3 font-semibold text-white disabled:opacity-50"
             >
               {isBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-              {isBusy
+              {autoCaptureCounting
                 ? isEnrollment
-                  ? "Đang đăng ký..."
-                  : "Đang xác thực..."
-                : isEnrollment
-                  ? "Đăng ký khuôn mặt"
-                  : videoLoaded
-                    ? "Xác thực khuôn mặt"
-                    : "Đang chuẩn bị camera..."}
+                  ? "Đang đăng ký tự động..."
+                  : "Đang xác thực tự động..."
+                : isBusy
+                  ? isEnrollment
+                    ? "Đang đăng ký..."
+                    : "Đang xác thực..."
+                  : isEnrollment
+                    ? "Đăng ký khuôn mặt"
+                    : videoLoaded
+                      ? "Xác thực khuôn mặt"
+                      : "Đang chuẩn bị camera..."}
             </button>
           )}
         </div>
