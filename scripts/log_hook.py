@@ -5,10 +5,12 @@ Reads JSON from stdin, normalizes to common format, appends to .ai-log/session.j
 """
 import json
 import os
-import subprocess
 import sys
-from datetime import UTC, datetime
+import subprocess
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+VN_TZ = timezone(timedelta(hours=7))
 
 
 def git(cmd):
@@ -51,7 +53,7 @@ def detect_tool(data: dict) -> str:
 def normalize(data: dict, tool: str) -> dict | None:
     """Normalize tool-specific payload to common log entry."""
     event = data.get("hook_event_name") or data.get("event", "")
-    ts = datetime.now(UTC).isoformat()
+    ts = datetime.now(VN_TZ).isoformat()
 
     # Resolve repo from git origin. When cwd is not a git working tree (or
     # origin isn't set), skip the event entirely — these entries can't be
@@ -143,11 +145,11 @@ def normalize(data: dict, tool: str) -> dict | None:
     # this only checked `prompt`, which dropped Claude Bash/Edit events (their
     # tool_input has `command` / `file_path`, not `prompt` or `content`) and
     # any Gemini/Cursor/Copilot turn that carried context but no plain prompt.
-    payload_keys = ("prompt", "tool_input", "response_summary",
-                    "tool_response", "tool_args", "files_context")
-    lifecycle_events = ("Stop", "stop", "SessionEnd", "sessionEnd", "AfterModel")
-    has_payload = any(base.get(k) for k in payload_keys)
-    if not has_payload and event not in lifecycle_events:
+    _PAYLOAD_KEYS = ("prompt", "tool_input", "response_summary",
+                     "tool_response", "tool_args", "files_context")
+    _LIFECYCLE_EVENTS = ("Stop", "stop", "SessionEnd", "sessionEnd", "AfterModel")
+    has_payload = any(base.get(k) for k in _PAYLOAD_KEYS)
+    if not has_payload and event not in _LIFECYCLE_EVENTS:
         return None
 
     return base
@@ -178,8 +180,11 @@ def main():
     with open(log_file, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-    # Output valid JSON (required by some tools like Gemini)
-    if tool != "codex":
+    # Claude Code parses successful hook stdout using an event-specific schema.
+    # A generic payload such as {"status": "logged"} is invalid for Stop hooks,
+    # so logging-only hooks must remain silent. Gemini expects JSON output, so
+    # preserve the acknowledgement only for that integration.
+    if tool == "gemini":
         print(json.dumps({"status": "logged"}))
 
 

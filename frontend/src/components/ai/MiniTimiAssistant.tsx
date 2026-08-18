@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, MessageCircle, Minimize2, Send, Sparkles, Shield, X, Zap } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
@@ -153,7 +154,14 @@ export default function MiniTimiAssistant() {
     chatMutation.mutate({ message, history });
   };
 
-  return (
+  // Render via a portal straight onto <body>. This is the key fix: if any
+  // ancestor in the app tree has `transform`, `filter`, `perspective`, or
+  // `will-change`, `position: fixed` inside it stops being fixed to the
+  // viewport and instead "fixes" to that ancestor — which is what makes a
+  // fixed widget appear to drift while scrolling. Mounting outside the
+  // normal DOM tree (on document.body) guarantees the widget always stays
+  // pinned to the screen regardless of what any parent component does.
+  const widget = (
     <aside className={`fixed bottom-20 right-4 sm:bottom-6 sm:right-6 ${criticalAlert ? "z-[100]" : "z-40"}`} aria-label="Trợ lý Timi">
       {/* Tip Card */}
       {isOpen && !chatOpen && (
@@ -288,4 +296,6 @@ export default function MiniTimiAssistant() {
       </button>
     </aside>
   );
+
+  return createPortal(widget, document.body);
 }
