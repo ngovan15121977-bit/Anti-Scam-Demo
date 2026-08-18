@@ -2,25 +2,25 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
-  Send,
   ShieldAlert,
   CheckCircle2,
   User,
   Building2,
-  CreditCard,
   ChevronRight,
   Loader2,
-  Wallet,
-  Banknote,
   Shield,
-  Sparkles,
-  Lightbulb,
   Lock,
   Eye,
   EyeOff,
   Star,
-  Heart,
   QrCode,
+  Search,
+  Bell,
+  Plus,
+  Home,
+  CreditCard as CardIcon,
+  HandCoins,
+  ScanLine,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { transactionsApi } from "@/api/transactions";
@@ -91,11 +91,15 @@ const banks = [
   { code: "WOORI", name: "Woori Bank Vietnam" },
 ];
 
-const tips = [
-  { icon: Shield, text: "Kiểm tra kỹ số tài khoản trước khi chuyển" },
-  { icon: Lock, text: "Không chuyển tiền cho người lạ qua mạng xã hội" },
-  { icon: Sparkles, text: "AI sẽ quét tự động trước mỗi giao dịch" },
-];
+/** Recent contact from DB (avatar + name + account info) */
+interface RecentContact {
+  id: string;
+  full_name: string;
+  account_number: string;
+  bank_code: string;
+  avatar_url?: string | null;
+  last_transferred_at?: string;
+}
 
 const amountInputFormatter = new Intl.NumberFormat("vi-VN", {
   maximumFractionDigits: 0,
@@ -123,6 +127,49 @@ export default function TransferPage() {
     queryFn: authApi.transactionPinStatus,
     staleTime: 0,
   });
+
+  // Recent contacts from DB (name + avatar_url + account)
+  const recentContactsQuery = useQuery({
+    queryKey: ["recent-contacts"],
+    queryFn: async (): Promise<RecentContact[]> => {
+      // Primary: dedicated endpoint (recommended)
+      if (typeof (transactionsApi as any).getRecentContacts === "function") {
+        return (transactionsApi as any).getRecentContacts();
+      }
+      // Fallback: derive unique recipients from recent outgoing history
+      if (typeof (transactionsApi as any).getHistory === "function") {
+        const history = await (transactionsApi as any).getHistory({
+          limit: 30,
+          direction: "outgoing",
+        });
+        const items = Array.isArray(history) ? history : history?.items ?? history?.data ?? [];
+        const seen = new Set<string>();
+        const result: RecentContact[] = [];
+        for (const tx of items) {
+          const account = String(tx.payee_account ?? tx.recipient_account ?? "").replace(/\s/g, "");
+          const bank = String(tx.bank_code ?? tx.recipient_bank_code ?? "");
+          const name = String(tx.payee_name ?? tx.recipient_name ?? tx.account_name ?? "").trim();
+          if (!account || !bank || !name) continue;
+          const key = `${bank}:${account}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          result.push({
+            id: tx.id ?? key,
+            full_name: name,
+            account_number: account,
+            bank_code: bank,
+            avatar_url: tx.recipient_avatar_url ?? tx.avatar_url ?? null,
+            last_transferred_at: tx.created_at ?? tx.transferred_at,
+          });
+          if (result.length >= 8) break;
+        }
+        return result;
+      }
+      return [];
+    },
+    staleTime: 60_000,
+  });
+
   const dailyTransferLimit = 100_000_000;
   const completedToday = dailySummaryQuery.data?.completed_outgoing_today ?? 0;
   const remainingDailyLimit = Math.max(0, dailyTransferLimit - completedToday);
@@ -152,6 +199,7 @@ export default function TransferPage() {
   const [isBankPickerOpen, setBankPickerOpen] = useState(false);
   const [bankSearch, setBankSearch] = useState("");
   const [bankActiveIndex, setBankActiveIndex] = useState(0);
+  const [selectedRecentId, setSelectedRecentId] = useState<string | null>(null);
   const selectedBank = banks.find((bank) => bank.code === form.bank_code);
   const normalizedBankSearch = bankSearch.trim().toLocaleLowerCase("vi-VN");
   const filteredBanks = banks.filter((bank) =>
@@ -200,6 +248,7 @@ export default function TransferPage() {
     }));
     setBankSearch(banks.find((bank) => bank.code === bankCode)?.name ?? "");
     setRecipientLookupState({ status: "idle" });
+    setSelectedRecentId(null);
     navigate("/transfer", { replace: true, state: null });
   }, [location.state, navigate]);
 
@@ -233,6 +282,7 @@ export default function TransferPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["transaction-history"] });
       queryClient.invalidateQueries({ queryKey: ["transaction-history-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["recent-contacts"] });
       void fetchMe();
       if (data.transaction_status === "completed") {
         setAssistantActivity({ status: "complete", message: "Giao dịch đã hoàn tất. Timi vui vì có thể đồng hành cùng bạn!" });
@@ -340,6 +390,7 @@ export default function TransferPage() {
   }, [form.recipient_account, form.bank_code]);
 
   const handleAccountChange = (recipient_account: string) => {
+    setSelectedRecentId(null);
     setForm((current) => ({
       ...current,
       recipient_account: recipient_account.replace(/\D/g, "").slice(0, 19),
@@ -348,7 +399,36 @@ export default function TransferPage() {
     }));
   };
 
+  const handleSelectRecentContact = (contact: RecentContact) => {
+    setSelectedRecentId(contact.id);
+    setForm((current) => ({
+      ...current,
+      recipient_account: contact.account_number.replace(/\D/g, "").slice(0, 19),
+      bank_code: contact.bank_code,
+      // Clear name + token so the existing lookup effect fetches a fresh
+      // signed verification token (security requirement of the original flow).
+      recipient_name: "",
+      recipient_lookup_token: "",
+    }));
+    setBankSearch(banks.find((b) => b.code === contact.bank_code)?.name ?? contact.bank_code);
+    setBankPickerOpen(false);
+  };
+
+  const handleAddNewContact = () => {
+    setSelectedRecentId(null);
+    setForm((current) => ({
+      ...current,
+      recipient_account: "",
+      recipient_name: "",
+      recipient_lookup_token: "",
+      bank_code: "",
+    }));
+    setBankSearch("");
+    setRecipientLookupState({ status: "idle" });
+  };
+
   const handleBankChange = (bank_code: string) => {
+    setSelectedRecentId(null);
     setForm((current) => ({
       ...current,
       bank_code,
@@ -456,455 +536,793 @@ export default function TransferPage() {
   const requiresFaceVerification = Boolean(riskData?.requires_face_verification);
 
   if (pinStatus.isLoading) {
-    return <div className="flex min-h-screen items-center justify-center bg-gray-50 text-sm text-slate-500">Đang kiểm tra mã PIN...</div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f5f3ff] text-sm text-slate-500">
+        Đang kiểm tra mã PIN...
+      </div>
+    );
   }
 
   if (pinStatus.isError || !pinStatus.data?.configured) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
-        <div className="w-full max-w-md rounded-3xl bg-white p-7 text-center shadow-xl">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-rose-100">
-            <Lock className="h-8 w-8 text-rose-600" />
+      <div className="flex min-h-screen items-center justify-center bg-[#f5f3ff] p-4">
+        <div className="w-full max-w-md rounded-3xl bg-white p-7 text-center shadow-xl border border-violet-100">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-violet-100">
+            <Lock className="h-8 w-8 text-violet-600" />
           </div>
           <h1 className="mt-5 text-2xl font-bold text-slate-900">Bạn chưa cài mã PIN</h1>
-          <p className="mt-3 text-sm leading-relaxed text-slate-600">Bạn cần tạo mã PIN giao dịch trước khi thực hiện chuyển tiền.</p>
-          <button onClick={() => navigate("/setup-pin")} className="mt-6 w-full rounded-xl bg-rose-600 py-3 font-bold text-white">Đăng ký mã PIN</button>
-          <button onClick={() => navigate("/dashboard")} className="mt-3 w-full rounded-xl bg-slate-100 py-3 font-semibold text-slate-700">Quay lại Dashboard</button>
+          <p className="mt-3 text-sm leading-relaxed text-slate-600">
+            Bạn cần tạo mã PIN giao dịch trước khi thực hiện chuyển tiền.
+          </p>
+          <button
+            onClick={() => navigate("/setup-pin")}
+            className="mt-6 w-full rounded-xl bg-violet-600 py-3 font-bold text-white hover:bg-violet-700 transition-colors"
+          >
+            Đăng ký mã PIN
+          </button>
+          <button
+            onClick={() => navigate("/dashboard")}
+            className="mt-3 w-full rounded-xl bg-slate-100 py-3 font-semibold text-slate-700 hover:bg-slate-200 transition-colors"
+          >
+            Quay lại Dashboard
+          </button>
         </div>
       </div>
     );
   }
 
+  /* ===================== FORM STEP – UI khớp ảnh 1:1 ===================== */
   if (step === "form") {
     return (
-      <div className="min-h-screen bg-gray-50 w-full relative overflow-hidden">
-        {/* Decorative Background */}
+      <div className="min-h-screen bg-[#f5f3ff] w-full relative overflow-x-hidden">
+        {/* Soft background blobs matching the image mood */}
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-          <div className="absolute top-0 left-0 w-[450px] h-[450px] bg-gradient-to-br from-rose-200/30 to-pink-200/20 rounded-full blur-3xl -translate-x-1/3 -translate-y-1/3" />
-          <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-gradient-to-br from-amber-200/25 to-orange-200/15 rounded-full blur-3xl translate-x-1/4 translate-y-1/4" />
-          <div className="absolute top-1/2 right-0 w-[300px] h-[300px] bg-gradient-to-br from-blue-200/20 to-violet-200/15 rounded-full blur-3xl translate-x-1/3" />
-          <div className="absolute top-20 right-20 w-3 h-3 bg-rose-300 rounded-full opacity-30" />
-          <div className="absolute bottom-32 left-20 w-2 h-2 bg-amber-300 rounded-full opacity-40" />
-          <div className="absolute top-1/3 left-10 w-2 h-2 bg-pink-300 rounded-full opacity-30" />
+          <div className="absolute -top-32 -left-32 w-[480px] h-[480px] bg-violet-200/40 rounded-full blur-3xl" />
+          <div className="absolute top-1/3 -right-24 w-[420px] h-[420px] bg-fuchsia-200/30 rounded-full blur-3xl" />
+          <div className="absolute bottom-0 left-1/3 w-[380px] h-[380px] bg-indigo-200/25 rounded-full blur-3xl" />
         </div>
 
-        <div className="relative z-10">
-          <div className="bg-white/80 backdrop-blur-md border-b border-gray-100 px-4 sm:px-6 lg:px-8 xl:px-12 py-4 flex items-center gap-3 sticky top-0 z-20">
-            <button
-              onClick={() => navigate("/dashboard")}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
-            </button>
-            <h1 className="text-lg font-bold text-gray-800">Chuyển tiền</h1>
-          </div>
-
-          <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 py-6">
-            <div className="grid lg:grid-cols-12 gap-6">
-              {/* Left Decorative Sidebar */}
-              <div className="hidden xl:block lg:col-span-2 space-y-4">
-                <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 sticky top-24">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Lightbulb className="w-4 h-4 text-amber-500" />
-                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-                      Mẹo bảo mật
-                    </h3>
-                  </div>
-                  <div className="space-y-3">
-                    {tips.map((tip, i) => (
-                      <div
-                        key={i}
-                        className="flex items-start gap-2.5 p-2.5 rounded-xl bg-gray-50/80"
-                      >
-                        <tip.icon className="w-4 h-4 text-rose-400 mt-0.5 shrink-0" />
-                        <p className="text-xs text-gray-600 leading-relaxed">
-                          {tip.text}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="bg-gradient-to-br from-rose-500 to-pink-600 rounded-2xl p-5 text-white shadow-lg shadow-rose-200 relative overflow-hidden">
-                  <div className="absolute -top-3 -right-3 w-16 h-16 bg-white/10 rounded-full" />
-                  <Heart className="w-5 h-5 text-white/40 mb-2" />
-                  <p className="text-xs font-bold mb-1">Timi bảo vệ bạn</p>
-                  <p className="text-[10px] text-rose-100">
-                    Đã chặn 1.2K giao dịch lừa đảo tháng này
-                  </p>
-                </div>
+        <div className="relative z-10 max-w-[1400px] mx-auto">
+          {/* ===== TOP HEADER ===== */}
+          <header className="px-4 sm:px-6 lg:px-8 pt-5 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigate("/dashboard")}
+                className="p-2 hover:bg-white/70 rounded-full transition-colors"
+                aria-label="Quay lại"
+              >
+                <ArrowLeft className="w-5 h-5 text-slate-600" />
+              </button>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                  Chuyển tiền
+                </h1>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Gửi tiền an toàn đến người nhận của bạn
+                </p>
               </div>
+            </div>
 
-              {/* Main Form */}
-              <div className="lg:col-span-7 xl:col-span-7 space-y-5">
-                <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-gray-100 relative overflow-visible">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-rose-50 rounded-full -translate-y-1/2 translate-x-1/2" />
-                  <div className="relative">
-                    <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
-                      Thông tin người nhận
-                    </h2>
-                    <div className="space-y-4">
-                      <div>
-                        <div className="mb-1.5 flex items-center justify-between gap-3">
-                          <label className="text-sm font-medium text-gray-700">
-                            Số tài khoản
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => navigate("/qr?mode=scan")}
-                            className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:text-rose-700"
-                          >
-                            <QrCode className="w-4 h-4" />
-                            Quét QR
-                          </button>
-                        </div>
-                        <div className="relative">
-                          <CreditCard className="absolute left-3.5 top-3 w-5 h-5 text-gray-400" />
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="Nhập số tài khoản"
-                            className="w-full pl-11 pr-4 py-2.5 bg-gray-50 rounded-xl border-0 text-gray-800 focus:ring-2 focus:ring-rose-500 outline-none transition-shadow"
-                            value={form.recipient_account}
-                            onChange={(e) =>
-                              handleAccountChange(e.target.value)
-                            }
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium text-gray-700 mb-1.5 block">
-                          Tên chủ tài khoản
-                        </label>
-                        <div className="relative min-h-11 flex items-center pl-11 pr-10 py-2.5 bg-gray-50 rounded-xl text-gray-800">
-                          <User className="absolute left-3.5 top-3 w-5 h-5 text-gray-400" />
-                          {recipientLookupState.status === "loading" ? (
-                            <span className="flex items-center gap-2 text-sm text-gray-500">
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Đang tra cứu dữ liệu nội bộ...
-                            </span>
-                          ) : form.recipient_name ? (
-                            <span className="font-semibold text-sm">
-                              {form.recipient_name}
-                            </span>
-                          ) : (
-                            <span className="text-sm text-gray-400">
-                              Tên tài khoản
-                            </span>
-                          )}
-                          {recipientLookupState.status === "success" && (
-                            <CheckCircle2 className="absolute right-3.5 w-5 h-5 text-emerald-500" />
-                          )}
-                        </div>
-                        {recipientLookupState.status === "error" && (
-                          <p className="mt-1.5 text-xs text-rose-600">
-                            {recipientLookupState.message}
-                          </p>
-                        )}
-                        {recipientLookupState.status === "idle" &&
-                          recipientLookupState.message && (
-                            <p className="mt-1.5 text-xs text-gray-500">
-                              {recipientLookupState.message}
-                            </p>
-                          )}
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium text-gray-700 mb-1.5 block">
-                          Ngân hàng
-                        </label>
-                        <div className="relative">
-                          <Building2 className="absolute left-3.5 top-3 w-5 h-5 text-gray-400" />
-                          <input
-                            type="text"
-                            role="combobox"
-                            aria-autocomplete="list"
-                            aria-controls="recipient-bank-options"
-                            aria-expanded={isBankPickerOpen}
-                            aria-activedescendant={
-                              isBankPickerOpen && filteredBanks[bankActiveIndex]
-                                ? `bank-option-${filteredBanks[bankActiveIndex].code}`
-                                : undefined
-                            }
-                            placeholder="Nhập tên hoặc mã ngân hàng"
-                            className="w-full pl-11 pr-10 py-2.5 bg-gray-50 rounded-xl border-0 text-gray-800 focus:ring-2 focus:ring-rose-500 outline-none transition-shadow"
-                            value={
-                              isBankPickerOpen || !form.bank_code
-                                ? bankSearch
-                                : (selectedBank?.name ?? "")
-                            }
-                            onFocus={handleBankFocus}
-                            onKeyDown={handleBankKeyDown}
-                            onBlur={() => setBankPickerOpen(false)}
-                            onChange={(e) =>
-                              handleBankSearchChange(e.target.value)
-                            }
-                          />
-                          <ChevronRight className="absolute right-3.5 top-3 w-5 h-5 text-gray-400 rotate-90 pointer-events-none" />
-                          {isBankPickerOpen && (
-                            <div
-                              id="recipient-bank-options"
-                              role="listbox"
-                              className="absolute left-0 top-full z-30 mt-2 max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl"
-                            >
-                              {filteredBanks.length === 0 ? (
-                                <p className="px-3 py-2 text-sm text-gray-500">
-                                  Không tìm thấy ngân hàng phù hợp.
-                                </p>
-                              ) : (
-                                filteredBanks.map((bank) => (
-                                  <button
-                                    key={bank.code}
-                                    id={`bank-option-${bank.code}`}
-                                    type="button"
-                                    role="option"
-                                    aria-selected={bank.code === form.bank_code}
-                                    onMouseDown={(event) => {
-                                      event.preventDefault();
-                                      handleBankChange(bank.code);
-                                    }}
-                                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-rose-50 ${
-                                      filteredBanks[bankActiveIndex]?.code === bank.code
-                                        ? "bg-rose-50"
-                                        : ""
-                                    }`}
-                                  >
-                                    <span className="font-medium text-gray-800">
-                                      {bank.name}
-                                    </span>
-                                    <span className="text-xs font-semibold text-gray-400">
-                                      {bank.code}
-                                    </span>
-                                  </button>
-                                ))
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+            <div className="flex items-center gap-3">
+              <div className="hidden md:flex items-center gap-2 bg-white rounded-full px-4 py-2.5 shadow-sm border border-violet-100 w-64">
+                <Search className="w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Tìm giao dịch..."
+                  className="bg-transparent text-sm text-slate-700 outline-none w-full placeholder:text-slate-400"
+                  readOnly
+                />
+              </div>
+              <button className="relative p-2.5 bg-white rounded-full shadow-sm border border-violet-100 hover:bg-violet-50 transition-colors">
+                <Bell className="w-5 h-5 text-slate-600" />
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-violet-500 rounded-full" />
+              </button>
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-white font-semibold text-sm shadow-md">
+                {user?.full_name?.charAt(0)?.toUpperCase() || "U"}
+              </div>
+            </div>
+          </header>
 
-                <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-gray-100 relative overflow-hidden">
-                  <div className="absolute bottom-0 left-0 w-24 h-24 bg-amber-50 rounded-full translate-y-1/2 -translate-x-1/2" />
-                  <div className="relative">
-                    <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
-                      Số tiền
-                    </h2>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        autoComplete="off"
-                        aria-label="Số tiền chuyển"
-                        placeholder="0"
-                        className="w-full pr-16 text-3xl sm:text-4xl font-bold tabular-nums text-gray-800 bg-transparent border-0 focus:ring-0 outline-none placeholder-gray-300"
-                        value={
-                          form.amount
-                            ? amountInputFormatter.format(Number(form.amount))
-                            : ""
-                        }
-                        onChange={(e) => {
-                          const amount = normalizeAmountInput(e.target.value);
-                          setForm((current) => ({ ...current, amount }));
-                        }}
-                      />
-                      <span className="absolute right-0 top-2 text-lg text-gray-500 font-semibold">
-                        VND
+          {/* ===== PROGRESS STEPS ===== */}
+          <div className="px-4 sm:px-6 lg:px-8 mb-6">
+            <div className="bg-white/80 backdrop-blur-sm rounded-2xl px-4 sm:px-6 py-4 shadow-sm border border-violet-100/80">
+              <div className="flex items-center justify-between max-w-2xl mx-auto">
+                {[
+                  { num: 1, label: "Người nhận" },
+                  { num: 2, label: "Số tiền" },
+                  { num: 3, label: "Xem lại" },
+                  { num: 4, label: "Xác nhận" },
+                ].map((s, idx) => (
+                  <div key={s.num} className="flex items-center flex-1 last:flex-none">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                          s.num === 1
+                            ? "bg-violet-600 text-white shadow-md shadow-violet-200"
+                            : "bg-slate-100 text-slate-400"
+                        }`}
+                      >
+                        {s.num}
+                      </div>
+                      <span
+                        className={`text-xs font-medium hidden sm:block ${
+                          s.num === 1 ? "text-violet-700" : "text-slate-400"
+                        }`}
+                      >
+                        {s.label}
                       </span>
                     </div>
-                    <div className="flex gap-2 mt-4 overflow-x-auto pb-1 scrollbar-hide">
-                      {["50000", "100000", "200000", "500000", "1000000", "10000000"].map(
-                        (amount) => (
-                          <button
-                            key={amount}
-                            onClick={() => setForm({ ...form, amount })}
-                            className="px-4 py-2 bg-gray-100 rounded-xl text-sm font-semibold text-gray-600 hover:bg-rose-100 hover:text-rose-600 transition-colors whitespace-nowrap"
+                    {idx < 3 && (
+                      <div
+                        className={`flex-1 h-0.5 mx-2 sm:mx-3 rounded-full ${
+                          s.num < 1 ? "bg-violet-500" : "bg-slate-200"
+                        }`}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ===== MAIN 3-COLUMN GRID ===== */}
+          <div className="px-4 sm:px-6 lg:px-8 pb-10">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6">
+              {/* ---------- LEFT: Select Recipient ---------- */}
+              <div className="lg:col-span-4 space-y-4">
+                <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-violet-100/80">
+                  <h2 className="text-base font-bold text-slate-900 mb-4">
+                    Chọn người nhận
+                  </h2>
+
+                  {/* Search / Account input */}
+                  <div className="relative mb-5">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Tìm theo số tài khoản..."
+                      className="w-full pl-10 pr-4 py-3 bg-slate-50 rounded-xl border border-transparent text-slate-800 text-sm focus:ring-2 focus:ring-violet-400 focus:border-violet-300 outline-none transition-all"
+                      value={form.recipient_account}
+                      onChange={(e) => handleAccountChange(e.target.value)}
+                    />
+                  </div>
+
+                  {/* QR shortcut */}
+                  <button
+                    type="button"
+                    onClick={() => navigate("/qr?mode=scan")}
+                    className="w-full mb-5 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-violet-300 text-violet-600 text-sm font-semibold hover:bg-violet-50 transition-colors"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    Quét mã QR
+                  </button>
+
+                  {/* ===== Recent Contacts (from DB) ===== */}
+                  <div className="mb-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-semibold text-slate-800">
+                        Recent Contacts
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => navigate("/contacts")}
+                        className="text-xs font-semibold text-violet-600 hover:text-violet-700 transition-colors"
+                      >
+                        View All
+                      </button>
+                    </div>
+
+                    <div className="flex items-start gap-4 overflow-x-auto pb-1 scrollbar-hide">
+                      {/* Add New */}
+                      <button
+                        type="button"
+                        onClick={handleAddNewContact}
+                        className="flex-shrink-0 flex flex-col items-center gap-1.5 group"
+                      >
+                        <div className="w-14 h-14 rounded-full border-2 border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-slate-400 group-hover:border-violet-400 group-hover:text-violet-500 group-hover:bg-violet-50 transition-all">
+                          <Plus className="w-5 h-5" strokeWidth={2.5} />
+                        </div>
+                        <span className="text-xs text-slate-500 font-medium">
+                          Add New
+                        </span>
+                      </button>
+
+                      {/* Loading skeleton */}
+                      {recentContactsQuery.isLoading &&
+                        Array.from({ length: 4 }).map((_, i) => (
+                          <div
+                            key={i}
+                            className="flex-shrink-0 flex flex-col items-center gap-1.5"
                           >
-                            {new Intl.NumberFormat("vi-VN").format(
-                              parseInt(amount),
-                            )}
-                          </button>
-                        ),
+                            <div className="w-14 h-14 rounded-full bg-slate-200 animate-pulse" />
+                            <div className="h-3 w-12 rounded bg-slate-200 animate-pulse" />
+                          </div>
+                        ))}
+
+                      {/* Real contacts from DB */}
+                      {!recentContactsQuery.isLoading &&
+                        (recentContactsQuery.data ?? []).map((contact) => {
+                          const isSelected = selectedRecentId === contact.id;
+                          const initials = contact.full_name
+                            .split(" ")
+                            .map((w) => w[0])
+                            .join("")
+                            .slice(0, 2)
+                            .toUpperCase();
+                          const shortName =
+                            contact.full_name.length > 12
+                              ? contact.full_name.split(" ").slice(0, 2).join(" ")
+                              : contact.full_name;
+
+                          return (
+                            <button
+                              key={contact.id}
+                              type="button"
+                              onClick={() => handleSelectRecentContact(contact)}
+                              className="flex-shrink-0 flex flex-col items-center gap-1.5 group"
+                            >
+                              <div className="relative">
+                                <div
+                                  className={`w-14 h-14 rounded-full overflow-hidden transition-all ${
+                                    isSelected
+                                      ? "ring-2 ring-violet-500 ring-offset-2"
+                                      : "ring-0 group-hover:ring-2 group-hover:ring-violet-200 group-hover:ring-offset-1"
+                                  }`}
+                                >
+                                  {contact.avatar_url ? (
+                                    <img
+                                      src={contact.avatar_url}
+                                      alt={contact.full_name}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        // Fallback to initials if image fails
+                                        (e.target as HTMLImageElement).style.display =
+                                          "none";
+                                        (
+                                          e.target as HTMLImageElement
+                                        ).nextElementSibling?.classList.remove(
+                                          "hidden",
+                                        );
+                                      }}
+                                    />
+                                  ) : null}
+                                  <div
+                                    className={`w-full h-full flex items-center justify-center text-sm font-bold text-white bg-gradient-to-br from-violet-500 to-fuchsia-500 ${
+                                      contact.avatar_url ? "hidden" : ""
+                                    }`}
+                                  >
+                                    {initials}
+                                  </div>
+                                </div>
+
+                                {/* Green check badge when selected */}
+                                {isSelected && (
+                                  <div className="absolute -top-0.5 -right-0.5 w-5 h-5 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center shadow-sm">
+                                    <CheckCircle2
+                                      className="w-3 h-3 text-white"
+                                      strokeWidth={3}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                              <span
+                                className={`text-xs font-medium max-w-[64px] truncate text-center ${
+                                  isSelected
+                                    ? "text-violet-700"
+                                    : "text-slate-600"
+                                }`}
+                              >
+                                {shortName}
+                              </span>
+                            </button>
+                          );
+                        })}
+
+                      {/* Empty state */}
+                      {!recentContactsQuery.isLoading &&
+                        (recentContactsQuery.data ?? []).length === 0 && (
+                          <div className="flex-1 flex items-center justify-center py-3 text-xs text-slate-400">
+                            Chưa có liên hệ gần đây
+                          </div>
+                        )}
+                    </div>
+                  </div>
+
+                  {/* Bank picker */}
+                  <div className="mb-4">
+                    <label className="text-sm font-medium text-slate-700 mb-1.5 block">
+                      Ngân hàng
+                    </label>
+                    <div className="relative">
+                      <Building2 className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-controls="recipient-bank-options"
+                        aria-expanded={isBankPickerOpen}
+                        aria-activedescendant={
+                          isBankPickerOpen && filteredBanks[bankActiveIndex]
+                            ? `bank-option-${filteredBanks[bankActiveIndex].code}`
+                            : undefined
+                        }
+                        placeholder="Nhập tên hoặc mã ngân hàng"
+                        className="w-full pl-10 pr-10 py-2.5 bg-slate-50 rounded-xl border border-transparent text-slate-800 text-sm focus:ring-2 focus:ring-violet-400 outline-none transition-all"
+                        value={
+                          isBankPickerOpen || !form.bank_code
+                            ? bankSearch
+                            : (selectedBank?.name ?? "")
+                        }
+                        onFocus={handleBankFocus}
+                        onKeyDown={handleBankKeyDown}
+                        onBlur={() => setBankPickerOpen(false)}
+                        onChange={(e) => handleBankSearchChange(e.target.value)}
+                      />
+                      <ChevronRight className="absolute right-3.5 top-3 w-4 h-4 text-slate-400 rotate-90 pointer-events-none" />
+                      {isBankPickerOpen && (
+                        <div
+                          id="recipient-bank-options"
+                          role="listbox"
+                          className="absolute left-0 top-full z-30 mt-2 max-h-56 w-full overflow-y-auto rounded-xl border border-violet-100 bg-white p-1.5 shadow-xl"
+                        >
+                          {filteredBanks.length === 0 ? (
+                            <p className="px-3 py-2 text-sm text-slate-500">
+                              Không tìm thấy ngân hàng phù hợp.
+                            </p>
+                          ) : (
+                            filteredBanks.map((bank) => (
+                              <button
+                                key={bank.code}
+                                id={`bank-option-${bank.code}`}
+                                type="button"
+                                role="option"
+                                aria-selected={bank.code === form.bank_code}
+                                onMouseDown={(event) => {
+                                  event.preventDefault();
+                                  handleBankChange(bank.code);
+                                }}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-violet-50 ${
+                                  filteredBanks[bankActiveIndex]?.code === bank.code
+                                    ? "bg-violet-50"
+                                    : ""
+                                }`}
+                              >
+                                <span className="font-medium text-slate-800 text-sm">
+                                  {bank.name}
+                                </span>
+                                <span className="text-xs font-semibold text-slate-400">
+                                  {bank.code}
+                                </span>
+                              </button>
+                            ))
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
-                </div>
 
-                <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-gray-100">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 block">
-                    Nội dung chuyển tiền
-                  </label>
-                  <textarea
-                    placeholder="Nhập nội dung (không bắt buộc)"
-                    className="w-full p-3.5 bg-gray-50 rounded-xl border-0 text-gray-800 focus:ring-2 focus:ring-rose-500 outline-none resize-none transition-shadow"
-                    rows={2}
-                    value={form.note}
-                    onChange={(e) => setForm({ ...form, note: e.target.value })}
-                  />
+                  {/* Account name (lookup result) */}
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 mb-1.5 block">
+                      Tên chủ tài khoản
+                    </label>
+                    <div className="relative min-h-[42px] flex items-center pl-10 pr-10 py-2.5 bg-slate-50 rounded-xl text-slate-800">
+                      <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      {recipientLookupState.status === "loading" ? (
+                        <span className="flex items-center gap-2 text-sm text-slate-500">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Đang tra cứu...
+                        </span>
+                      ) : form.recipient_name ? (
+                        <span className="font-semibold text-sm">{form.recipient_name}</span>
+                      ) : (
+                        <span className="text-sm text-slate-400">Tên tài khoản</span>
+                      )}
+                      {recipientLookupState.status === "success" && (
+                        <CheckCircle2 className="absolute right-3.5 w-5 h-5 text-emerald-500" />
+                      )}
+                    </div>
+                    {recipientLookupState.status === "error" && (
+                      <p className="mt-1.5 text-xs text-rose-600">
+                        {recipientLookupState.message}
+                      </p>
+                    )}
+                    {recipientLookupState.status === "idle" &&
+                      recipientLookupState.message && (
+                        <p className="mt-1.5 text-xs text-slate-500">
+                          {recipientLookupState.message}
+                        </p>
+                      )}
+                  </div>
                 </div>
-
-                <button
-                  onClick={handleSubmit}
-                  disabled={!isFormValid}
-                  className="w-full py-4 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold rounded-2xl shadow-lg shadow-rose-200 hover:shadow-xl active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  <Send className="w-5 h-5" />
-                  Tiếp tục
-                </button>
               </div>
 
-              {/* Right Sidebar */}
-              <div className="hidden lg:block lg:col-span-3 space-y-4">
-                <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 sticky top-24">
-                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
-                    Tóm tắt
-                  </h3>
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-                      <div className="w-10 h-10 bg-rose-100 rounded-lg flex items-center justify-center">
-                        <Wallet className="w-5 h-5 text-rose-500" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Số dư khả dụng</p>
-                        <p className="font-bold text-gray-900">
-                          {new Intl.NumberFormat("vi-VN").format(user?.balance ?? 0)} đ
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-                      <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                        <Banknote className="w-5 h-5 text-blue-500" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Hạn mức còn lại</p>
-                        <p className="font-bold text-gray-900">
-                          {new Intl.NumberFormat("vi-VN").format(remainingDailyLimit)} đ
-                        </p>
+              {/* ---------- CENTER: Amount + Message + Continue ---------- */}
+              <div className="lg:col-span-5 space-y-4">
+                <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-violet-100/80">
+                  <p className="text-sm text-slate-500 mb-1">Bạn đang chuyển</p>
+                  <div className="flex items-end gap-2 mb-1">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      aria-label="Số tiền chuyển"
+                      placeholder="0"
+                      className="w-full text-3xl sm:text-4xl font-bold tabular-nums text-slate-900 bg-transparent border-0 focus:ring-0 outline-none placeholder-slate-300"
+                      value={
+                        form.amount
+                          ? amountInputFormatter.format(Number(form.amount))
+                          : ""
+                      }
+                      onChange={(e) => {
+                        const amount = normalizeAmountInput(e.target.value);
+                        setForm((current) => ({ ...current, amount }));
+                      }}
+                    />
+                    <span className="text-lg font-semibold text-slate-500 pb-1 shrink-0">
+                      VND
+                    </span>
+                  </div>
+
+                  {/* Quick amount chips */}
+                  <div className="flex flex-wrap gap-2 mt-4 mb-6">
+                    {["50000", "100000", "200000", "500000", "1000000", "10000000"].map(
+                      (amount) => (
+                        <button
+                          key={amount}
+                          type="button"
+                          onClick={() => setForm({ ...form, amount })}
+                          className="px-3.5 py-1.5 bg-slate-100 hover:bg-violet-100 hover:text-violet-700 rounded-full text-xs font-semibold text-slate-600 transition-colors"
+                        >
+                          {new Intl.NumberFormat("vi-VN").format(parseInt(amount))}
+                        </button>
+                      ),
+                    )}
+                  </div>
+
+                  {/* Message */}
+                  <div className="mb-6">
+                    <label className="text-sm font-medium text-slate-700 mb-1.5 block">
+                      Nội dung (tuỳ chọn)
+                    </label>
+                    <textarea
+                      placeholder="Ví dụ: Thanh toán dịch vụ..."
+                      className="w-full p-3.5 bg-slate-50 rounded-xl border border-transparent text-slate-800 text-sm focus:ring-2 focus:ring-violet-400 outline-none resize-none transition-all"
+                      rows={2}
+                      value={form.note}
+                      onChange={(e) => setForm({ ...form, note: e.target.value })}
+                    />
+                  </div>
+
+                  {/* Transfer type – visual only (Standard free) to match image */}
+                  <div className="mb-6">
+                    <p className="text-sm font-medium text-slate-700 mb-3">
+                      Loại chuyển khoản
+                    </p>
+                    <div className="space-y-2.5">
+                      <label className="flex items-center gap-3 p-3.5 rounded-xl border-2 border-violet-500 bg-violet-50/50 cursor-default">
+                        <div className="w-5 h-5 rounded-full border-2 border-violet-600 flex items-center justify-center">
+                          <div className="w-2.5 h-2.5 rounded-full bg-violet-600" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-900 text-sm">
+                              Tiêu chuẩn
+                            </span>
+                            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                              Miễn phí
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            1–2 ngày làm việc
+                          </p>
+                        </div>
+                      </label>
+                      <div className="flex items-center gap-3 p-3.5 rounded-xl border border-slate-200 opacity-60">
+                        <div className="w-5 h-5 rounded-full border-2 border-slate-300" />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-700 text-sm">
+                              Instant
+                            </span>
+                            <span className="text-xs font-medium text-slate-500">
+                              Phí 1.500đ
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Trong vòng 5 phút
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
-                  <div className="mt-4 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                    <div className="flex items-center gap-2">
-                      <ShieldAlert className="w-4 h-4 text-emerald-500" />
-                      <p className="text-xs font-semibold text-emerald-700">
-                        AI Anti-Scam đang bảo vệ
+
+                  {/* Continue button */}
+                  <button
+                    onClick={handleSubmit}
+                    disabled={!isFormValid}
+                    className="w-full py-3.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white font-bold rounded-xl shadow-lg shadow-violet-200 hover:shadow-xl hover:from-violet-700 hover:to-fuchsia-700 active:scale-[0.98] transition-all disabled:opacity-45 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-2"
+                  >
+                    Tiếp tục
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+
+                  <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-slate-500">
+                    <Lock className="w-3.5 h-3.5 text-violet-500" />
+                    Giao dịch của bạn được bảo vệ bởi Timi Security
+                  </div>
+                </div>
+              </div>
+
+              {/* ---------- RIGHT: AI + Balance + Quick Actions ---------- */}
+              <div className="lg:col-span-3 space-y-4">
+                {/* AI Protection */}
+                <div className="bg-white rounded-2xl p-5 shadow-sm border border-violet-100/80">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
+                      <Shield className="w-5 h-5 text-violet-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-sm">
+                        AI Protection
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                        Giao dịch của bạn được bảo vệ bằng công nghệ AI tiên tiến.
                       </p>
+                      <button
+                        type="button"
+                        className="mt-2 text-xs font-semibold text-violet-600 hover:text-violet-700"
+                      >
+                        Tìm hiểu thêm
+                      </button>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-violet-500 to-purple-600 rounded-2xl p-5 text-white shadow-lg shadow-violet-200 relative overflow-hidden">
-                  <div className="absolute -bottom-4 -right-4 w-20 h-20 bg-white/10 rounded-full" />
-                  <Star className="w-5 h-5 text-white/40 mb-2" />
-                  <p className="text-xs font-bold mb-1">Ưu đãi chuyển tiền</p>
-                  <p className="text-[10px] text-violet-100">
-                    Miễn phí chuyển tiền đến 20 ngân hàng
+                {/* Account Balance */}
+                <div className="bg-white rounded-2xl p-5 shadow-sm border border-violet-100/80">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                    Số dư khả dụng
+                  </p>
+                  <p className="text-2xl font-bold text-slate-900 tabular-nums">
+                    {new Intl.NumberFormat("vi-VN").format(user?.balance ?? 0)}{" "}
+                    <span className="text-base font-semibold text-slate-500">đ</span>
+                  </p>
+                  <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+                    <span className="text-xs text-slate-500">Hạn mức còn lại</span>
+                    <span className="text-xs font-bold text-slate-800 tabular-nums">
+                      {new Intl.NumberFormat("vi-VN").format(remainingDailyLimit)} đ
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick Actions */}
+                <div className="bg-white rounded-2xl p-5 shadow-sm border border-violet-100/80">
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                    Thao tác nhanh
+                  </h3>
+                  <div className="space-y-1">
+                    {[
+                      {
+                        icon: Home,
+                        label: "Chuyển đến ngân hàng",
+                        sub: "Chuyển khoản liên ngân hàng",
+                        action: () => {},
+                      },
+                      {
+                        icon: CardIcon,
+                        label: "Chuyển đến thẻ",
+                        sub: "Thẻ ghi nợ / tín dụng",
+                        action: () => {},
+                      },
+                      {
+                        icon: HandCoins,
+                        label: "Yêu cầu tiền",
+                        sub: "Yêu cầu từ danh bạ",
+                        action: () => {},
+                      },
+                      {
+                        icon: ScanLine,
+                        label: "Quét mã QR",
+                        sub: "Thanh toán tức thì",
+                        action: () => navigate("/qr?mode=scan"),
+                      },
+                    ].map((item, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={item.action}
+                        className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-violet-50 transition-colors group"
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-slate-100 group-hover:bg-violet-100 flex items-center justify-center transition-colors">
+                          <item.icon className="w-4 h-4 text-slate-600 group-hover:text-violet-600" />
+                        </div>
+                        <div className="flex-1 text-left min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">
+                            {item.label}
+                          </p>
+                          <p className="text-[11px] text-slate-500 truncate">
+                            {item.sub}
+                          </p>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-violet-400" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Bottom promo card */}
+                <div className="bg-gradient-to-br from-violet-600 to-fuchsia-600 rounded-2xl p-5 text-white shadow-lg shadow-violet-200/60 relative overflow-hidden">
+                  <div className="absolute -top-4 -right-4 w-20 h-20 bg-white/10 rounded-full" />
+                  <div className="absolute bottom-0 left-0 w-16 h-16 bg-white/5 rounded-full -translate-x-1/2 translate-y-1/2" />
+                  <Star className="w-5 h-5 text-white/50 mb-2" />
+                  <p className="text-sm font-bold mb-1">Timi bảo vệ bạn</p>
+                  <p className="text-xs text-violet-100 leading-relaxed">
+                    Đã chặn hơn 1.2K giao dịch lừa đảo trong tháng này
                   </p>
                 </div>
               </div>
             </div>
           </div>
+
+          {/* Footer */}
+          <footer className="px-4 sm:px-6 lg:px-8 pb-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
+            <p>© 2024 Timi. All rights reserved.</p>
+            <div className="flex items-center gap-4">
+              <button className="hover:text-slate-600 transition-colors">
+                Privacy Policy
+              </button>
+              <button className="hover:text-slate-600 transition-colors">
+                Terms of Service
+              </button>
+              <button className="hover:text-slate-600 transition-colors">
+                Help Center
+              </button>
+            </div>
+          </footer>
         </div>
       </div>
     );
   }
 
+  /* ===================== REVIEW STEP ===================== */
   if (step === "review") {
     return (
-      <div className="min-h-screen bg-gray-50 w-full relative overflow-hidden">
+      <div className="min-h-screen bg-[#f5f3ff] w-full relative overflow-hidden">
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-          <div className="absolute top-0 left-0 w-[400px] h-[400px] bg-gradient-to-br from-rose-200/30 to-pink-200/20 rounded-full blur-3xl -translate-x-1/3 -translate-y-1/3" />
-          <div className="absolute bottom-0 right-0 w-[350px] h-[350px] bg-gradient-to-br from-amber-200/25 to-orange-200/15 rounded-full blur-3xl translate-x-1/4 translate-y-1/4" />
+          <div className="absolute -top-32 -left-32 w-[420px] h-[420px] bg-violet-200/40 rounded-full blur-3xl" />
+          <div className="absolute bottom-0 right-0 w-[380px] h-[380px] bg-fuchsia-200/30 rounded-full blur-3xl" />
         </div>
-        <div className="relative z-10">
-          <div className="bg-white/80 backdrop-blur-md border-b border-gray-100 px-4 sm:px-6 lg:px-8 xl:px-12 py-4 flex items-center gap-3 sticky top-0 z-20">
+        <div className="relative z-10 max-w-3xl mx-auto">
+          <header className="px-4 sm:px-6 pt-5 pb-4 flex items-center gap-3">
             <button
               onClick={() => setStep("form")}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              className="p-2 hover:bg-white/70 rounded-full transition-colors"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+              <ArrowLeft className="w-5 h-5 text-slate-600" />
             </button>
-            <h1 className="text-lg font-bold text-gray-800">
-              Xác nhận giao dịch
-            </h1>
-          </div>
-          <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 py-6">
-            <div className="grid lg:grid-cols-12 gap-6">
-              <div className="hidden xl:block lg:col-span-3" />
-              <div className="lg:col-span-6">
-                <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-gray-100 space-y-5 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-rose-50 rounded-full -translate-y-1/2 translate-x-1/2" />
-                  <div className="relative">
-                    <div className="flex justify-between items-center py-2">
-                      <span className="text-gray-500 text-sm">Người nhận</span>
-                      <span className="font-bold text-gray-900">
-                        {form.recipient_name}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center py-2">
-                      <span className="text-gray-500 text-sm">
-                        Số tài khoản
-                      </span>
-                      <span className="font-bold text-gray-900 font-mono">
-                        {form.recipient_account}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center py-2">
-                      <span className="text-gray-500 text-sm">Ngân hàng</span>
-                      <span className="font-bold text-gray-900">
-                        {banks.find((b) => b.code === form.bank_code)?.name ||
-                          form.bank_code}
-                      </span>
-                    </div>
-                    <hr className="border-gray-100" />
-                    <div className="flex justify-between items-center py-2">
-                      <span className="text-gray-500 text-sm">Số tiền</span>
-                      <span className="text-2xl font-bold text-rose-600">
-                        {formatMoney(form.amount)}
-                      </span>
-                    </div>
-                    {form.note && (
-                      <div className="flex justify-between items-center py-2">
-                        <span className="text-gray-500 text-sm">Nội dung</span>
-                        <span className="text-gray-800 text-right max-w-[60%] font-medium">
-                          {form.note}
-                        </span>
+            <div>
+              <h1 className="text-xl font-bold text-slate-900">Xác nhận giao dịch</h1>
+              <p className="text-sm text-slate-500">Kiểm tra lại thông tin trước khi tiếp tục</p>
+            </div>
+          </header>
+
+          {/* Progress */}
+          <div className="px-4 sm:px-6 mb-6">
+            <div className="bg-white/80 backdrop-blur-sm rounded-2xl px-4 sm:px-6 py-4 shadow-sm border border-violet-100/80">
+              <div className="flex items-center justify-between max-w-md mx-auto">
+                {[
+                  { num: 1, label: "Người nhận" },
+                  { num: 2, label: "Số tiền" },
+                  { num: 3, label: "Xem lại" },
+                  { num: 4, label: "Xác nhận" },
+                ].map((s, idx) => (
+                  <div key={s.num} className="flex items-center flex-1 last:flex-none">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                          s.num <= 3
+                            ? "bg-violet-600 text-white shadow-md shadow-violet-200"
+                            : "bg-slate-100 text-slate-400"
+                        }`}
+                      >
+                        {s.num <= 3 ? (
+                          s.num < 3 ? (
+                            <CheckCircle2 className="w-4 h-4" />
+                          ) : (
+                            s.num
+                          )
+                        ) : (
+                          s.num
+                        )}
                       </div>
+                      <span
+                        className={`text-xs font-medium hidden sm:block ${
+                          s.num === 3 ? "text-violet-700" : "text-slate-400"
+                        }`}
+                      >
+                        {s.label}
+                      </span>
+                    </div>
+                    {idx < 3 && (
+                      <div
+                        className={`flex-1 h-0.5 mx-2 rounded-full ${
+                          s.num < 3 ? "bg-violet-500" : "bg-slate-200"
+                        }`}
+                      />
                     )}
                   </div>
-                </div>
-                <button
-                  onClick={handleRiskCheck}
-                  disabled={analyzeMutation.isPending}
-                  className="w-full mt-5 py-4 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold rounded-2xl shadow-lg shadow-rose-200 hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-                >
-                  {analyzeMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      AI đang kiểm tra...
-                    </>
-                  ) : (
-                    <>
-                      <ShieldAlert className="w-5 h-5" />
-                      Kiểm tra & Xác nhận
-                    </>
-                  )}
-                </button>
+                ))}
               </div>
-              <div className="hidden xl:block lg:col-span-3" />
             </div>
+          </div>
+
+          <div className="px-4 sm:px-6 pb-10">
+            <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-violet-100/80 space-y-1">
+              <div className="flex justify-between items-center py-3">
+                <span className="text-slate-500 text-sm">Người nhận</span>
+                <span className="font-bold text-slate-900">{form.recipient_name}</span>
+              </div>
+              <div className="flex justify-between items-center py-3">
+                <span className="text-slate-500 text-sm">Số tài khoản</span>
+                <span className="font-bold text-slate-900 font-mono tracking-wide">
+                  {form.recipient_account}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-3">
+                <span className="text-slate-500 text-sm">Ngân hàng</span>
+                <span className="font-bold text-slate-900">
+                  {banks.find((b) => b.code === form.bank_code)?.name || form.bank_code}
+                </span>
+              </div>
+              <hr className="border-slate-100 my-1" />
+              <div className="flex justify-between items-center py-3">
+                <span className="text-slate-500 text-sm">Số tiền</span>
+                <span className="text-2xl font-bold text-violet-600">
+                  {formatMoney(form.amount)}
+                </span>
+              </div>
+              {form.note && (
+                <div className="flex justify-between items-start py-3">
+                  <span className="text-slate-500 text-sm">Nội dung</span>
+                  <span className="text-slate-800 text-right max-w-[60%] font-medium text-sm">
+                    {form.note}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={handleRiskCheck}
+              disabled={analyzeMutation.isPending}
+              className="w-full mt-5 py-3.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white font-bold rounded-xl shadow-lg shadow-violet-200 hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+            >
+              {analyzeMutation.isPending ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  AI đang kiểm tra...
+                </>
+              ) : (
+                <>
+                  <ShieldAlert className="w-5 h-5" />
+                  Kiểm tra & Xác nhận
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
     );
   }
 
+  /* ===================== AI-CHECK ===================== */
   if (step === "ai-check" && riskData) {
     return (
-      <div className="min-h-screen bg-gray-50 w-full flex items-center justify-center p-4 relative overflow-visible">
+      <div className="min-h-screen bg-[#f5f3ff] w-full flex items-center justify-center p-4 relative overflow-visible">
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-          <div className="absolute top-1/4 left-1/4 w-[300px] h-[300px] bg-gradient-to-br from-rose-200/30 to-pink-200/20 rounded-full blur-3xl" />
-          <div className="absolute bottom-1/4 right-1/4 w-[300px] h-[300px] bg-gradient-to-br from-amber-200/25 to-orange-200/15 rounded-full blur-3xl" />
+          <div className="absolute top-1/4 left-1/4 w-[300px] h-[300px] bg-violet-200/30 rounded-full blur-3xl" />
+          <div className="absolute bottom-1/4 right-1/4 w-[300px] h-[300px] bg-fuchsia-200/25 rounded-full blur-3xl" />
         </div>
         <AIRiskModal
           riskData={riskData}
@@ -922,20 +1340,28 @@ export default function TransferPage() {
   }
 
   if (step === "face") {
-    return <FaceVerificationModal onVerified={handleFaceVerified} onCancel={handleCancel} onSetupFace={() => navigate("/setup-face")} isLoading={decisionMutation.isPending} />;
+    return (
+      <FaceVerificationModal
+        onVerified={handleFaceVerified}
+        onCancel={handleCancel}
+        onSetupFace={() => navigate("/setup-face")}
+        isLoading={decisionMutation.isPending}
+      />
+    );
   }
 
+  /* ===================== PIN ===================== */
   if (step === "pin") {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl">
-          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-rose-100">
-            <Lock className="h-8 w-8 text-rose-600" />
+      <div className="min-h-screen bg-[#f5f3ff] flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl border border-violet-100">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-violet-100">
+            <Lock className="h-8 w-8 text-violet-600" />
           </div>
-          <h2 className="text-center text-2xl font-bold text-gray-800">
+          <h2 className="text-center text-2xl font-bold text-slate-900">
             Xác nhận mã PIN
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-500">
+          <p className="mt-2 text-center text-sm text-slate-500">
             Kiểm tra rủi ro đã hoàn tất. Nhập PIN giao dịch để tiếp tục.
           </p>
           <div className="relative mt-6">
@@ -948,7 +1374,7 @@ export default function TransferPage() {
               type={isPinVisible ? "text" : "password"}
               autoComplete="off"
               placeholder="PIN 4–6 chữ số"
-              className="w-full rounded-xl border border-rose-200 p-4 pr-12 text-center text-xl tracking-[0.5em] outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-300"
+              className="w-full rounded-xl border border-violet-200 p-4 pr-12 text-center text-xl tracking-[0.5em] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-200"
             />
             <button
               type="button"
@@ -963,7 +1389,7 @@ export default function TransferPage() {
                   pinVisibilityTimer.current = null;
                 }, 200);
               }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-2 text-gray-400 hover:bg-rose-50 hover:text-rose-600"
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-2 text-slate-400 hover:bg-violet-50 hover:text-violet-600"
             >
               {isPinVisible ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
@@ -977,16 +1403,14 @@ export default function TransferPage() {
                 pin,
               })
             }
-            className="mt-4 w-full rounded-xl bg-rose-600 py-3 font-bold text-white transition-colors hover:bg-rose-700 disabled:opacity-50"
+            className="mt-4 w-full rounded-xl bg-violet-600 py-3 font-bold text-white transition-colors hover:bg-violet-700 disabled:opacity-50"
           >
-            {decisionMutation.isPending
-              ? "Đang xử lý..."
-              : "Xác nhận chuyển tiền"}
+            {decisionMutation.isPending ? "Đang xử lý..." : "Xác nhận chuyển tiền"}
           </button>
           <button
             onClick={handleCancel}
             disabled={decisionMutation.isPending}
-            className="mt-2 w-full rounded-xl bg-gray-100 py-3 font-medium text-gray-700"
+            className="mt-2 w-full rounded-xl bg-slate-100 py-3 font-medium text-slate-700 hover:bg-slate-200 transition-colors"
           >
             Hủy giao dịch
           </button>
@@ -995,27 +1419,28 @@ export default function TransferPage() {
     );
   }
 
+  /* ===================== SUCCESS ===================== */
   if (step === "success") {
     return (
-      <div className="min-h-screen bg-gray-50 w-full flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="min-h-screen bg-[#f5f3ff] w-full flex items-center justify-center p-4 relative overflow-hidden">
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-          <div className="absolute top-1/3 left-1/3 w-[400px] h-[400px] bg-gradient-to-br from-emerald-200/30 to-teal-200/20 rounded-full blur-3xl" />
-          <div className="absolute bottom-1/3 right-1/3 w-[350px] h-[350px] bg-gradient-to-br from-rose-200/25 to-pink-200/15 rounded-full blur-3xl" />
+          <div className="absolute top-1/3 left-1/3 w-[400px] h-[400px] bg-emerald-200/30 rounded-full blur-3xl" />
+          <div className="absolute bottom-1/3 right-1/3 w-[350px] h-[350px] bg-violet-200/25 rounded-full blur-3xl" />
         </div>
-        <div className="relative z-10 bg-white rounded-3xl shadow-xl p-8 w-full max-w-md text-center">
+        <div className="relative z-10 bg-white rounded-3xl shadow-xl p-8 w-full max-w-md text-center border border-violet-100">
           <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircle2 className="w-10 h-10 text-emerald-500" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">
             Chuyển tiền thành công!
           </h2>
-          <p className="text-gray-500 mb-6">
+          <p className="text-slate-500 mb-6">
             {formatMoney(form.amount)} đã được chuyển đến {form.recipient_name}
           </p>
           <div className="space-y-3">
             <button
               onClick={() => navigate("/history")}
-              className="w-full py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-all active:scale-[0.98]"
+              className="w-full py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-all active:scale-[0.98]"
             >
               Xem lịch sử
             </button>
@@ -1033,10 +1458,11 @@ export default function TransferPage() {
                 setBankSearch("");
                 setBankPickerOpen(false);
                 setRecipientLookupState({ status: "idle" });
+                setSelectedRecentId(null);
                 setRiskData(null);
                 setTxId("");
               }}
-              className="w-full py-3 bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold rounded-xl hover:shadow-lg transition-all active:scale-[0.98]"
+              className="w-full py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white font-bold rounded-xl hover:shadow-lg transition-all active:scale-[0.98]"
             >
               Chuyển tiền khác
             </button>
