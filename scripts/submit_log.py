@@ -12,12 +12,18 @@ If the POST fails, the pending file is restored so nothing is lost.
 import json
 import os
 import shutil
+import ssl
 import sys
 import time
-import urllib.error
 import urllib.request
-from datetime import UTC, datetime
+import urllib.error
+from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    import certifi
+except ImportError:
+    certifi = None  # type: ignore[assignment]
 
 try:
     from dotenv import load_dotenv
@@ -42,7 +48,7 @@ def _archive(pending: Path) -> None:
     if not pending.exists() or pending.stat().st_size == 0:
         return
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     archive_file = ARCHIVE_DIR / f"{today}.jsonl"
     with open(pending, "rb") as src, open(archive_file, "ab") as dst:
         shutil.copyfileobj(src, dst)
@@ -118,13 +124,20 @@ def main():
         method="POST",
     )
 
+    ssl_context = None
+    if certifi is not None:
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=ssl_context) as resp:
             print(f"[ai-log] Submitted {len(entries)} entries → {resp.status}", file=sys.stderr)
     except urllib.error.URLError as e:
         # Failure: restore the whole pending (including leftover) for next push.
         _restore_pending(pending)
-        print(f"[ai-log] Submit failed: {e} — logs kept locally.", file=sys.stderr)
+        print(
+            f"[ai-log] Submit failed: {e} — logs kept locally.",
+            file=sys.stderr,
+        )
         sys.exit(0)  # Don't block push on server error
 
     # Success: archive the submitted batch, then handle any leftover.
