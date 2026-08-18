@@ -624,46 +624,73 @@ export default function TransferPage() {
           </header>
 
           {/* ===== PROGRESS STEPS ===== */}
-          <div className="px-4 sm:px-6 lg:px-8 mb-6">
-            <div className="bg-white/80 backdrop-blur-sm rounded-2xl px-4 sm:px-6 py-4 shadow-sm border border-violet-100/80">
-              <div className="flex items-center justify-between max-w-2xl mx-auto">
-                {[
-                  { num: 1, label: "Người nhận" },
-                  { num: 2, label: "Số tiền" },
-                  { num: 3, label: "Xem lại" },
-                  { num: 4, label: "Xác nhận" },
-                ].map((s, idx) => (
-                  <div key={s.num} className="flex items-center flex-1 last:flex-none">
-                    <div className="flex flex-col items-center gap-1.5">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                          s.num === 1
-                            ? "bg-violet-600 text-white shadow-md shadow-violet-200"
-                            : "bg-slate-100 text-slate-400"
-                        }`}
-                      >
-                        {s.num}
-                      </div>
-                      <span
-                        className={`text-xs font-medium hidden sm:block ${
-                          s.num === 1 ? "text-violet-700" : "text-slate-400"
-                        }`}
-                      >
-                        {s.label}
-                      </span>
-                    </div>
-                    {idx < 3 && (
-                      <div
-                        className={`flex-1 h-0.5 mx-2 sm:mx-3 rounded-full ${
-                          s.num < 1 ? "bg-violet-500" : "bg-slate-200"
-                        }`}
-                      />
-                    )}
+          {(() => {
+            const hasRecipient = Boolean(
+              form.recipient_name &&
+                form.recipient_lookup_token &&
+                form.bank_code,
+            );
+            const hasAmount = Boolean(
+              form.amount && Number(form.amount) > 0,
+            );
+            // Step 1: recipient · Step 2: amount entered
+            const formProgress = hasAmount && hasRecipient ? 2 : 1;
+            return (
+              <div className="px-4 sm:px-6 lg:px-8 mb-6">
+                <div className="bg-white/80 backdrop-blur-sm rounded-2xl px-4 sm:px-6 py-4 shadow-sm border border-violet-100/80">
+                  <div className="flex items-center justify-between max-w-2xl mx-auto">
+                    {[
+                      { num: 1, label: "Người nhận" },
+                      { num: 2, label: "Số tiền" },
+                      { num: 3, label: "Xem lại" },
+                      { num: 4, label: "Xác nhận" },
+                    ].map((s, idx) => {
+                      const completed = s.num < formProgress;
+                      const active = s.num === formProgress;
+                      return (
+                        <div
+                          key={s.num}
+                          className="flex items-center flex-1 last:flex-none"
+                        >
+                          <div className="flex flex-col items-center gap-1.5">
+                            <div
+                              className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                                completed || active
+                                  ? "bg-violet-600 text-white shadow-md shadow-violet-200"
+                                  : "bg-slate-100 text-slate-400"
+                              }`}
+                            >
+                              {completed ? (
+                                <CheckCircle2 className="w-4 h-4" />
+                              ) : (
+                                s.num
+                              )}
+                            </div>
+                            <span
+                              className={`text-xs font-medium hidden sm:block ${
+                                completed || active
+                                  ? "text-violet-700"
+                                  : "text-slate-400"
+                              }`}
+                            >
+                              {s.label}
+                            </span>
+                          </div>
+                          {idx < 3 && (
+                            <div
+                              className={`flex-1 h-0.5 mx-2 sm:mx-3 rounded-full transition-colors ${
+                                completed ? "bg-violet-500" : "bg-slate-200"
+                              }`}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
+                </div>
               </div>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* ===== MAIN 3-COLUMN GRID ===== */}
           <div className="px-4 sm:px-6 lg:px-8 pb-10">
@@ -1439,7 +1466,37 @@ export default function TransferPage() {
           <div className="absolute top-1/3 left-1/3 w-[400px] h-[400px] bg-emerald-200/30 rounded-full blur-3xl" />
           <div className="absolute bottom-1/3 right-1/3 w-[350px] h-[350px] bg-violet-200/25 rounded-full blur-3xl" />
         </div>
-        <div className="relative z-10 bg-white rounded-3xl shadow-xl p-8 w-full max-w-md text-center border border-violet-100">
+        <div className="relative z-10 w-full max-w-md">
+          {/* Full progress — all 4 steps complete */}
+          <div className="mb-5 bg-white/80 backdrop-blur-sm rounded-2xl px-4 sm:px-6 py-4 shadow-sm border border-violet-100/80">
+            <div className="flex items-center justify-between">
+              {[
+                { num: 1, label: "Người nhận" },
+                { num: 2, label: "Số tiền" },
+                { num: 3, label: "Xem lại" },
+                { num: 4, label: "Xác nhận" },
+              ].map((s, idx) => (
+                <div
+                  key={s.num}
+                  className="flex items-center flex-1 last:flex-none"
+                >
+                  <div className="flex flex-col items-center gap-1.5">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold bg-violet-600 text-white shadow-md shadow-violet-200">
+                      <CheckCircle2 className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-medium hidden sm:block text-violet-700">
+                      {s.label}
+                    </span>
+                  </div>
+                  {idx < 3 && (
+                    <div className="flex-1 h-0.5 mx-2 sm:mx-3 rounded-full bg-violet-500" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-xl p-8 text-center border border-violet-100">
           <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircle2 className="w-10 h-10 text-emerald-500" />
           </div>
@@ -1478,6 +1535,7 @@ export default function TransferPage() {
             >
               Chuyển tiền khác
             </button>
+          </div>
           </div>
         </div>
       </div>
