@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3 
+#đã fix log
 """
 Manual AI usage logger — for team members using ANY AI tool.
 Use this when your AI tool does NOT have automatic hook integration.
@@ -24,10 +25,25 @@ import os
 import sys
 import subprocess
 import argparse
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 
-VN_TZ = timezone(timedelta(hours=7))
+VN_TZ = timezone.utc
+
+def get_repo():
+    return git("git remote get-url origin").rstrip("/").split("/")[-1].replace(".git", "")
+
+def get_branch(): return git("git rev-parse --abbrev-ref HEAD")
+def get_commit(): return git("git rev-parse --short HEAD")
+def get_student(): return git("git config user.email") or os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
+
+def build_entry(tool, prompt, model=None, result=""):
+    now = datetime.now(VN_TZ).isoformat()
+    return {"timestamp": now, "created_at": now, "ts": now, "tool": tool,
+            "event": "ManualLog", "entry_id": f"manual-{datetime.now(VN_TZ).strftime('%Y%m%d-%H%M%S-%f')}",
+            "model": model or tool, "repo": get_repo(), "branch": get_branch(),
+            "commit": get_commit(), "student": get_student(), "prompt": prompt[:1000],
+            "response_summary": result[:500] if result else ""}
 
 
 def git(cmd):
@@ -84,7 +100,8 @@ def main():
         print(f"[log] ⚠️  git email not set! Using fallback: {student}", file=sys.stderr)
         print(f"[log] Run: git config user.email \"your@vinuni.edu.vn\"", file=sys.stderr)
 
-    entry = {
+    entry = build_entry(tool, prompt, model, result)
+    '''entry = {
         "ts": ts,
         "tool": tool,
         "event": "ManualLog",
@@ -96,7 +113,7 @@ def main():
         "student": student,
         "prompt": prompt[:1000],
         "response_summary": result[:500] if result else "",
-    }
+    }'''
 
     log_dir = Path(os.environ.get("AI_LOG_DIR", ".ai-log"))
     log_dir.mkdir(exist_ok=True)
