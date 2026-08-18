@@ -24,15 +24,15 @@ interface PageTransitionProps {
 
 /**
  * PageTransition — Logo Reveal + Curtain Wipe
- * 
+ *
  * Wrap toàn bộ <Routes> trong App.tsx:
- * 
+ *
  *   <PageTransition>
  *     <Routes>...</Routes>
  *   </PageTransition>
- * 
+ *
  * Hiệu ứng:
- *  1. Overlay gradient rose -> pink che toàn màn hình (z-50)
+ *  1. Overlay gradient violet -> fuchsia che toàn màn hình (z-9999)
  *  2. Logo Shield + "Timi" scale từ 0.4 -> 1, opacity 0 -> 1
  *  3. Loading dots nhấp nháy
  *  4. Overlay translateY(-100%) hoặc opacity 0 để reveal page
@@ -46,7 +46,7 @@ export default function PageTransition({
 }: PageTransitionProps) {
   const location = useLocation();
   const [phase, setPhase] = useState<"idle" | "revealing" | "exiting" | "done">(
-    "revealing"
+    "revealing",
   );
   const [displayChildren, setDisplayChildren] = useState(children);
   const lastTransitionTime = useRef<number>(0);
@@ -107,20 +107,23 @@ export default function PageTransition({
           className={`
             fixed inset-0 z-[9999] flex flex-col items-center justify-center
             transition-all ease-[cubic-bezier(0.76,0,0.24,1)]
-            ${isRevealing
-              ? "translate-y-0 opacity-100"
-              : "-translate-y-full opacity-0"
+            ${
+              isRevealing
+                ? "translate-y-0 opacity-100"
+                : "-translate-y-full opacity-0"
             }
           `}
           style={{
             transitionDuration: isRevealing ? "0ms" : `${exitDuration}ms`,
-            background: "linear-gradient(135deg, #f43f5e 0%, #ec4899 50%, #db2777 100%)",
+            background:
+              "linear-gradient(135deg, #7c3aed 0%, #a855f7 45%, #d946ef 100%)",
           }}
         >
           {/* Decorative circles */}
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-white/5 rounded-full blur-3xl" />
-            <div className="absolute bottom-1/4 right-1/4 w-48 h-48 bg-white/5 rounded-full blur-3xl" />
+            <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
+            <div className="absolute bottom-1/4 right-1/4 w-48 h-48 bg-fuchsia-300/15 rounded-full blur-3xl" />
+            <div className="absolute top-1/2 right-1/3 w-32 h-32 bg-violet-200/10 rounded-full blur-2xl" />
           </div>
 
           {/* Logo Container */}
@@ -128,9 +131,10 @@ export default function PageTransition({
             className={`
               relative flex flex-col items-center gap-5
               transition-all ease-[cubic-bezier(0.34,1.56,0.64,1)]
-              ${isRevealing
-                ? "scale-100 opacity-100 translate-y-0"
-                : "scale-90 opacity-0 -translate-y-4"
+              ${
+                isRevealing
+                  ? "scale-100 opacity-100 translate-y-0"
+                  : "scale-90 opacity-0 -translate-y-4"
               }
             `}
             style={{
@@ -147,12 +151,15 @@ export default function PageTransition({
                   : "none",
               }}
             >
-              <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center shadow-2xl shadow-rose-900/30">
-                <Shield className="w-10 h-10 text-rose-500" />
+              <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center shadow-2xl shadow-violet-950/40">
+                <Shield
+                  className="w-10 h-10 text-violet-600"
+                  strokeWidth={2.25}
+                />
               </div>
               {/* Glow ring */}
               <div
-                className="absolute inset-0 rounded-3xl border-2 border-white/30"
+                className="absolute inset-0 rounded-3xl border-2 border-white/40"
                 style={{
                   animation: isRevealing
                     ? "timi-logo-ring 2s ease-out infinite"
@@ -166,7 +173,7 @@ export default function PageTransition({
               <h1 className="text-4xl font-black text-white tracking-tight">
                 Timi
               </h1>
-              <p className="text-sm text-rose-100 font-medium mt-1 tracking-wide">
+              <p className="text-sm text-violet-100 font-medium mt-1 tracking-wide">
                 AI Financial Guardian
               </p>
             </div>
@@ -188,9 +195,9 @@ export default function PageTransition({
           </div>
 
           {/* Progress bar at bottom */}
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/10">
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/15">
             <div
-              className="h-full bg-white/60 rounded-r-full"
+              className="h-full bg-white/70 rounded-r-full"
               style={{
                 width: isRevealing ? "100%" : "0%",
                 transition: isRevealing
@@ -206,15 +213,17 @@ export default function PageTransition({
       <div
         className={`
           transition-all ease-out
-          ${phase === "done" || phase === "idle"
-            ? "opacity-100 translate-y-0"
-            : phase === "exiting"
-            ? "opacity-100 translate-y-0"
-            : "opacity-0 translate-y-3"
+          ${
+            phase === "done" || phase === "idle"
+              ? "opacity-100 translate-y-0"
+              : phase === "exiting"
+                ? "opacity-100 translate-y-0"
+                : "opacity-0 translate-y-3"
           }
         `}
         style={{
-          transitionDuration: phase === "exiting" || phase === "done" ? "500ms" : "300ms",
+          transitionDuration:
+            phase === "exiting" || phase === "done" ? "500ms" : "300ms",
         }}
       >
         {displayChildren}
