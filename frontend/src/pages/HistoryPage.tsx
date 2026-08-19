@@ -868,6 +868,7 @@ export default function HistoryPage() {
                         Thẻ/Tài khoản
                       </th>
                       <th className="px-4 py-4 font-semibold">Ngày</th>
+                      <th className="px-4 py-4 font-semibold">Trạng thái</th>
                       <th className="px-4 py-4 font-semibold text-right">
                         Số tiền
                       </th>
@@ -926,6 +927,20 @@ export default function HistoryPage() {
                             <span className="text-sm text-slate-500 whitespace-nowrap">
                               {formatShortDate(tx.created_at)}
                             </span>
+                          </td>
+                          <td className="px-4 py-4">
+                            {(() => {
+                              const cfg = statusConfig[tx.status];
+                              const StatusIcon = cfg.icon;
+                              return (
+                                <span
+                                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold whitespace-nowrap ${cfg.color}`}
+                                >
+                                  <StatusIcon className="w-3.5 h-3.5" />
+                                  {cfg.label}
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="px-4 py-4 text-right">
                             <span
