@@ -22,61 +22,67 @@ import {
 import { useState, useEffect, useRef } from "react";
 
 const stats = [
-  { value: "$4.2B+", label: "Assets Managed" },
-  { value: "97%", label: "Client Satisfaction" },
-  { value: "12+", label: "Years Experience" },
-  { value: "+18.4%", label: "Annual Returns" },
+  { value: "4,2T+", label: "Tài sản quản lý" },
+  { value: "97%", label: "Khách hàng hài lòng" },
+  { value: "12+", label: "Năm kinh nghiệm" },
+  { value: "+18,4%", label: "Tăng trưởng hằng năm" },
 ];
 
 const trustBadges = [
-  "Bank-Grade Security",
-  "SEC Registered",
-  "50,000+ Clients Worldwide",
-  "256-bit Encryption",
-  "Award Winning Advisory",
-  "30+ Countries Served",
+  "Bảo mật cấp ngân hàng",
+  "Xác thực nhiều lớp",
+  "50.000+ khách hàng",
+  "Mã hóa 256-bit",
+  "Tư vấn tài chính thông minh",
+  "Phục vụ trên 30 quốc gia",
 ];
 
 const services = [
   {
     icon: TrendingUp,
-    title: "Investment Planning",
-    desc: "Tailored portfolios built around your goals, risk appetite, and investment horizon.",
+    title: "Lập kế hoạch tài chính",
+    desc: "Xây dựng kế hoạch chuyển tiền và quản lý chi tiêu theo mục tiêu của bạn.",
+    path: "/transfer",
     color: "bg-blue-50 text-blue-600",
     image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/1.jpg",
   },
   {
     icon: Landmark,
-    title: "Wealth Management",
-    desc: "Holistic strategies to preserve, grow, and transfer your wealth across generations.",
+    title: "Quản lý tài chính",
+    desc: "Theo dõi số dư, giao dịch và thói quen chi tiêu trong một giao diện thống nhất.",
+    path: "/dashboard",
     color: "bg-emerald-50 text-emerald-600",
     image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/2.jpg",
   },
   {
     icon: PiggyBank,
-    title: "Retirement Plans",
-    desc: "Secure your future with structured pension plans, annuities, and long-term savings.",
+    title: "Mục tiêu tiết kiệm",
+    desc: "Đặt mục tiêu và theo dõi tiến độ tiết kiệm cho những kế hoạch sắp tới.",
+    path: "/me",
     color: "bg-amber-50 text-amber-600",
     image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/3.jpg",
   },
   {
     icon: FileText,
-    title: "Tax Advisory",
-    desc: "Smart tax-efficient strategies to maximise your returns and stay fully compliant.",
+    title: "Báo cáo giao dịch",
+    desc: "Xem lại lịch sử giao dịch và kiểm tra các khoản thu chi một cách rõ ràng.",
+    path: "/history",
     color: "bg-violet-50 text-violet-600",
     image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/4.jpg",
   },
   {
     icon: AlertTriangle,
-    title: "Risk Management",
-    desc: "Identify, assess, and mitigate financial risks with expert guidance and analysis.",
+    title: "Bảo vệ giao dịch",
+    desc: "AI Anti-Scam hỗ trợ nhận diện và cảnh báo các giao dịch có rủi ro.",
+    path: "/transfer",
     color: "bg-rose-50 text-rose-600",
     image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/5.jpg",
   },
   {
     icon: Target,
-    title: "Savings Goals",
-    desc: "Set, track, and achieve your savings milestones with automated, goal-based tools.",
+    title: "Thanh toán QR",
+    desc: "Thanh toán nhanh chóng bằng mã QR ngay trên tài khoản Timi của bạn.",
+    path: "/qr",
     color: "bg-sky-50 text-sky-600",
     image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/6.jpg",
   },
@@ -84,45 +90,45 @@ const services = [
 
 const whyFeatures = [
   {
-    title: "Personalised Strategy",
-    desc: "Every plan is crafted specifically for your unique financial situation.",
+    title: "Trải nghiệm cá nhân hóa",
+    desc: "Mỗi tính năng được thiết kế theo nhu cầu và tình hình tài chính riêng của bạn.",
   },
   {
-    title: "Transparent Pricing",
-    desc: "No hidden fees. Clear, upfront pricing on every product and service.",
+    title: "Minh bạch và rõ ràng",
+    desc: "Thông tin giao dịch dễ kiểm tra, không che giấu chi phí hay điều kiện sử dụng.",
   },
   {
-    title: "24/7 Expert Support",
-    desc: "Our advisors are always available when you need guidance the most.",
+    title: "Hỗ trợ 24/7",
+    desc: "Đội ngũ hỗ trợ luôn sẵn sàng đồng hành khi bạn cần trợ giúp.",
   },
 ];
 
 const counterStats = [
-  { value: 50000, suffix: "+", label: "Happy Clients" },
-  { value: 4.2, suffix: "M+", label: "Assets Managed", isFloat: true },
-  { value: 30, suffix: "+", label: "Countries Served" },
-  { value: 25, suffix: "", label: "Industry Awards" },
+  { value: 50000, suffix: "+", label: "Khách hàng tin dùng" },
+  { value: 4.2, suffix: "T+", label: "Tài sản được quản lý", isFloat: true },
+  { value: 30, suffix: "+", label: "Quốc gia phục vụ" },
+  { value: 25, suffix: "", label: "Giải thưởng đạt được" },
 ];
 
 const testimonials = [
   {
-    text: "VaultEdge transformed how I manage my finances. My portfolio has grown by 22% in just 18 months. Incredible service!",
-    author: "Sarah Patel",
-    role: "Marketing Director",
+    text: "Timi giúp tôi quản lý tài chính dễ dàng hơn. Tôi luôn biết tiền của mình đang được sử dụng như thế nào.",
+    author: "Minh Anh",
+    role: "Chủ doanh nghiệp",
     rating: 5,
     image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/26.jpg",
   },
   {
-    text: "The retirement planning team at VaultEdge gave me total peace of mind. Professional, responsive, and results-driven.",
-    author: "James Wilson",
-    role: "Business Owner",
+    text: "Tính năng cảnh báo giao dịch giúp tôi yên tâm hơn trước những khoản chuyển tiền đáng ngờ.",
+    author: "Quốc Huy",
+    role: "Nhân viên văn phòng",
     rating: 5,
     image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/33.jpg",
   },
   {
-    text: "Switched from our old firm and couldn't be happier. Their tax advisory alone saved us thousands in the first year.",
-    author: "Michael Chen",
-    role: "Startup Founder",
+    text: "Lịch sử giao dịch rõ ràng, thanh toán QR nhanh và giao diện rất dễ sử dụng.",
+    author: "Thu Trang",
+    role: "Nhà sáng lập startup",
     rating: 5,
     image: "https://res.cloudinary.com/dduc9plv6/image/upload/fintechguard/frontend/32.jpg",
   },
@@ -180,13 +186,13 @@ export default function HomePage() {
             <div className="max-w-2xl">
               <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-100 rounded-full mb-6">
                 <Star className="w-4 h-4 text-blue-600 fill-blue-600" />
-                <span className="text-sm font-semibold text-blue-700">Trusted Since 2012 · 50,000+ Clients</span>
+                <span className="text-sm font-semibold text-blue-700">Được tin dùng từ 2012 · 50.000+ khách hàng</span>
               </div>
 
               <h1 className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-bold text-slate-900 leading-[1.1] mb-6">
-                Grow Your Wealth{" "}
+                Quản lý tài chính{" "}
                 <span className="relative">
-                  With Confidence
+                  thật an tâm
                   <svg className="absolute -bottom-2 left-0 w-full" viewBox="0 0 300 12" fill="none">
                     <path d="M2 10C50 2 100 2 150 6C200 10 250 10 298 2" stroke="#3B82F6" strokeWidth="4" strokeLinecap="round" />
                   </svg>
@@ -194,7 +200,7 @@ export default function HomePage() {
               </h1>
 
               <p className="text-lg lg:text-xl text-slate-500 leading-relaxed mb-8 max-w-lg">
-                Timi delivers intelligent, data-driven investment strategies and personalised financial guidance to help you reach every milestone.
+                Timi mang đến công cụ tài chính thông minh, giúp bạn chuyển tiền, thanh toán và bảo vệ mọi giao dịch mỗi ngày.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4 mb-12">
@@ -243,7 +249,7 @@ export default function HomePage() {
                     <TrendingUp className="w-5 h-5 text-emerald-600" />
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400 font-medium">Portfolio Growth</p>
+                    <p className="text-xs text-slate-400 font-medium">Tăng trưởng tài chính</p>
                     <p className="text-lg font-bold text-slate-900">+22.4%</p>
                   </div>
                 </div>
@@ -258,7 +264,7 @@ export default function HomePage() {
                   <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
                     <Shield className="w-4 h-4 text-blue-600" />
                   </div>
-                  <span className="text-sm font-semibold text-slate-700">AI Protected</span>
+                  <span className="text-sm font-semibold text-slate-700">Được AI bảo vệ</span>
                 </div>
               </div>
             </div>
@@ -282,10 +288,10 @@ export default function HomePage() {
       <section className="py-24 bg-white w-full">
         <div className="w-full px-6 lg:px-12 xl:px-20">
           <div className="text-center mb-16 max-w-2xl mx-auto">
-            <p className="text-sm font-bold text-blue-600 uppercase tracking-widest mb-3">Our Services</p>
-            <h2 className="text-3xl lg:text-5xl font-bold text-slate-900 mb-5">Comprehensive Financial Solutions</h2>
+            <p className="text-sm font-bold text-blue-600 uppercase tracking-widest mb-3">Dịch vụ của Timi</p>
+            <h2 className="text-3xl lg:text-5xl font-bold text-slate-900 mb-5">Giải pháp tài chính toàn diện</h2>
             <p className="text-slate-500 text-lg">
-              From investment planning to risk management, we provide end-to-end financial services tailored to your needs.
+              Từ chuyển tiền, thanh toán đến bảo vệ tài khoản, Timi cung cấp các công cụ cần thiết cho nhu cầu tài chính của bạn.
             </p>
           </div>
 
@@ -295,7 +301,7 @@ export default function HomePage() {
               return (
                 <div
                   key={service.title}
-                  onClick={() => user ? navigate("/dashboard") : navigate("/login")}
+                  onClick={() => user ? navigate(service.path) : navigate("/login")}
                   className="group bg-white rounded-3xl overflow-hidden border border-slate-100 hover:border-blue-200 hover:shadow-2xl hover:shadow-blue-100/50 transition-all duration-500 cursor-pointer"
                 >
                   <div className="relative h-48 overflow-hidden">
@@ -313,7 +319,7 @@ export default function HomePage() {
                     <h3 className="text-xl font-bold text-slate-900 mb-2">{service.title}</h3>
                     <p className="text-slate-500 leading-relaxed mb-4">{service.desc}</p>
                     <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 group-hover:gap-3 transition-all">
-                      Learn more <ArrowRight className="w-4 h-4" />
+                      Xem chi tiết <ArrowRight className="w-4 h-4" />
                     </span>
                   </div>
                 </div>
@@ -342,19 +348,19 @@ export default function HomePage() {
                     <Star key={i} className="w-4 h-4 text-amber-400 fill-amber-400" />
                   ))}
                 </div>
-                <p className="text-sm text-slate-600 font-medium">"Best financial platform I've ever used."</p>
-                <p className="text-xs text-slate-400 mt-2">— 50,000+ verified reviews</p>
+                <p className="text-sm text-slate-600 font-medium">"Nền tảng tài chính dễ dùng và an toàn."</p>
+                <p className="text-xs text-slate-400 mt-2">— 50.000+ đánh giá đã xác thực</p>
               </div>
             </div>
 
             {/* Right Content */}
             <div>
-              <p className="text-sm font-bold text-blue-600 uppercase tracking-widest mb-3">Why Timi</p>
+              <p className="text-sm font-bold text-blue-600 uppercase tracking-widest mb-3">Vì sao chọn Timi</p>
               <h2 className="text-3xl lg:text-5xl font-bold text-slate-900 mb-6 leading-tight">
-                A Smarter Way to Manage Your Money
+                Quản lý tiền thông minh hơn mỗi ngày
               </h2>
               <p className="text-slate-500 text-lg leading-relaxed mb-10">
-                We combine deep financial expertise with cutting-edge technology to deliver outcomes that consistently outperform the market — all while keeping your interests first.
+                Timi kết hợp công nghệ hiện đại với các lớp bảo vệ an toàn để giúp bạn chủ động quản lý tài chính, luôn đặt quyền lợi của bạn lên hàng đầu.
               </p>
 
               <div className="space-y-6">
@@ -375,7 +381,7 @@ export default function HomePage() {
                 onClick={() => navigate("/dashboard")}
                 className="mt-10 px-8 py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 flex items-center gap-2 group"
               >
-                Discover Our Story
+                Khám phá Timi
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </button>
             </div>
@@ -387,8 +393,8 @@ export default function HomePage() {
       <section className="py-20 bg-slate-900 text-white w-full">
         <div className="w-full px-6 lg:px-12 xl:px-20">
           <div className="text-center mb-16">
-            <p className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-3">Our Impact</p>
-            <h2 className="text-3xl lg:text-5xl font-bold mb-4">12+ Years of Financial Excellence</h2>
+            <p className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-3">Timi đã tạo ra khác biệt</p>
+            <h2 className="text-3xl lg:text-5xl font-bold mb-4">Hơn 12 năm đồng hành cùng khách hàng</h2>
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
@@ -406,8 +412,8 @@ export default function HomePage() {
       <section className="py-24 bg-white w-full">
         <div className="w-full px-6 lg:px-12 xl:px-20">
           <div className="text-center mb-16">
-            <p className="text-sm font-bold text-blue-600 uppercase tracking-widest mb-3">Testimonials</p>
-            <h2 className="text-3xl lg:text-5xl font-bold text-slate-900">What Our Clients Say</h2>
+            <p className="text-sm font-bold text-blue-600 uppercase tracking-widest mb-3">Khách hàng nói gì</p>
+            <h2 className="text-3xl lg:text-5xl font-bold text-slate-900">Trải nghiệm từ người dùng Timi</h2>
           </div>
 
           <div className="grid md:grid-cols-3 gap-8">
@@ -445,22 +451,22 @@ export default function HomePage() {
         <div className="w-full px-6 lg:px-12 xl:px-20 relative z-10">
           <div className="max-w-3xl mx-auto text-center">
             <h2 className="text-3xl lg:text-5xl font-bold text-white mb-6">
-              Stay Ahead of the Markets
+              Nhận thông tin tài chính hữu ích
             </h2>
             <p className="text-blue-100 text-lg mb-10">
-              Weekly insights, tips, and exclusive offers — straight to your inbox.
+              Đăng ký để nhận mẹo quản lý tài chính và thông tin mới nhất từ Timi.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 max-w-lg mx-auto">
               <div className="flex-1 relative">
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input
                   type="email"
-                  placeholder="Enter your email"
+                  placeholder="Nhập email của bạn"
                   className="w-full pl-12 pr-4 py-4 rounded-2xl bg-white/10 border border-white/20 text-white placeholder:text-blue-200 focus:outline-none focus:ring-2 focus:ring-white/30"
                 />
               </div>
               <button className="px-8 py-4 bg-white text-blue-700 font-bold rounded-2xl hover:bg-blue-50 transition-all shadow-lg">
-                Subscribe
+                Đăng ký nhận tin
               </button>
             </div>
           </div>
@@ -480,7 +486,7 @@ export default function HomePage() {
                 <span className="text-xl font-bold text-white tracking-tight">Timi</span>
               </div>
               <p className="text-sm leading-relaxed max-w-sm mb-6">
-                Intelligent financial platform protected by AI. Our mission is to make every transaction of yours absolutely safe.
+                Nền tảng tài chính thông minh được AI bảo vệ. Sứ mệnh của Timi là giúp mọi giao dịch của bạn an toàn hơn.
               </p>
               <div className="flex gap-3">
                 {[Facebook, Twitter, Linkedin, Instagram].map((Icon, i) => (
@@ -493,27 +499,27 @@ export default function HomePage() {
 
             {/* Links */}
             <div>
-              <h4 className="text-white font-semibold mb-5">Services</h4>
+              <h4 className="text-white font-semibold mb-5">Dịch vụ</h4>
               <ul className="space-y-3 text-sm">
                 <li><button onClick={() => navigate("/transfer")} className="hover:text-blue-400 transition-colors">Chuyển tiền</button></li>
                 <li><button onClick={() => navigate("/qr")} className="hover:text-blue-400 transition-colors">Thanh toán QR</button></li>
                 <li><button onClick={() => navigate("/history")} className="hover:text-blue-400 transition-colors">Lịch sử giao dịch</button></li>
-                <li><button onClick={() => navigate("/account")} className="hover:text-blue-400 transition-colors">Quản lý tài khoản</button></li>
+                <li><button onClick={() => navigate("/me")} className="hover:text-blue-400 transition-colors">Quản lý tài khoản</button></li>
               </ul>
             </div>
 
             <div>
-              <h4 className="text-white font-semibold mb-5">Company</h4>
+              <h4 className="text-white font-semibold mb-5">Timi</h4>
               <ul className="space-y-3 text-sm">
-                <li><a href="#" className="hover:text-blue-400 transition-colors">About Us</a></li>
-                <li><a href="#" className="hover:text-blue-400 transition-colors">Careers</a></li>
-                <li><a href="#" className="hover:text-blue-400 transition-colors">Press</a></li>
-                <li><a href="#" className="hover:text-blue-400 transition-colors">Blog</a></li>
+                <li><button onClick={() => navigate("/dashboard")} className="hover:text-blue-400 transition-colors">Tổng quan</button></li>
+                <li><button onClick={() => navigate("/me")} className="hover:text-blue-400 transition-colors">Tài khoản</button></li>
+                <li><button onClick={() => navigate("/history")} className="hover:text-blue-400 transition-colors">Lịch sử hoạt động</button></li>
+                <li><button onClick={() => navigate("/setup-face")} className="hover:text-blue-400 transition-colors">Bảo mật khuôn mặt</button></li>
               </ul>
             </div>
 
             <div>
-              <h4 className="text-white font-semibold mb-5">Contact</h4>
+              <h4 className="text-white font-semibold mb-5">Liên hệ</h4>
               <ul className="space-y-3 text-sm">
                 <li className="flex items-center gap-2">
                   <Mail className="w-4 h-4" /> support@timi.com
@@ -529,11 +535,11 @@ export default function HomePage() {
           </div>
 
           <div className="border-t border-slate-900 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-            <p className="text-sm">© 2026 Timi. All rights reserved.</p>
+            <p className="text-sm">© 2026 Timi. Bảo lưu mọi quyền.</p>
             <div className="flex gap-6 text-sm">
-              <a href="#" className="hover:text-blue-400 transition-colors">Privacy Policy</a>
-              <a href="#" className="hover:text-blue-400 transition-colors">Terms of Service</a>
-              <a href="#" className="hover:text-blue-400 transition-colors">Cookies</a>
+              <a href="#" className="hover:text-blue-400 transition-colors">Chính sách bảo mật</a>
+              <a href="#" className="hover:text-blue-400 transition-colors">Điều khoản sử dụng</a>
+              <a href="#" className="hover:text-blue-400 transition-colors">Cookie</a>
             </div>
           </div>
         </div>

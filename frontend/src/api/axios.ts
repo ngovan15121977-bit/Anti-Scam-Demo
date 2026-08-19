@@ -13,8 +13,8 @@ export const axiosInstance = axios.create({
 // Request interceptor: gan token vao header
 axiosInstance.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // Doc tu localStorage (khop voi authStore)
-    const token = localStorage.getItem("token");
+    // Session-only logins are kept in sessionStorage; remembered logins use localStorage.
+    const token = localStorage.getItem("token") || sessionStorage.getItem("token");
 
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -35,6 +35,8 @@ axiosInstance.interceptors.response.use(
     if (error.response?.status === 401 && !isAuthAttempt) {
       localStorage.removeItem("token");
       localStorage.removeItem("auth-storage");
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("auth-storage");
       window.location.replace("/login");
     }
     return Promise.reject(error);

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
-import { Shield, Mail, Lock, Eye, EyeOff, ArrowRight, Sparkles, Fingerprint, Globe, Zap } from "lucide-react";
+import { Shield, Mail, Lock, Eye, EyeOff, ArrowLeft, ArrowRight, Sparkles, Fingerprint, Globe, Zap } from "lucide-react";
 import { authApi } from "@/api/auth";
 import { useAuthStore } from "@/stores/authStore";
 import FaceVerificationModal, { type FaceMatchResult } from "@/components/auth/FaceVerificationModal";
@@ -24,12 +24,13 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [faceStep, setFaceStep] = useState(false);
+  const [rememberLogin, setRememberLogin] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
   const loginMutation = useMutation({
     mutationFn: authApi.login,
     onSuccess: async (data) => {
-      setAuth(data.access_token, data.user);
+      setAuth(data.access_token, data.user, rememberLogin);
       navigate(data.user.role === "admin" ? "/admin" : "/dashboard", { replace: true });
     },
     onError: (err: any) => {
@@ -44,12 +45,12 @@ export default function LoginPage() {
       setErrors({ general: "Vui lòng điền đầy đủ thông tin" });
       return;
     }
-    loginMutation.mutate(form);
+    loginMutation.mutate({ ...form, remember_me: rememberLogin });
   };
 
-  const verifyLoginFace = async (imageData: string, pin?: string): Promise<FaceMatchResult> => {
-    const data = await authApi.loginWithFace({ ...form, pin: pin ?? "", image_data: imageData });
-    setAuth(data.access_token, data.user);
+  const verifyLoginFace = async (imageData: string): Promise<FaceMatchResult> => {
+    const data = await authApi.loginWithFace({ image_data: imageData, remember_me: rememberLogin });
+    setAuth(data.access_token, data.user, rememberLogin);
     const pinStatus = await authApi.transactionPinStatus();
     navigate(!pinStatus.configured ? "/setup-pin" : (data.user.role === "admin" ? "/admin" : "/dashboard"), { replace: true });
     return { matched: true, similarity: data.similarity, threshold: data.threshold, message: "Khuôn mặt khớp với tài khoản." };
@@ -60,35 +61,39 @@ export default function LoginPage() {
   const inputError = "border-red-300 focus:border-red-500 focus:ring-4 focus:ring-red-500/10 bg-red-50/50";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/40 flex w-full relative overflow-hidden">
-      {/* ===== BACKGROUND EFFECTS ===== */}
-      <div className="absolute top-0 right-0 w-[700px] h-[700px] bg-blue-100/50 rounded-full blur-3xl -translate-y-1/3 translate-x-1/4" />
-      <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-indigo-100/40 rounded-full blur-3xl translate-y-1/3 -translate-x-1/4" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] bg-gradient-to-r from-blue-50 to-indigo-50 rounded-full blur-3xl opacity-60" />
+    <div className="login-page-shell bg-gradient-to-br from-slate-50 via-white to-blue-50/40 flex w-full relative overflow-x-clip">
+      <div className="pointer-events-none absolute inset-0 overflow-clip">
+        {/* ===== BACKGROUND EFFECTS ===== */}
+        <div className="absolute top-0 right-0 w-[700px] h-[700px] bg-blue-100/50 rounded-full blur-3xl -translate-y-1/3 translate-x-1/4" />
+        <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-indigo-100/40 rounded-full blur-3xl translate-y-1/3 -translate-x-1/4" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] bg-gradient-to-r from-blue-50 to-indigo-50 rounded-full blur-3xl opacity-60" />
 
-      {/* Animated grid pattern */}
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(59,130,246,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(59,130,246,0.03)_1px,transparent_1px)] bg-[size:60px_60px]" />
+        {/* Animated grid pattern */}
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(59,130,246,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(59,130,246,0.03)_1px,transparent_1px)] bg-[size:60px_60px]" />
 
-      {/* Floating animated icons */}
-      {floatingIcons.map(({ Icon, top, left, right, bottom, delay, size }, i) => (
-        <div
-          key={i}
-          className="absolute hidden lg:flex items-center justify-center text-blue-400/30 animate-float"
-          style={{ top, left, right, bottom, animationDelay: delay }}
-        >
-          <Icon size={size} />
-        </div>
-      ))}
+        {/* Floating animated icons */}
+        {floatingIcons.map(({ Icon, top, left, right, bottom, delay, size }, i) => (
+          <div
+            key={i}
+            className="absolute hidden lg:flex items-center justify-center text-blue-400/30 animate-float"
+            style={{ top, left, right, bottom, animationDelay: delay }}
+          >
+            <Icon size={size} />
+          </div>
+        ))}
+      </div>
 
+      {/* ===== LOGIN CONTENT: LEFT IMAGE + RIGHT FORM ===== */}
+      <div className="login-main-content relative z-10 flex min-h-0 w-full flex-1 flex-col lg:flex-row">
       {/* ===== LEFT SIDE - IMAGE ===== */}
-      <div className="hidden lg:flex lg:w-1/2 relative items-center justify-center p-12">
+      <div className="login-left-column hidden lg:flex lg:w-1/2 relative items-center justify-center p-12">
         <div className="relative w-full max-w-lg">
           {/* Main image card */}
           <div className="relative rounded-[2.5rem] overflow-hidden shadow-2xl shadow-blue-200/50 border border-white/50">
             <img
               src="https://images.unsplash.com/photo-1563986768609-322da13575f3?w=800&q=80"
               alt="Secure Banking"
-              className="w-full h-[580px] object-cover"
+              className="login-hero-image w-full h-[580px] object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 via-slate-900/20 to-transparent" />
 
@@ -138,10 +143,14 @@ export default function LoginPage() {
       </div>
 
       {/* ===== RIGHT SIDE - FORM ===== */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 relative z-10">
+      <div className="login-form-column flex-1 flex flex-col items-center justify-center px-6 py-12 lg:py-6">
         <div className="w-full max-w-md">
+          <Link to="/" className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition-colors hover:text-blue-600">
+            <ArrowLeft className="h-4 w-4" />
+            Về trang chủ
+          </Link>
           {/* Logo */}
-          <div className="flex items-center gap-3 mb-8 justify-center lg:justify-start">
+          <div className="login-brand flex items-center gap-3 mb-8 lg:mb-4 justify-center lg:justify-start">
             <div className="w-11 h-11 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
               <Shield className="w-6 h-6 text-white" />
             </div>
@@ -152,7 +161,7 @@ export default function LoginPage() {
           </div>
 
           {/* Form Card */}
-          <div className="bg-white/70 backdrop-blur-xl rounded-3xl shadow-xl shadow-slate-200/50 border border-white/60 p-8 space-y-6">
+          <div className="login-card bg-white/70 backdrop-blur-xl rounded-3xl shadow-xl shadow-slate-200/50 border border-white/60 p-8 space-y-6 lg:p-6 lg:space-y-4">
             <div>
               <h2 className="text-2xl font-bold text-slate-900 mb-1">Chào mừng trở lại</h2>
               <p className="text-sm text-slate-400">Đăng nhập để tiếp tục quản lý tài chính</p>
@@ -172,12 +181,12 @@ export default function LoginPage() {
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="login-form-fields space-y-5 lg:space-y-4">
               {/* Email */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Email</label>
                 <div className="relative group">
-                  <Mail className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "email" ? "text-blue-500" : "text-slate-400"}`} />
+                  <Mail strokeWidth={2.25} className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "email" ? "text-blue-500" : "text-slate-700"}`} />
                   <input
                     type="email"
                     placeholder="name@company.com"
@@ -195,7 +204,7 @@ export default function LoginPage() {
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Mật khẩu</label>
                 <div className="relative group">
-                  <Lock className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "password" ? "text-blue-500" : "text-slate-400"}`} />
+                  <Lock strokeWidth={2.25} className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "password" ? "text-blue-500" : "text-slate-700"}`} />
                   <input
                     type={showPass ? "text" : "password"}
                     placeholder="••••••••"
@@ -208,7 +217,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() => setShowPass(!showPass)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-700 hover:text-slate-900 transition-colors p-1"
                   >
                     {showPass ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
@@ -220,7 +229,7 @@ export default function LoginPage() {
               <div className="flex items-center justify-between text-sm">
                 <label className="flex items-center gap-2 cursor-pointer group">
                   <div className="relative">
-                    <input type="checkbox" className="peer sr-only" />
+                    <input type="checkbox" className="peer sr-only" checked={rememberLogin} onChange={(e) => setRememberLogin(e.target.checked)} />
                     <div className="w-4 h-4 rounded border-2 border-slate-300 peer-checked:bg-blue-600 peer-checked:border-blue-600 transition-all" />
                     <svg className="absolute top-0.5 left-0.5 w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity" viewBox="0 0 12 12" fill="none">
                       <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -280,10 +289,11 @@ export default function LoginPage() {
           </div>
 
           {/* Footer */}
-          <p className="text-center text-xs text-slate-400 mt-8">
+          <p className="login-footer text-center text-xs text-slate-400 mt-8 lg:mt-4">
             © 2026 Timi. Bảo vệ bạn mọi lúc.
           </p>
         </div>
+      </div>
       </div>
 
       {/* Face Verification Modal */}
@@ -292,7 +302,6 @@ export default function LoginPage() {
           onVerified={verifyLoginFace}
           onCancel={() => setFaceStep(false)}
           isLoading={loginMutation.isPending}
-          requirePin
         />
       )}
 

@@ -37,6 +37,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=1, max_length=128)
+    remember_me: bool = False
 
 
 class LoginLocationRequest(BaseModel):
@@ -56,8 +57,8 @@ class FaceVerificationRequest(BaseModel):
     amount: int | None = Field(default=None, ge=0, le=10_000_000_000)
 
 
-class FaceLoginRequest(LoginRequest):
-    pin: str = Field(..., pattern=r"^\d{4,6}$")
+class FaceLoginRequest(BaseModel):
+    remember_me: bool = False
     image_data: str = Field(..., min_length=20, max_length=7_000_000)
 
 

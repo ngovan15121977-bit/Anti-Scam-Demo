@@ -7,6 +7,8 @@ import PageTransition from "@/components/transitions/PageTransition";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import HomePage from "@/pages/HomePage";
+import LegalPage from "@/pages/LegalPage";
+import MissionPage from "@/pages/MissionPage";
 import MainLayout from "@/components/layout/MainLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import LocationRequiredRoute from "@/components/auth/LocationRequiredRoute";
@@ -68,6 +70,9 @@ function App() {
             >
               <Routes>
                 <Route path="/" element={<HomePage />} />
+                <Route path="/terms" element={<LegalPage type="terms" />} />
+                <Route path="/privacy" element={<LegalPage type="privacy" />} />
+                <Route path="/mission" element={<MissionPage />} />
                 <Route
                   path="/login"
                   element={

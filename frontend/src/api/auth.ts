@@ -41,6 +41,7 @@ export interface SecurityCheck {
 export interface LoginRequest {
   email: string;
   password: string;
+  remember_me?: boolean;
 }
 
 export interface RegisterRequest {
@@ -66,7 +67,7 @@ export interface FaceVerificationResponse {
   verification_token?: string | null;
 }
 
-export interface FaceLoginRequest extends LoginRequest { pin: string; image_data: string; }
+export interface FaceLoginRequest { image_data: string; remember_me?: boolean; }
 export interface FaceLoginResponse extends TokenResponse { similarity: number; threshold: number; }
 
 export const authApi = {

@@ -30,6 +30,10 @@ class BlacklistPage(BaseModel):
     next_cursor: str | None = None
 
 
+class AdminFaceActionRequest(BaseModel):
+    face_verification_token: str = Field(..., min_length=20, max_length=4096)
+
+
 class ScamPatternCreate(BaseModel):
     pattern_name: str = Field(..., min_length=1, max_length=100)
     description: str = Field(..., min_length=1, max_length=10_000)

@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import axiosInstance from "@/api/axios";
+import { authApi } from "@/api/auth";
+import FaceVerificationModal, { type FaceMatchResult } from "@/components/auth/FaceVerificationModal";
 import { useNavigate } from "react-router-dom";
 //Đã check admin page
 import {
@@ -400,12 +403,41 @@ export default function AdminPage() {
     <div className="min-h-screen bg-[#f9fafd]">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-slate-950/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
+        <div className="fixed inset-x-0 bottom-0 top-16 z-40 bg-slate-950/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
+
+      {/* ===== TOPBAR ===== */}
+      <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-slate-200 bg-white px-4 lg:px-6">
+        <button onClick={() => setSidebarOpen(true)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden">
+          <Menu className="h-5 w-5" />
+        </button>
+        <button onClick={() => navigate("/dashboard")} className="hidden items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600 lg:flex">
+          <Home className="h-3.5 w-3.5" />
+        </button>
+        <span className="hidden text-slate-300 lg:inline">/</span>
+        <div>
+          <h1 className="text-sm font-bold text-slate-800">{activeTabMeta.label}</h1>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={() => void transactionsQuery.refetch()} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" title="Làm mới dữ liệu">
+            <RefreshCw className={`h-4 w-4 ${transactionsQuery.isFetching ? "animate-spin" : ""}`} />
+          </button>
+          <button className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100" title="Thông báo">
+            <Bell className="h-4 w-4" />
+            <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-red-500" />
+          </button>
+          <div className="ml-1 flex items-center gap-2 border-l border-slate-200 pl-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">AD</div>
+            <span className="hidden text-sm font-medium text-slate-700 sm:inline">Admin</span>
+          </div>
+        </div>
+      </header>
+
+      <div className="flex items-start">
 
       {/* ===== SIDEBAR ===== */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#0b1727] text-white transition-transform duration-200 lg:translate-x-0 ${
+        className={`fixed left-0 top-16 z-50 flex h-[calc(100vh-4rem)] w-64 shrink-0 flex-col bg-[#0b1727] text-white transition-transform duration-200 lg:sticky lg:top-16 lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -424,7 +456,7 @@ export default function AdminPage() {
           </button>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+        <nav className="flex-1 space-y-1 px-3 py-4">
           <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Quản trị</p>
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -448,7 +480,7 @@ export default function AdminPage() {
           })}
         </nav>
 
-        <div className="border-t border-white/10 p-3">
+        <div className="mt-auto border-t border-white/10 p-3">
           <button
             onClick={() => navigate("/dashboard")}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white"
@@ -460,9 +492,8 @@ export default function AdminPage() {
       </aside>
 
       {/* ===== MAIN AREA ===== */}
-      <div className="lg:pl-64">
-        {/* Top navbar */}
-        <div className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-slate-200 bg-white px-4 lg:px-6">
+      <main className="min-w-0 flex-1">
+        <div className="hidden">
           <button onClick={() => setSidebarOpen(true)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden">
             <Menu className="h-5 w-5" />
           </button>
@@ -501,6 +532,7 @@ export default function AdminPage() {
           {activeTab === "audit" && <AuditTab />}
           {activeTab === "settings" && <SettingsTab />}
         </div>
+      </main>
       </div>
     </div>
   );
@@ -745,8 +777,8 @@ function UsersTab({ searchQuery, setSearchQuery }: { searchQuery: string; setSea
           ))}
         </div>
       </FalconCard>
-      {confirmUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+      {confirmUser && createPortal(
+        <div className="fixed inset-0 z-[10000] flex min-h-screen items-center justify-center overflow-y-auto bg-slate-950/60 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
             <div className="flex items-start gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-red-100 text-red-600">
@@ -766,7 +798,8 @@ function UsersTab({ searchQuery, setSearchQuery }: { searchQuery: string; setSea
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -1231,15 +1264,30 @@ function TransactionsTab({ transactionsQuery, searchQuery, setSearchQuery }: { t
 function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; setSearchQuery: (s: string) => void }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAll, setShowAll] = useState(false);
-  const [blacklistType, setBlacklistType] = useState<"all" | "account" | "url">("all");
+  const [blacklistType, setBlacklistType] = useState<"all" | "account" | "phone" | "email" | "url">("all");
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const queryClient = useQueryClient();
+  const deleteBlacklist = useMutation({
+    mutationFn: async ({ entryId, faceVerificationToken }: { entryId: string; faceVerificationToken: string }) =>
+      axiosInstance.delete(`/v1/admin/blacklist/${entryId}`, {
+        data: { face_verification_token: faceVerificationToken },
+      }),
+      onSuccess: async () => {
+        setDeleteTarget(null);
+        setShowDeleteConfirm(false);
+        await queryClient.invalidateQueries({ queryKey: ["admin-blacklist"] });
+      },
+  });
   const blacklistQuery = useInfiniteQuery({
-    queryKey: ["admin-blacklist", showAll, blacklistType],
+    queryKey: ["admin-blacklist", showAll, blacklistType, searchQuery],
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => (
       await axiosInstance.get<BlacklistPage>("/v1/admin/blacklist", {
         params: {
-          limit: showAll ? 20 : 10,
+          limit: searchQuery.trim() ? 50 : showAll ? 20 : 10,
           cursor: pageParam ?? undefined,
+          search: searchQuery.trim() || undefined,
           ...(blacklistType !== "all" ? { entity_type: blacklistType } : {}),
         },
       })
@@ -1269,9 +1317,26 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
   );
   const filtered = uniqueEntries.filter((entry) => {
     if (blacklistType !== "all" && entry.type !== blacklistType) return false;
-    if (searchQuery && !entry.value.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (searchQuery && !`${entry.value} ${entry.bank ?? ""} ${entry.reason}`.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
+  const deleteEntry = filtered.find((entry) => entry.id === deleteTarget);
+  const verifyAndDelete = async (imageData: string): Promise<FaceMatchResult> => {
+    const match = await authApi.verifyFace(imageData);
+    if (!match.matched || !match.verification_token) {
+      throw new Error("Khuôn mặt admin chưa được xác thực.");
+    }
+    await deleteBlacklist.mutateAsync({
+      entryId: deleteTarget!,
+      faceVerificationToken: match.verification_token,
+    });
+    return {
+      matched: match.matched,
+      similarity: match.similarity,
+      threshold: match.threshold,
+      message: match.message,
+    };
+  };
 
   return (
     <div className="space-y-4">
@@ -1299,6 +1364,8 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
           {[
             { value: "all" as const, label: "Tất cả" },
             { value: "account" as const, label: "Tài khoản / STK" },
+            { value: "phone" as const, label: "Số điện thoại" },
+            { value: "email" as const, label: "Email" },
             { value: "url" as const, label: "URL" },
           ].map((filter) => (
             <button
@@ -1334,6 +1401,46 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
               </div>
               <p className="break-words whitespace-pre-wrap text-sm text-slate-600 mb-1">{entry.reason}</p>
               <p className="text-xs text-slate-400">Thêm vào: {entry.addedAt}</p>
+              <div className="mt-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteTarget(entry.id);
+                    setShowDeleteConfirm(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Xóa blacklist
+                </button>
+              </div>
+              {deleteTarget === "__inline_disabled__" && showDeleteConfirm && (
+                <div className="mt-3 rounded-xl border border-red-100 bg-red-50/70 p-4">
+                  <p className="text-sm font-semibold text-red-900">Xác nhận xóa blacklist?</p>
+                  <p className="mt-1 text-xs leading-5 text-red-700">
+                    Bản ghi này sẽ được xóa sau khi admin xác thực khuôn mặt.
+                  </p>
+                  <div className="mt-3 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeleteTarget(null);
+                        setShowDeleteConfirm(false);
+                      }}
+                      className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-inset ring-slate-200 hover:bg-slate-50"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+                    >
+                      Xác nhận khuôn mặt
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -1361,8 +1468,8 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
         </button>
       )}
 
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      {showAddModal && createPortal(
+        <div className="fixed inset-0 z-[10000] flex min-h-screen items-center justify-center overflow-y-auto bg-black/50 p-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
             <h3 className="text-lg font-bold text-slate-800 mb-4">Thêm vào Blacklist</h3>
             <div className="space-y-3">
@@ -1392,7 +1499,51 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
+      )}
+      {deleteTarget && showDeleteConfirm && createPortal(
+        <div className="fixed inset-0 z-[10000] flex min-h-screen items-center justify-center overflow-y-auto bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-slate-900">Xác nhận xóa blacklist</h3>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Bạn có chắc chắn muốn xóa {deleteEntry?.type === "account" ? "STK" : deleteEntry?.type?.toUpperCase() || "bản ghi"}{" "}
+              <strong className="break-all text-slate-900">{deleteEntry?.value || "đã chọn"}</strong>{" "}
+              không? Hệ thống sẽ yêu cầu xác thực khuôn mặt admin.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteTarget(null);
+                  setShowDeleteConfirm(false);
+                }}
+                className="flex-1 rounded-xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-200"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                Xác nhận khuôn mặt
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+      {deleteTarget && !showDeleteConfirm && (
+        <FaceVerificationModal
+          mode="verification"
+          onVerified={verifyAndDelete}
+          onCancel={() => {
+            setDeleteTarget(null);
+            setShowDeleteConfirm(false);
+          }}
+          isLoading={deleteBlacklist.isPending}
+        />
       )}
     </div>
   );

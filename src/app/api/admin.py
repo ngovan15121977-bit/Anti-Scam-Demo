@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.app.core.deps import require_admin
+from src.app.core.security import decode_face_verification_token
 from src.app.db.session import get_db
 from src.app.models.audit_log import AuditLog
 from src.app.models.blacklist import Blacklist
@@ -22,6 +23,7 @@ from src.app.models.transaction import Transaction
 from src.app.models.user import User
 from src.app.schemas.admin import (
     AdminTransactionOut,
+    AdminFaceActionRequest,
     AdminUserOut,
     AuditLogOut,
     BlacklistCreate,
@@ -174,6 +176,7 @@ def list_blacklist(
     limit: int = Query(default=_BLACKLIST_DEFAULT_PAGE_SIZE, ge=1, le=_BLACKLIST_MAX_PAGE_SIZE),
     cursor: str | None = None,
     entity_type: str | None = Query(default=None, pattern="^(account|phone|email|url)$"),
+    search: str | None = Query(default=None, min_length=1, max_length=255),
     db: Session = Depends(get_db),
 ) -> BlacklistPage:
     """Return a newest-first keyset page instead of the whole blacklist."""
@@ -196,6 +199,15 @@ def list_blacklist(
     query = select(Blacklist).where(Blacklist.is_active.is_(True))
     if entity_type is not None:
         query = query.where(Blacklist.entity_type == entity_type)
+    if search:
+        search_pattern = f"%{search.strip()}%"
+        query = query.where(
+            or_(
+                Blacklist.entity_value.ilike(search_pattern),
+                Blacklist.bank.ilike(search_pattern),
+                Blacklist.source.ilike(search_pattern),
+            )
+        )
     if seek_filter is not None:
         query = query.where(seek_filter)
     rows = list(
@@ -250,9 +262,14 @@ def add_blacklist(
 @router.delete("/blacklist/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_blacklist(
     entry_id: uuid.UUID,
+    payload: AdminFaceActionRequest,
     db: Session = Depends(get_db),
     admin=Depends(require_admin),
 ) -> None:
+    try:
+        decode_face_verification_token(payload.face_verification_token, user_id=str(admin.id))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Xác thực khuôn mặt admin không hợp lệ hoặc đã hết hạn") from exc
     entry = db.get(Blacklist, entry_id)
     if entry is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy bản ghi")

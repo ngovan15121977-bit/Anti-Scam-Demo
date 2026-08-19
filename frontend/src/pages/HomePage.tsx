@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Shield,
   ArrowRight,
@@ -120,15 +120,18 @@ export default function HomePage() {
         <div className="w-full px-6 lg:px-12 xl:px-20">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate("/")}>
-              <div className="w-9 h-9 bg-gradient-to-br from-[#3D5AFB] to-[#6C4CE0] rounded-xl flex items-center justify-center">
+              <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-xl flex items-center justify-center">
                 <Shield className="w-5 h-5 text-white" />
               </div>
-              <span className="font-display text-2xl font-bold text-[#0B0B0B]">Timi</span>
+              <span className="font-display text-2xl font-bold bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent">Timi</span>
             </div>
 
             <div className="hidden md:flex items-center gap-8">
               <a href="#features" className="text-slate-700 hover:text-[#4F6BFF] font-medium transition-colors">Dịch vụ</a>
-              <a href="#security" className="text-slate-700 hover:text-[#4F6BFF] font-medium transition-colors">Bảo mật</a>
+              <Link to="/terms" className="text-slate-700 hover:text-[#4F6BFF] font-medium transition-colors">Điều khoản</Link>
+              {/* <a href="#security" className="text-slate-700 hover:text-[#4F6BFF] font-medium transition-colors">Bảo mật</a> */}
+              <Link to="/privacy" className="text-slate-700 hover:text-[#4F6BFF] font-medium transition-colors">Bảo mật dữ liệu</Link>
+              <Link to="/mission" className="text-slate-700 hover:text-[#4F6BFF] font-medium transition-colors">Sứ mệnh</Link>
               <a href="#app" className="text-slate-700 hover:text-[#4F6BFF] font-medium transition-colors">Tải app</a>
             </div>
 
@@ -152,6 +155,9 @@ export default function HomePage() {
             <a href="#features" className="block py-2 text-slate-700 font-medium">Dịch vụ</a>
             <a href="#security" className="block py-2 text-slate-700 font-medium">Bảo mật</a>
             <a href="#app" className="block py-2 text-slate-700 font-medium">Tải app</a>
+            <Link to="/mission" className="block py-2 text-slate-700 font-medium">Sứ mệnh</Link>
+            <Link to="/terms" className="block py-2 text-slate-700 font-medium">Điều khoản</Link>
+            <Link to="/privacy" className="block py-2 text-slate-700 font-medium">Bảo mật dữ liệu</Link>
             <hr className="border-slate-100" />
             <button onClick={() => navigate("/login")} className="block w-full text-left py-2 text-[#0B0B0B] font-semibold">Đăng nhập</button>
             <button onClick={() => navigate("/register")} className="w-full py-2.5 bg-[#4F6BFF] text-white font-bold rounded-full">Đăng ký</button>
@@ -315,9 +321,9 @@ export default function HomePage() {
             <p className="text-slate-300 mt-4 max-w-xl">
               Chúng tôi xây dựng cách tốt nhất để quản lý và bảo vệ tiền của bạn. Ít phí. Nhiều an tâm. Tốc độ tối đa.
             </p>
-            <button className="mt-8 px-7 py-3.5 bg-white text-[#4F6BFF] font-bold rounded-full hover:bg-slate-100 transition-colors">
+            <Link to="/mission" className="mt-8 px-7 py-3.5 bg-white text-[#4F6BFF] font-bold rounded-full hover:bg-slate-100 transition-colors">
               Tìm hiểu sứ mệnh của Timi
-            </button>
+            </Link>
           </div>
         </div>
       </section>
@@ -490,10 +496,10 @@ export default function HomePage() {
           <div className="grid md:grid-cols-4 gap-8 mb-8">
             <div className="col-span-2">
               <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-gradient-to-br from-[#3D5AFB] to-[#6C4CE0] rounded-lg flex items-center justify-center">
+                <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-lg flex items-center justify-center">
                   <Shield className="w-4 h-4 text-white" />
                 </div>
-                <span className="text-xl font-bold text-white font-display">Timi</span>
+                <span className="text-xl font-bold font-display bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent">Timi</span>
               </div>
               <p className="text-sm leading-relaxed max-w-sm">
                 Ví điện tử thông minh được bảo vệ bởi AI. Sứ mệnh của chúng tôi là giúp mọi giao dịch của bạn đều an toàn tuyệt đối.
@@ -512,8 +518,8 @@ export default function HomePage() {
               <h4 className="text-white font-semibold mb-4">Hỗ trợ</h4>
               <ul className="space-y-2 text-sm">
                 <li><a href="#" className="hover:text-[#4F6BFF] transition-colors">Trung tâm trợ giúp</a></li>
-                <li><a href="#" className="hover:text-[#4F6BFF] transition-colors">Chính sách bảo mật</a></li>
-                <li><a href="#" className="hover:text-[#4F6BFF] transition-colors">Điều khoản sử dụng</a></li>
+                <li><Link to="/privacy" className="hover:text-[#4F6BFF] transition-colors">Chính sách bảo mật</Link></li>
+                <li><Link to="/terms" className="hover:text-[#4F6BFF] transition-colors">Điều khoản sử dụng</Link></li>
                 <li><a href="#" className="hover:text-[#4F6BFF] transition-colors">Liên hệ</a></li>
               </ul>
             </div>

@@ -4,12 +4,54 @@
 
 @layer base {
   html, body, #root {
-    @apply w-full min-h-screen;
+    @apply w-full;
     margin: 0;
     padding: 0;
   }
   body {
     @apply bg-gray-50 text-gray-900 antialiased;
+  }
+}
+
+/* The login shell owns the viewport height; global roots must not add another one. */
+.login-page-shell {
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+@media (min-width: 1024px) {
+  .login-left-column {
+    align-items: safe center;
+    padding: 3rem;
+  }
+
+  .login-hero-image {
+    height: 580px;
+  }
+
+  .login-form-column {
+    justify-content: safe center;
+    padding-block: 1.5rem;
+  }
+
+  .login-brand {
+    margin-bottom: 1rem;
+  }
+
+  .login-card {
+    padding: 1.5rem;
+  }
+
+  .login-card > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 1rem;
+  }
+
+  .login-form-fields > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 1rem;
+  }
+
+  .login-footer {
+    margin-top: 1rem;
   }
 }
 

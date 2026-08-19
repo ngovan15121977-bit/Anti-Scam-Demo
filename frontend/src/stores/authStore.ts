@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { authApi, User } from "@/api/auth";
 
 interface AuthState {
@@ -8,14 +8,35 @@ interface AuthState {
   isAuthenticated: boolean;
   isAdmin: boolean;
   isLoading: boolean;
+  rememberMe: boolean;
 
-  setAuth: (token: string, user: User) => void;
+  setAuth: (token: string, user: User, rememberMe?: boolean) => void;
   login: (email: string, password: string) => Promise<void>;
   register: (data: { full_name: string; email: string; phone: string; password: string }) => Promise<void>;
   logout: () => Promise<void>;
   fetchMe: () => Promise<void>;
   updateUser: (partialUser: Partial<User>) => void;
 }
+
+type PersistedAuthState = Pick<
+  AuthState,
+  "user" | "token" | "isAuthenticated" | "isAdmin" | "rememberMe"
+>;
+
+const authStorage = createJSONStorage<PersistedAuthState>(() => ({
+  getItem: (name) => localStorage.getItem(name) ?? sessionStorage.getItem(name),
+  setItem: (name, value) => {
+    const parsed = JSON.parse(value) as { state?: { rememberMe?: boolean } };
+    const storage = parsed.state?.rememberMe ? localStorage : sessionStorage;
+    const otherStorage = parsed.state?.rememberMe ? sessionStorage : localStorage;
+    otherStorage.removeItem(name);
+    storage.setItem(name, value);
+  },
+  removeItem: (name) => {
+    localStorage.removeItem(name);
+    sessionStorage.removeItem(name);
+  },
+}));
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -25,14 +46,18 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isAdmin: false,
       isLoading: false,
+      rememberMe: false,
 
-      setAuth: (token, user) => {
-        localStorage.setItem("token", token);
+      setAuth: (token, user, rememberMe = false) => {
+        localStorage.removeItem("token");
+        sessionStorage.removeItem("token");
+        (rememberMe ? localStorage : sessionStorage).setItem("token", token);
         set({
           token,
           user,
           isAuthenticated: true,
           isAdmin: user.role === "admin",
+          rememberMe,
         });
       },
 
@@ -41,13 +66,14 @@ export const useAuthStore = create<AuthState>()(
         try {
           const response = await authApi.login({ email, password });
           const { access_token, user } = response;
-          localStorage.setItem("token", access_token);
+          sessionStorage.setItem("token", access_token);
           set({
             token: access_token,
             user,
             isAuthenticated: true,
             isAdmin: user.role === "admin",
             isLoading: false,
+            rememberMe: false,
           });
         } catch (error) {
           set({ isLoading: false });
@@ -60,13 +86,14 @@ export const useAuthStore = create<AuthState>()(
         try {
           const res = await authApi.register(data);
           const { access_token, user } = res;
-          localStorage.setItem("token", access_token);
+          sessionStorage.setItem("token", access_token);
           set({
             token: access_token,
             user,
             isAuthenticated: true,
             isAdmin: user.role === "admin",
             isLoading: false,
+            rememberMe: false,
           });
         } catch (error) {
           set({ isLoading: false });
@@ -78,11 +105,14 @@ export const useAuthStore = create<AuthState>()(
         await authApi.logout();
         localStorage.removeItem("token");
         localStorage.removeItem("auth-storage");
+        sessionStorage.removeItem("token");
+        sessionStorage.removeItem("auth-storage");
         set({
           user: null,
           token: null,
           isAuthenticated: false,
           isAdmin: false,
+          rememberMe: false,
         });
       },
 
@@ -99,11 +129,14 @@ export const useAuthStore = create<AuthState>()(
         } catch {
           localStorage.removeItem("token");
           localStorage.removeItem("auth-storage");
+          sessionStorage.removeItem("token");
+          sessionStorage.removeItem("auth-storage");
           set({
             user: null,
             token: null,
             isAuthenticated: false,
             isAdmin: false,
+            rememberMe: false,
           });
         }
       },
@@ -117,11 +150,13 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "auth-storage",
+      storage: authStorage,
       partialize: (s) => ({
         user: s.user,
         token: s.token,
         isAuthenticated: s.isAuthenticated,
         isAdmin: s.isAdmin,
+        rememberMe: s.rememberMe,
       }),
     }
   )

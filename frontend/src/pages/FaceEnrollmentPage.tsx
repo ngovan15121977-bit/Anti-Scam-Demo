@@ -28,7 +28,7 @@ export default function FaceEnrollmentPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f5f3ff] w-full relative overflow-hidden">
+    <div className="min-h-screen bg-[#f5f3ff] w-full relative overflow-x-clip">
       {/* Soft background blobs */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         <div className="absolute -top-32 -left-32 w-[480px] h-[480px] bg-violet-200/50 rounded-full blur-3xl" />

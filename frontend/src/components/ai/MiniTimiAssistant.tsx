@@ -70,6 +70,9 @@ export default function MiniTimiAssistant() {
   const [chatOpen, setChatOpen] = useState(false);
   const [tipIndex, setTipIndex] = useState(0);
   const [draft, setDraft] = useState("");
+  const [widgetPosition, setWidgetPosition] = useState<{ x: number; y: number } | null>(null);
+  const dragRef = useRef<{ pointerId: number; offsetX: number; offsetY: number; moved: boolean } | null>(null);
+  const suppressClickRef = useRef(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -135,6 +138,7 @@ export default function MiniTimiAssistant() {
     ].join("\n\n");
     setChatMessages((current) => [...current, { id: `guardian-alert-${Date.now()}`, role: "assistant", content: message }]);
     setOpen(true);
+    setWidgetPosition(null);
     setChatOpen(true);
   }, [criticalAlert, risk.explanation, risk.risk_score]);
 
@@ -162,7 +166,11 @@ export default function MiniTimiAssistant() {
   // normal DOM tree (on document.body) guarantees the widget always stays
   // pinned to the screen regardless of what any parent component does.
   const widget = (
-    <aside className={`fixed bottom-20 right-4 sm:bottom-6 sm:right-6 ${criticalAlert ? "z-[100]" : "z-40"}`} aria-label="Trợ lý Timi">
+    <aside
+      className={`fixed ${widgetPosition ? "" : "bottom-20 right-4 sm:bottom-6 sm:right-6"} ${criticalAlert ? "z-[100]" : "z-40"}`}
+      style={widgetPosition ? { left: widgetPosition.x, top: widgetPosition.y } : undefined}
+      aria-label="Trợ lý Timi"
+    >
       {/* Tip Card */}
       {isOpen && !chatOpen && (
         <div className="absolute bottom-24 right-0 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-blue-100/60 bg-white/80 backdrop-blur-xl shadow-2xl shadow-blue-200/30 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -187,7 +195,7 @@ export default function MiniTimiAssistant() {
                 <span className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-500">
                   <Shield className="h-3.5 w-3.5" />Timi AI Anti-Scam
                 </span>
-                <button type="button" onClick={() => setChatOpen(true)} className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1.5 text-[11px] font-bold text-white shadow-md shadow-blue-200 hover:shadow-lg hover:shadow-blue-300 transition-all hover:-translate-y-0.5">
+                <button type="button" onClick={() => { setWidgetPosition(null); setChatOpen(true); }} className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1.5 text-[11px] font-bold text-white shadow-md shadow-blue-200 hover:shadow-lg hover:shadow-blue-300 transition-all hover:-translate-y-0.5">
                   <MessageCircle className="h-3.5 w-3.5" />Trò chuyện
                 </button>
               </div>
@@ -276,13 +284,49 @@ export default function MiniTimiAssistant() {
       {/* Toggle Button */}
       <button
         type="button"
+        onPointerDown={(event) => {
+          const rect = event.currentTarget.parentElement?.getBoundingClientRect();
+          if (!rect) return;
+          dragRef.current = {
+            pointerId: event.pointerId,
+            offsetX: event.clientX - rect.left,
+            offsetY: event.clientY - rect.top,
+            moved: false,
+          };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const drag = dragRef.current;
+          if (!drag || drag.pointerId !== event.pointerId) return;
+          const nextX = Math.min(Math.max(event.clientX - drag.offsetX, 8), window.innerWidth - 72);
+          const nextY = Math.min(Math.max(event.clientY - drag.offsetY, 8), window.innerHeight - 72);
+          if (Math.abs(nextX - (widgetPosition?.x ?? nextX)) > 2 || Math.abs(nextY - (widgetPosition?.y ?? nextY)) > 2) {
+            drag.moved = true;
+          }
+          setWidgetPosition({ x: nextX, y: nextY });
+        }}
+        onPointerUp={(event) => {
+          const drag = dragRef.current;
+          if (!drag || drag.pointerId !== event.pointerId) return;
+          if (drag.moved) suppressClickRef.current = true;
+          dragRef.current = null;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={() => {
+          dragRef.current = null;
+        }}
         onClick={() => {
+          if (suppressClickRef.current) {
+            suppressClickRef.current = false;
+            return;
+          }
           setOpen((value) => !value);
           if (isOpen) setChatOpen(false);
         }}
-        className="group relative ml-auto grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 p-[2px] shadow-xl shadow-blue-900/30 transition-all hover:scale-105 hover:shadow-2xl hover:shadow-blue-900/40 focus:outline-none focus:ring-4 focus:ring-blue-300/30"
+        className="group relative ml-auto grid h-16 w-16 cursor-grab touch-none place-items-center rounded-full bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 p-[2px] shadow-xl shadow-blue-900/30 transition-all hover:scale-105 hover:shadow-2xl hover:shadow-blue-900/40 focus:outline-none focus:ring-4 focus:ring-blue-300/30 active:cursor-grabbing"
         aria-label={isOpen ? "Đóng trợ lý Timi" : "Mở trợ lý Timi"}
         aria-expanded={isOpen}
+        title="Kéo để di chuyển Timi"
       >
         <span className="absolute inset-0 rounded-full bg-gradient-to-br from-blue-400/20 via-indigo-500/20 to-violet-500/20 blur-md animate-pulse" />
         <span className="grid h-full w-full place-items-center rounded-full bg-gradient-to-br from-slate-900 to-blue-950 relative overflow-hidden">

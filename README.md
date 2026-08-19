@@ -191,7 +191,7 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 # Chỉnh DATABASE_URL, DATABASE_SCHEMA, JWT_SECRET_KEY và GROQ_API_KEY
 python -m alembic upgrade head
-python -m uvicorn src.main:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 ~~~
 
 Nếu PowerShell chặn activate script, bỏ qua activate và gọi trực tiếp .\.venv\Scripts\python.exe.

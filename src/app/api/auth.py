@@ -189,7 +189,11 @@ def login(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Tài khoản đã bị vô hiệu hóa")
     return TokenResponse(
-        access_token=create_access_token(subject=str(user.id), role=user.role),
+        access_token=create_access_token(
+            subject=str(user.id),
+            role=user.role,
+            expires_delta=(timedelta(days=get_settings().remember_me_expire_days) if payload.remember_me else None),
+        ),
         user=UserOut.model_validate(user),
     )
 
@@ -213,6 +217,42 @@ def login_with_face(
     db: Session = Depends(get_db),
 ) -> FaceLoginResponse:
     settings = get_settings()
+    enrollments = db.scalars(select(FaceEnrollment).where(FaceEnrollment.is_active.is_(True), FaceEnrollment.model_id == settings.face_embedding_version)).all()
+    if not enrollments:
+        raise HTTPException(status_code=409, detail="Chưa có tài khoản nào đăng ký khuôn mặt")
+    probe = embedding_from_data_url(payload.image_data)
+    import numpy as np
+    probe_vector = np.asarray(probe, dtype=np.float32)
+    scored = sorted(
+        ((float(np.dot(probe_vector, np.asarray(row.reference_embedding, dtype=np.float32))), row) for row in enrollments),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    similarity, enrollment = scored[0]
+    second_similarity = scored[1][0] if len(scored) > 1 else -1.0
+    threshold = float(settings.face_login_similarity_threshold)
+    user = db.get(User, enrollment.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="Tài khoản không hợp lệ")
+    if similarity < threshold or (second_similarity >= 0 and similarity - second_similarity < 0.03):
+        db.add(FaceVerificationLog(user_id=user.id, enrollment_id=enrollment.id, purpose="login", similarity=similarity, threshold=threshold, matched=False, model_id=enrollment.model_id, failure_reason="similarity_below_threshold_or_ambiguous", created_at=datetime.now(UTC)))
+        db.commit()
+        raise HTTPException(status_code=401, detail="Khuôn mặt chưa đủ độ khớp để đăng nhập")
+    db.add(FaceVerificationLog(user_id=user.id, enrollment_id=enrollment.id, purpose="login", similarity=similarity, threshold=threshold, matched=True, model_id=enrollment.model_id, created_at=datetime.now(UTC)))
+    add_audit_log(db, action="auth.face_login_verified", actor_id=user.id, resource_type="face_enrollment", resource_id=enrollment.id, metadata={"similarity": round(similarity, 4)})
+    db.commit()
+    return FaceLoginResponse(
+        access_token=create_access_token(
+            subject=str(user.id),
+            role=user.role,
+            expires_delta=(timedelta(days=get_settings().remember_me_expire_days) if payload.remember_me else None),
+        ),
+        user=UserOut.model_validate(user),
+        similarity=similarity,
+        threshold=threshold,
+    )
+
+    # Legacy account/password/PIN path retained below for migration reference.
     user = db.scalar(select(User).where(User.email == payload.email))
     if user is None or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Email hoặc mật khẩu không đúng")
@@ -272,9 +312,7 @@ def enroll_face(payload: FaceEnrollmentRequest, db: Session = Depends(get_db), c
 @router.post("/face/quality")
 def face_quality(
     payload: FaceVerificationRequest,
-    current_user: User = Depends(get_current_user),
 ) -> dict[str, object]:
-    del current_user
     rule = face_quality_rule_from_data_url(payload.image_data)
     messages = {
         "obstructed_hand": "Vui lòng đưa tay ra khỏi khuôn mặt trước khi quét.",

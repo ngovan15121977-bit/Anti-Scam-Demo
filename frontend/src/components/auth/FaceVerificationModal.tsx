@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Camera,
   KeyRound,
@@ -63,7 +64,7 @@ export default function FaceVerificationModal({
   const stablePositionReady = useRef(false);
   const livenessPassed = useRef(false);
   const stableTimer = useRef<number | null>(null);
-  const verifyRef = useRef<((automatic?: boolean) => Promise<void>) | null>(null);
+  const verifyButtonRef = useRef<HTMLButtonElement>(null);
   const autoVerifyTimerRef = useRef<number | null>(null);
   const frameScoresRef = useRef<Array<{ score: number; timestamp: number }>>([]);
   const stopCamera = () => {
@@ -75,6 +76,22 @@ export default function FaceVerificationModal({
     }
   };
   useEffect(() => () => stopCamera(), []);
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const scrollTop = window.scrollY;
+    const previousHtmlOverflow = html.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+
+    return () => {
+      html.style.overflow = previousHtmlOverflow;
+      body.style.overflow = previousBodyOverflow;
+      window.scrollTo({ top: scrollTop, left: 0, behavior: "auto" });
+    };
+  }, []);
   useEffect(() => {
     const video = videoRef.current;
     const stream = streamRef.current;
@@ -439,13 +456,13 @@ export default function FaceVerificationModal({
                 ? frameScoresRef.current.reduce((sum, f) => sum + f.score, 0) / frameScoresRef.current.length
                 : 0;
             // Auto-capture after a short delay to ensure we have multiple good frames
-            if (frameScoresRef.current.length >= 2 && avgScore >= 0.9 && !autoVerifyTimerRef.current) {
+            if (frameScoresRef.current.length >= 1 && avgScore >= 0.9 && !autoVerifyTimerRef.current) {
               setAutoCaptureCounting(true);
               const captureDelay = mode === "enrollment" ? 600 : 300;
               autoVerifyTimerRef.current = window.setTimeout(() => {
                 autoVerifyTimerRef.current = null;
                 setAutoCaptureCounting(false);
-                void verifyRef.current?.(true);
+                verifyButtonRef.current?.click();
               }, captureDelay);
             }
           } else {
@@ -710,7 +727,6 @@ export default function FaceVerificationModal({
     }
   };
 
-  verifyRef.current = verify;
   const isPinStep = step === "pin";
   const isEnrollment = mode === "enrollment";
   const isBusy = isLoading || isSubmitting;
@@ -721,9 +737,10 @@ export default function FaceVerificationModal({
     ? "Đặt khuôn mặt vào khung hình để tạo dữ liệu khuôn mặt riêng cho tài khoản của bạn. Ảnh đại diện không được dùng để xác thực."
     : "Đặt khuôn mặt vào khung hình để AI đối chiếu với dữ liệu đã đăng ký.";
 
-  return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center overflow-hidden bg-slate-950/60 p-4 backdrop-blur-md">
-      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-3xl bg-white p-6 sm:p-7 shadow-2xl border border-violet-100/80">
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] overflow-y-auto overscroll-contain bg-slate-950/60 p-3 backdrop-blur-md sm:p-4">
+      <div className="flex min-h-full items-start justify-center">
+        <div className="my-3 w-full max-w-md rounded-3xl bg-white p-4 shadow-2xl border border-violet-100/80 sm:my-6 sm:p-7">
         {/* Icon */}
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-lg shadow-violet-200">
           {isPinStep ? (
@@ -851,7 +868,7 @@ export default function FaceVerificationModal({
         )}
 
         {error && (
-          <p className="mt-4 flex max-h-28 min-w-0 gap-2.5 overflow-y-auto overflow-x-hidden break-words rounded-xl border border-rose-100 bg-rose-50 p-3.5 text-sm leading-5 text-rose-700">
+          <p className="mt-4 flex min-w-0 gap-2.5 break-words rounded-xl border border-rose-100 bg-rose-50 p-3.5 text-sm leading-5 text-rose-700">
             <ShieldAlert className="h-5 w-5 shrink-0 mt-0.5" />
             <span className="min-w-0 break-words">{error}</span>
           </p>
@@ -907,6 +924,7 @@ export default function FaceVerificationModal({
             </button>
           ) : (
             <button
+              ref={verifyButtonRef}
               onClick={() => void verify()}
               disabled={isBusy || !videoLoaded || frameQuality !== "ready"}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3.5 font-semibold text-white shadow-md shadow-violet-200 hover:shadow-lg transition-all disabled:opacity-50 disabled:shadow-none"
@@ -929,6 +947,8 @@ export default function FaceVerificationModal({
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </div>,
+    document.body,
   );
 }

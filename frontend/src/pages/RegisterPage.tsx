@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
-import { Shield, Mail, Lock, User, Eye, EyeOff, Phone, ArrowRight, Sparkles, Fingerprint, Globe, Zap, CheckCircle2 } from "lucide-react";
+import { Shield, Mail, Lock, User, Eye, EyeOff, Phone, ArrowLeft, ArrowRight, Sparkles, Fingerprint, Globe, Zap, CheckCircle2, Check } from "lucide-react";
 import { authApi } from "@/api/auth";
 
 const floatingIcons = [
@@ -158,6 +158,10 @@ export default function RegisterPage() {
       {/* ===== RIGHT SIDE - FORM ===== */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 relative z-10 overflow-y-auto">
         <div className="w-full max-w-md">
+          <Link to="/" className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition-colors hover:text-blue-600">
+            <ArrowLeft className="h-4 w-4" />
+            Về trang chủ
+          </Link>
           {/* Logo */}
           <div className="flex items-center gap-3 mb-8 justify-center lg:justify-start">
             <div className="w-11 h-11 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
@@ -188,7 +192,7 @@ export default function RegisterPage() {
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Họ và tên</label>
                 <div className="relative group">
-                  <User className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "full_name" ? "text-blue-500" : "text-slate-400"}`} />
+                  <User strokeWidth={2.25} className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "full_name" ? "text-blue-500" : "text-slate-700"}`} />
                   <input
                     type="text"
                     placeholder="Nguyễn Văn A"
@@ -206,7 +210,7 @@ export default function RegisterPage() {
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Số điện thoại</label>
                 <div className="relative group">
-                  <Phone className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "phone" ? "text-blue-500" : "text-slate-400"}`} />
+                  <Phone strokeWidth={2.25} className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "phone" ? "text-blue-500" : "text-slate-700"}`} />
                   <input
                     type="tel"
                     inputMode="numeric"
@@ -228,7 +232,7 @@ export default function RegisterPage() {
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Email</label>
                 <div className="relative group">
-                  <Mail className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "email" ? "text-blue-500" : "text-slate-400"}`} />
+                  <Mail strokeWidth={2.25} className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "email" ? "text-blue-500" : "text-slate-700"}`} />
                   <input
                     type="email"
                     placeholder="name@company.com"
@@ -246,7 +250,7 @@ export default function RegisterPage() {
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Mật khẩu</label>
                 <div className="relative group">
-                  <Lock className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "password" ? "text-blue-500" : "text-slate-400"}`} />
+                  <Lock strokeWidth={2.25} className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "password" ? "text-blue-500" : "text-slate-700"}`} />
                   <input
                     type={showPass ? "text" : "password"}
                     placeholder="Ít nhất 8 ký tự"
@@ -256,7 +260,7 @@ export default function RegisterPage() {
                     onFocus={() => setFocusedField("password")}
                     onBlur={() => setFocusedField(null)}
                   />
-                  <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1">
+                  <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-700 hover:text-slate-900 transition-colors p-1">
                     {showPass ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                   <div className={`absolute bottom-0 left-4 right-4 h-0.5 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-300 ${focusedField === "password" ? "opacity-100" : "opacity-0"}`} />
@@ -268,7 +272,7 @@ export default function RegisterPage() {
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Xác nhận mật khẩu</label>
                 <div className="relative group">
-                  <Lock className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "confirm" ? "text-blue-500" : "text-slate-400"}`} />
+                  <Lock strokeWidth={2.25} className={`absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors duration-300 ${focusedField === "confirm" ? "text-blue-500" : "text-slate-700"}`} />
                   <input
                     type={showConfirmPass ? "text" : "password"}
                     placeholder="Nhập lại mật khẩu"
@@ -278,7 +282,7 @@ export default function RegisterPage() {
                     onFocus={() => setFocusedField("confirm")}
                     onBlur={() => setFocusedField(null)}
                   />
-                  <button type="button" onClick={() => setShowConfirmPass(!showConfirmPass)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1" aria-label={showConfirmPass ? "Ẩn mật khẩu xác nhận" : "Hiện mật khẩu xác nhận"}>
+                  <button type="button" onClick={() => setShowConfirmPass(!showConfirmPass)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-700 hover:text-slate-900 transition-colors p-1" aria-label={showConfirmPass ? "Ẩn mật khẩu xác nhận" : "Hiện mật khẩu xác nhận"}>
                     {showConfirmPass ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                   <div className={`absolute bottom-0 left-4 right-4 h-0.5 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-300 ${focusedField === "confirm" ? "opacity-100" : "opacity-0"}`} />
@@ -287,20 +291,30 @@ export default function RegisterPage() {
               </div>
 
               {/* Terms */}
-              <label className="flex items-start gap-3 cursor-pointer group">
+              <label htmlFor="terms-agreement" className="flex items-start gap-3 cursor-pointer group">
                 <div className="relative mt-0.5">
-                  <input type="checkbox" className="peer sr-only" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+                  <input
+                    id="terms-agreement"
+                    type="checkbox"
+                    className="peer sr-only"
+                    checked={agreed}
+                    aria-invalid={Boolean(errors.general && !agreed)}
+                    onChange={(e) => {
+                      setAgreed(e.target.checked);
+                      if (e.target.checked && errors.general) {
+                        setErrors({});
+                      }
+                    }}
+                  />
                   <div className="w-5 h-5 rounded-lg border-2 border-slate-300 peer-checked:bg-blue-600 peer-checked:border-blue-600 transition-all flex items-center justify-center">
-                    <svg className="w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity" viewBox="0 0 12 12" fill="none">
-                      <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+                    {agreed && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
                   </div>
                 </div>
                 <span className="text-sm text-slate-500 leading-relaxed">
                   Tôi đồng ý với{" "}
-                  <a href="#" className="text-blue-600 font-semibold hover:underline">Điều khoản sử dụng</a>
+                  <Link to="/terms" className="text-blue-600 font-semibold hover:underline">Điều khoản sử dụng</Link>
                   {" "}và{" "}
-                  <a href="#" className="text-blue-600 font-semibold hover:underline">Chính sách bảo mật</a>
+                  <Link to="/privacy" className="text-blue-600 font-semibold hover:underline">Chính sách bảo mật</Link>
                 </span>
               </label>
 

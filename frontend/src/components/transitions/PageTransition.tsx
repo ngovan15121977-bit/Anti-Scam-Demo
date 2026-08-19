@@ -6,18 +6,18 @@ interface PageTransitionProps {
   children: ReactNode;
   /**
    * Thời gian hiển thị logo reveal (ms).
-   * @default 1400
+   * @default 350
    */
   revealDuration?: number;
   /**
    * Thời gian overlay biến mất (ms).
-   * @default 600
+   * @default 250
    */
   exitDuration?: number;
   /**
    * Thời gian chờ tối thiểu giữa các lần chuyển route (ms).
    * Tránh flicker khi navigate nhanh.
-   * @default 800
+   * @default 300
    */
   minTransitionInterval?: number;
 }
@@ -40,9 +40,9 @@ interface PageTransitionProps {
  */
 export default function PageTransition({
   children,
-  revealDuration = 1400,
-  exitDuration = 600,
-  minTransitionInterval = 800,
+  revealDuration = 350,
+  exitDuration = 250,
+  minTransitionInterval = 300,
 }: PageTransitionProps) {
   const location = useLocation();
   const [phase, setPhase] = useState<"idle" | "revealing" | "exiting" | "done">(
