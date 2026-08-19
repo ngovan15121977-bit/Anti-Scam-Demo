@@ -27,7 +27,6 @@ import {
   Shield,
   Info,
   ChevronRight,
-  Wallet,
 } from "lucide-react";
 
 import {
@@ -375,7 +374,7 @@ export default function QrPaymentPage() {
               </h1>
               <p className="text-sm text-slate-500 mt-0.5">
                 {mode === "scan"
-                  ? "Thanh toán nhanh chóng và an toàn với mã QR"
+                  ? "Quét mã QR để kiểm tra đường dẫn hoặc thực hiện thanh toán an toàn"
                   : "Chia sẻ mã QR hoặc thông tin thanh toán để nhận tiền"}
               </p>
             </div>
@@ -727,11 +726,11 @@ export default function QrPaymentPage() {
                   </div>
                   <div>
                     <h3 className="font-bold text-slate-900 text-sm">
-                      Thanh toán an toàn cùng Timi
+                      Quét QR an toàn cùng Timi
                     </h3>
                     <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                      Hệ thống AI sẽ kiểm tra mã QR và người nhận để phát hiện các dấu
-                      hiệu lừa đảo trước khi giao dịch.
+                      QR thanh toán sẽ được chuyển sang trang Chuyển tiền. QR chứa đường
+                      dẫn sẽ được kiểm tra tên miền, blacklist và các tín hiệu rủi ro ngay tại đây.
                     </p>
                   </div>
                 </div>
@@ -789,48 +788,48 @@ export default function QrPaymentPage() {
                   </button>
                 </div>
               ) : mode === "scan" ? (
-                /* Empty scan state – transaction info placeholders */
-                <div className="bg-white rounded-2xl p-5 shadow-sm border border-violet-100/80">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Thông tin giao dịch
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => navigate("/history")}
-                      className="text-xs font-semibold text-violet-600 hover:text-violet-700 flex items-center gap-1"
-                    >
-                      Xem lịch sử
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center py-2 border-b border-slate-50">
-                      <span className="text-sm text-slate-500">Số tiền</span>
-                      <span className="font-bold text-slate-900">0 ₫</span>
+                /* Empty scan state – URL safety analysis */
+                <div className="bg-white rounded-2xl p-5 shadow-sm border border-violet-100/80 min-h-[380px] flex flex-col">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-5 h-5 text-violet-600" />
                     </div>
-                    <div className="flex justify-between items-center py-2 border-b border-slate-50">
-                      <span className="text-sm text-slate-500 flex items-center gap-1.5">
-                        <Wallet className="w-3.5 h-3.5" /> Người nhận
-                      </span>
-                      <span className="text-sm text-slate-400">—</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-slate-50">
-                      <span className="text-sm text-slate-500 flex items-center gap-1.5">
-                        <Building2 className="w-3.5 h-3.5" /> Ngân hàng
-                      </span>
-                      <span className="text-sm text-slate-400">—</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2">
-                      <span className="text-sm text-slate-500 flex items-center gap-1.5">
-                        <FileText className="w-3.5 h-3.5" /> Nội dung
-                      </span>
-                      <span className="text-sm text-slate-400">—</span>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        Phân tích an toàn URL
+                      </h3>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                        Timi sẽ phân tích đường dẫn được đọc từ mã QR trước khi cho phép truy cập.
+                      </p>
                     </div>
                   </div>
-                  <p className="mt-4 text-center text-xs text-slate-400">
-                    Chưa quét mã
-                  </p>
+
+                  <div className="mt-6 flex flex-1 flex-col items-center justify-center text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-violet-50 border border-violet-100 flex items-center justify-center">
+                      <Link2 className="w-7 h-7 text-violet-500" />
+                    </div>
+                    <h4 className="mt-4 text-sm font-bold text-slate-800">
+                      Chưa có đường dẫn
+                    </h4>
+                    <p className="mt-2 max-w-[290px] text-xs leading-relaxed text-slate-500">
+                      Quét mã QR chứa URL để kiểm tra tên miền, blacklist và các dấu hiệu có thể liên quan đến lừa đảo.
+                    </p>
+                  </div>
+
+                  <div className="mt-5 grid grid-cols-2 gap-2.5">
+                    <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Tên miền
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-slate-400">—</p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Trạng thái
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-slate-400">Chưa kiểm tra</p>
+                    </div>
+                  </div>
                 </div>
               ) : null}
 
@@ -1037,9 +1036,16 @@ function DecodedQrSummary({
 
     return (
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-violet-100/80 flex flex-col min-h-[380px]">
-        <div className="flex items-center gap-2 text-slate-800">
-          <Link2 className="w-5 h-5 text-violet-600" />
-          <span className="font-bold text-sm">QR chứa đường dẫn</span>
+        <div className="flex items-start gap-3 text-slate-800">
+          <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-5 h-5 text-violet-600" />
+          </div>
+          <div>
+            <span className="font-bold text-sm">Phân tích an toàn URL</span>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              Kết quả kiểm tra đường dẫn được đọc từ mã QR.
+            </p>
+          </div>
         </div>
 
         <div className={`mt-4 rounded-xl border p-3.5 ${riskPresentation.className}`}>
@@ -1079,7 +1085,7 @@ function DecodedQrSummary({
             {content.hostname ?? "Không xác định được tên miền"}
           </p>
           <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Nội dung QR
+            Địa chỉ URL
           </p>
           <p className="mt-1 max-h-24 overflow-y-auto break-all rounded-lg bg-white px-2.5 py-2 font-mono text-[11px] leading-relaxed text-slate-700">
             {content.rawValue}
