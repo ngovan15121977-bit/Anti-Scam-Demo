@@ -33,9 +33,20 @@ import {
   X,
   Plus,
   Home,
+  Mail,
+  Send,
+  Megaphone,
+  Eye,
 } from "lucide-react";
 
-type TabType = "overview" | "transactions" | "users" | "blacklist" | "audit" | "settings";
+type TabType =
+  | "overview"
+  | "transactions"
+  | "users"
+  | "blacklist"
+  | "audit"
+  | "email"
+  | "settings";
 
 type AdminTransaction = {
   id: string;
@@ -391,6 +402,7 @@ export default function AdminPage() {
     { key: "users" as TabType, label: "Users", icon: Users },
     { key: "blacklist" as TabType, label: "Blacklist", icon: Ban },
     { key: "audit" as TabType, label: "Audit log", icon: FileClock },
+    { key: "email" as TabType, label: "Email", icon: Mail },
     { key: "settings" as TabType, label: "Cài đặt AI", icon: Settings },
   ];
 
@@ -499,6 +511,7 @@ export default function AdminPage() {
           {activeTab === "users" && <UsersTab searchQuery={searchQuery} setSearchQuery={setSearchQuery} />}
           {activeTab === "blacklist" && <BlacklistTab searchQuery={searchQuery} setSearchQuery={setSearchQuery} />}
           {activeTab === "audit" && <AuditTab />}
+          {activeTab === "email" && <EmailTab />}
           {activeTab === "settings" && <SettingsTab />}
         </div>
       </div>
@@ -1391,6 +1404,415 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== EMAIL TAB =====
+function EmailTab() {
+  const [broadcast, setBroadcast] = useState({
+    subject: "",
+    body: "",
+    audience: "active" as "all" | "active" | "product_opt_in",
+  });
+  const [updateForm, setUpdateForm] = useState({
+    version: "",
+    title: "",
+    body: "",
+    sendNow: true,
+  });
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+
+  const audienceLabel =
+    broadcast.audience === "all"
+      ? "Tất cả user đã đăng ký"
+      : broadcast.audience === "active"
+        ? "User đang active"
+        : "User bật nhận cập nhật / khuyến mãi";
+
+  const handleSendTest = async () => {
+    if (!broadcast.subject.trim() || !broadcast.body.trim()) {
+      setStatusMsg("Vui lòng nhập tiêu đề và nội dung trước khi gửi thử.");
+      return;
+    }
+    setSending(true);
+    setStatusMsg(null);
+    try {
+      // API sẵn sàng: POST /v1/admin/emails/broadcast { dry_run: true }
+      await axiosInstance.post("/v1/admin/emails/broadcast", {
+        subject: broadcast.subject,
+        html: broadcast.body.replace(/\n/g, "<br/>"),
+        audience: broadcast.audience,
+        dry_run: true,
+      });
+      setStatusMsg("Đã gửi thử (dry-run). Kiểm tra hộp thư admin / log server.");
+    } catch (err) {
+      const msg = axios.isAxiosError(err)
+        ? typeof err.response?.data?.detail === "string"
+          ? err.response.data.detail
+          : `Chưa có API broadcast (HTTP ${err.response?.status ?? "—"}). UI đã sẵn — nối backend sau.`
+        : "Không gửi được email thử.";
+      setStatusMsg(msg);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleBroadcast = async () => {
+    if (!broadcast.subject.trim() || !broadcast.body.trim()) {
+      setStatusMsg("Vui lòng nhập tiêu đề và nội dung.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Gửi email cho: ${audienceLabel}?\n\nTiêu đề: ${broadcast.subject}`,
+      )
+    ) {
+      return;
+    }
+    setSending(true);
+    setStatusMsg(null);
+    try {
+      await axiosInstance.post("/v1/admin/emails/broadcast", {
+        subject: broadcast.subject,
+        html: broadcast.body.replace(/\n/g, "<br/>"),
+        audience: broadcast.audience,
+        dry_run: false,
+      });
+      setStatusMsg("Đã tạo job gửi email hàng loạt. Xem log / job status trên server.");
+    } catch (err) {
+      const msg = axios.isAxiosError(err)
+        ? typeof err.response?.data?.detail === "string"
+          ? err.response.data.detail
+          : `Chưa có API broadcast (HTTP ${err.response?.status ?? "—"}). UI đã sẵn — nối backend sau.`
+        : "Không gửi được broadcast.";
+      setStatusMsg(msg);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handlePublishUpdate = async () => {
+    if (!updateForm.title.trim() || !updateForm.body.trim()) {
+      setStatusMsg("Nhập tiêu đề và nội dung cập nhật.");
+      return;
+    }
+    setSending(true);
+    setStatusMsg(null);
+    try {
+      await axiosInstance.post("/v1/admin/emails/product-update", {
+        version: updateForm.version || undefined,
+        title: updateForm.title,
+        body: updateForm.body,
+        send_now: updateForm.sendNow,
+      });
+      setStatusMsg(
+        updateForm.sendNow
+          ? "Đã công bố cập nhật và enqueue mail tới user opt-in."
+          : "Đã lưu bản cập nhật (chưa gửi mail).",
+      );
+      setUpdateForm({ version: "", title: "", body: "", sendNow: true });
+    } catch (err) {
+      const msg = axios.isAxiosError(err)
+        ? typeof err.response?.data?.detail === "string"
+          ? err.response.data.detail
+          : `Chưa có API product-update (HTTP ${err.response?.status ?? "—"}). UI đã sẵn.`
+        : "Không công bố được cập nhật.";
+      setStatusMsg(msg);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {statusMsg && (
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          {statusMsg}
+        </div>
+      )}
+
+      {/* Broadcast composer */}
+      <FalconCard
+        title="Gửi email hàng loạt"
+        subtitle="Soạn thảo và gửi tới người dùng trong hệ thống"
+        action={
+          <SoftBadge tone="info">
+            <span className="inline-flex items-center gap-1">
+              <Mail className="h-3 w-3" />
+              Broadcast
+            </span>
+          </SoftBadge>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-600">
+              Đối tượng nhận
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  { key: "active" as const, label: "User active" },
+                  { key: "all" as const, label: "Tất cả đã đăng ký" },
+                  {
+                    key: "product_opt_in" as const,
+                    label: "Chỉ opt-in cập nhật",
+                  },
+                ] as const
+              ).map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() =>
+                    setBroadcast((s) => ({ ...s, audience: item.key }))
+                  }
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    broadcast.audience === item.key
+                      ? "bg-blue-600 text-white"
+                      : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-slate-400">{audienceLabel}</p>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-600">
+              Tiêu đề email
+            </label>
+            <input
+              type="text"
+              value={broadcast.subject}
+              onChange={(e) =>
+                setBroadcast((s) => ({ ...s, subject: e.target.value }))
+              }
+              placeholder="Ví dụ: Timi — Thông báo bảo trì hệ thống"
+              className="w-full rounded-lg border border-transparent bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-600">
+              Nội dung
+            </label>
+            <textarea
+              value={broadcast.body}
+              onChange={(e) =>
+                setBroadcast((s) => ({ ...s, body: e.target.value }))
+              }
+              rows={8}
+              placeholder={
+                "Xin chào,\n\nTimi vừa cập nhật tính năng...\n\nTrân trọng,\nĐội ngũ Timi"
+              }
+              className="w-full resize-y rounded-lg border border-transparent bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              Xuống dòng sẽ được chuyển thành &lt;br/&gt; khi gửi HTML.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(true)}
+              disabled={!broadcast.subject && !broadcast.body}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <Eye className="h-4 w-4" />
+              Xem trước
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSendTest()}
+              disabled={sending}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+            >
+              <Send className="h-4 w-4" />
+              Gửi thử (admin)
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleBroadcast()}
+              disabled={sending}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {sending ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <Mail className="h-4 w-4" />
+              )}
+              Gửi hàng loạt
+            </button>
+          </div>
+        </div>
+      </FalconCard>
+
+      {/* Product update / changelog */}
+      <FalconCard
+        title="Cập nhật & cải tiến hệ thống"
+        subtitle="Công bố phiên bản mới — có thể gửi mail tự động cho user opt-in"
+        action={
+          <SoftBadge tone="success">
+            <span className="inline-flex items-center gap-1">
+              <Megaphone className="h-3 w-3" />
+              Release
+            </span>
+          </SoftBadge>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-600">
+                Phiên bản (tuỳ chọn)
+              </label>
+              <input
+                type="text"
+                value={updateForm.version}
+                onChange={(e) =>
+                  setUpdateForm((s) => ({ ...s, version: e.target.value }))
+                }
+                placeholder="v1.2.0"
+                className="w-full rounded-lg border border-transparent bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-600">
+                Tiêu đề cập nhật
+              </label>
+              <input
+                type="text"
+                value={updateForm.title}
+                onChange={(e) =>
+                  setUpdateForm((s) => ({ ...s, title: e.target.value }))
+                }
+                placeholder="Cải thiện AI Risk & giao diện Transfer"
+                className="w-full rounded-lg border border-transparent bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-600">
+              Nội dung cải tiến
+            </label>
+            <textarea
+              value={updateForm.body}
+              onChange={(e) =>
+                setUpdateForm((s) => ({ ...s, body: e.target.value }))
+              }
+              rows={5}
+              placeholder={
+                "- Thêm tab Email admin\n- Cải thiện agent cảnh báo scam\n- Sửa progress chuyển tiền"
+              }
+              className="w-full resize-y rounded-lg border border-transparent bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <label className="flex cursor-pointer items-center gap-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={updateForm.sendNow}
+              onClick={() =>
+                setUpdateForm((s) => ({ ...s, sendNow: !s.sendNow }))
+              }
+              className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
+                updateForm.sendNow ? "bg-blue-600" : "bg-slate-300"
+              }`}
+            >
+              <span
+                className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                  updateForm.sendNow ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+            <span className="text-sm text-slate-700">
+              Gửi email ngay cho user đã bật nhận cập nhật
+            </span>
+          </label>
+
+          <button
+            type="button"
+            onClick={() => void handlePublishUpdate()}
+            disabled={sending}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            <Megaphone className="h-4 w-4" />
+            Công bố cập nhật
+          </button>
+        </div>
+      </FalconCard>
+
+      <FalconCard
+        title="Gợi ý vận hành"
+        subtitle="Resend free tier & domain"
+        bodyClassName="p-4 text-sm text-slate-600 space-y-2"
+      >
+        <p>
+          • Chưa verify domain: gần như chỉ gửi được tới email đăng ký Resend
+          (admin test).
+        </p>
+        <p>
+          • Muốn gửi toàn bộ user: verify domain trên Resend, rồi trỏ{" "}
+          <code className="rounded bg-slate-100 px-1 text-xs">EMAIL_FROM</code>{" "}
+          về domain đó.
+        </p>
+        <p>
+          • API cần có:{" "}
+          <code className="rounded bg-slate-100 px-1 text-xs">
+            POST /v1/admin/emails/broadcast
+          </code>{" "}
+          và{" "}
+          <code className="rounded bg-slate-100 px-1 text-xs">
+            POST /v1/admin/emails/product-update
+          </code>
+          .
+        </p>
+      </FalconCard>
+
+      {/* Preview modal */}
+      {previewOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setPreviewOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-800">Xem trước email</h3>
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Subject
+            </p>
+            <p className="mb-4 font-semibold text-slate-800">
+              {broadcast.subject || "(Chưa có tiêu đề)"}
+            </p>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Body
+            </p>
+            <div className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-4 text-sm text-slate-700">
+              {broadcast.body || "(Chưa có nội dung)"}
+            </div>
+            <p className="mt-3 text-xs text-slate-400">Gửi tới: {audienceLabel}</p>
           </div>
         </div>
       )}
