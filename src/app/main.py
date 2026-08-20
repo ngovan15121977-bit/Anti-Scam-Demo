@@ -1,9 +1,10 @@
 import logging
-
+from src.app.api import admin_emails
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-
+from src.app.api import password_reset
+from src.app.api import admin_emails
 from src.app.api import (
     admin,
     assistant,
@@ -31,7 +32,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+app.include_router(admin_emails.router, prefix="/api/v1")
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(recipients.router, prefix="/api/v1")
@@ -40,8 +41,9 @@ app.include_router(admin.router, prefix="/api/v1")
 app.include_router(url_safety.router, prefix="/api/v1")
 app.include_router(assistant.router, prefix="/api/v1")
 app.include_router(guardian.router, prefix="/api/v1")
-
-
+app.include_router(admin_emails.router, prefix="/api/v1")
+app.include_router(admin_emails.notifications_router, prefix="/api/v1")
+app.include_router(password_reset.router, prefix="/api/v1")
 @app.on_event("startup")
 def preload_face_ai() -> None:
     """Warm Face ID when the deployment explicitly ships/preloads the models."""

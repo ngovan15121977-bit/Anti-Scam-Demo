@@ -6,6 +6,7 @@ import PageTransition from "@/components/transitions/PageTransition";
 
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
+import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
 import HomePage from "@/pages/HomePage";
 import LegalPage from "@/pages/LegalPage";
 import MissionPage from "@/pages/MissionPage";
@@ -86,6 +87,14 @@ function App() {
                   element={
                     <PublicOnlyRoute>
                       <RegisterPage />
+                    </PublicOnlyRoute>
+                  }
+                />
+                <Route
+                  path="/forgot-password"
+                  element={
+                    <PublicOnlyRoute>
+                      <ForgotPasswordPage />
                     </PublicOnlyRoute>
                   }
                 />

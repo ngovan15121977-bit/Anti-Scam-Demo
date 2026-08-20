@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -24,10 +24,413 @@ import {
   Search,
   Sparkles,
   ShieldCheck,
+  CheckCheck,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/api/auth";
 import { useScamGuardian } from "@/components/guardian/ScamGuardianProvider";
+import axiosInstance from "@/api/axios";
+
+type AppNotification = {
+  id: string;
+  title: string;
+  body: string;
+  kind: string;
+  version?: string | null;
+  is_read: boolean;
+  created_at: string;
+};
+
+/** Chuông thông báo in-app (cập nhật hệ thống từ Admin). */
+/** Chuông thông báo in-app (cập nhật hệ thống từ Admin). */
+function ProfileNotificationBell() {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<AppNotification | null>(null);
+  const qc = useQueryClient();
+
+  const unreadQuery = useQuery({
+    queryKey: ["notifications-unread"],
+    queryFn: async () =>
+      (await axiosInstance.get<{ count: number }>("/v1/notifications/unread-count"))
+        .data,
+    refetchInterval: 30_000,
+    retry: false,
+  });
+
+  const listQuery = useQuery({
+    queryKey: ["notifications"],
+    queryFn: async () =>
+      (
+        await axiosInstance.get<AppNotification[]>("/v1/notifications", {
+          params: { limit: 30 },
+        })
+      ).data,
+    enabled: open,
+    retry: false,
+  });
+
+  const markRead = useMutation({
+    mutationFn: async (id: string) =>
+      axiosInstance.post(`/v1/notifications/${id}/read`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["notifications"] });
+      void qc.invalidateQueries({ queryKey: ["notifications-unread"] });
+    },
+  });
+
+  const markAll = useMutation({
+    mutationFn: async () => axiosInstance.post("/v1/notifications/read-all"),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["notifications"] });
+      void qc.invalidateQueries({ queryKey: ["notifications-unread"] });
+    },
+  });
+
+  const unread = unreadQuery.data?.count ?? 0;
+  const items = listQuery.data ?? [];
+
+  const kindMeta = (kind: string) => {
+    switch (kind) {
+      case "product_update":
+        return {
+          label: "Cập nhật",
+          icon: Sparkles,
+          badge: "bg-violet-100 text-violet-700",
+          iconWrap: "bg-violet-100 text-violet-600",
+        };
+      case "security":
+        return {
+          label: "Bảo mật",
+          icon: ShieldCheck,
+          badge: "bg-amber-100 text-amber-800",
+          iconWrap: "bg-amber-100 text-amber-600",
+        };
+      case "transaction":
+        return {
+          label: "Giao dịch",
+          icon: CheckCircle2,
+          badge: "bg-emerald-100 text-emerald-800",
+          iconWrap: "bg-emerald-100 text-emerald-600",
+        };
+      default:
+        return {
+          label: "Hệ thống",
+          icon: Bell,
+          badge: "bg-slate-100 text-slate-700",
+          iconWrap: "bg-slate-100 text-slate-600",
+        };
+    }
+  };
+
+  const formatRelativeTime = (iso?: string) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    const diffMs = Date.now() - d.getTime();
+    const diffMin = Math.floor(diffMs / 60_000);
+    if (diffMin < 1) return "Vừa xong";
+    if (diffMin < 60) return `${diffMin} phút trước`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `${diffH} giờ trước`;
+    const diffD = Math.floor(diffH / 24);
+    if (diffD < 7) return `${diffD} ngày trước`;
+    return d.toLocaleString("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const formatFullTime = (iso?: string) => {
+    if (!iso) return "";
+    return new Date(iso).toLocaleString("vi-VN", {
+      weekday: "short",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const openDetail = (n: AppNotification) => {
+    if (!n.is_read) markRead.mutate(n.id);
+    setOpen(false);
+    setSelected(n);
+  };
+
+  return (
+    <div className="relative">
+      {/* Trigger */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="relative flex h-11 w-11 items-center justify-center rounded-full border border-violet-100 bg-white shadow-sm transition-colors hover:bg-violet-50"
+        aria-label="Thông báo"
+        aria-expanded={open}
+      >
+        <Bell className="h-5 w-5 text-slate-600" />
+        {unread > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 px-1.5 text-[11px] font-bold text-white shadow-sm ring-2 ring-white">
+            {unread > 99 ? "99+" : unread}
+          </span>
+        )}
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-slate-900/20 backdrop-blur-[2px] sm:bg-transparent sm:backdrop-blur-none"
+            onClick={() => setOpen(false)}
+          />
+
+          <div
+            className="
+              fixed inset-x-3 top-[4.5rem] z-50 mx-auto max-h-[min(32rem,calc(100vh-6rem))]
+              w-auto max-w-md overflow-hidden rounded-2xl border border-violet-100/80
+              bg-white shadow-2xl shadow-violet-200/40
+              sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-[24rem]
+            "
+            role="dialog"
+            aria-label="Danh sách thông báo"
+          >
+            {/* Header */}
+            <div className="border-b border-slate-100 bg-gradient-to-r from-violet-50 via-white to-fuchsia-50 px-4 py-3.5 sm:px-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-bold text-slate-900">
+                      Thông báo
+                    </h2>
+                    {unread > 0 && (
+                      <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[11px] font-bold text-white">
+                        {unread} mới
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Cập nhật hệ thống và bảo mật từ Timi
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {unread > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => markAll.mutate()}
+                      disabled={markAll.isPending}
+                      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-60"
+                      title="Đánh dấu tất cả đã đọc"
+                    >
+                      <CheckCheck className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Đọc tất cả</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                    aria-label="Đóng"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* List */}
+            <div className="max-h-[min(24rem,calc(100vh-12rem))] overflow-y-auto overscroll-contain">
+              {listQuery.isLoading && (
+                <div className="divide-y divide-slate-50 p-2">
+                  {[1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      className="flex animate-pulse gap-3 px-3 py-3.5"
+                    >
+                      <div className="h-10 w-10 shrink-0 rounded-xl bg-slate-100" />
+                      <div className="flex-1 space-y-2 py-0.5">
+                        <div className="h-3.5 w-2/3 rounded bg-slate-100" />
+                        <div className="h-3 w-full rounded bg-slate-50" />
+                        <div className="h-3 w-1/3 rounded bg-slate-50" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {listQuery.isError && (
+                <div className="m-4 rounded-xl border border-amber-100 bg-amber-50 px-4 py-5 text-center">
+                  <Bell className="mx-auto h-8 w-8 text-amber-400" />
+                  <p className="mt-2 text-sm font-semibold text-amber-800">
+                    Không tải được thông báo
+                  </p>
+                  <p className="mt-1 text-xs text-amber-700/80">
+                    Kiểm tra kết nối hoặc API /v1/notifications.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void listQuery.refetch()}
+                    className="mt-3 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-sm ring-1 ring-amber-200 hover:bg-amber-50"
+                  >
+                    Thử lại
+                  </button>
+                </div>
+              )}
+
+              {!listQuery.isLoading &&
+                !listQuery.isError &&
+                items.length === 0 && (
+                  <div className="flex flex-col items-center px-6 py-12 text-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-50 text-violet-400">
+                      <Bell className="h-8 w-8" />
+                    </div>
+                    <p className="mt-4 text-sm font-semibold text-slate-700">
+                      Chưa có thông báo
+                    </p>
+                    <p className="mt-1 max-w-[14rem] text-xs leading-relaxed text-slate-400">
+                      Khi Admin công bố cập nhật hoặc có cảnh báo bảo mật, bạn
+                      sẽ thấy tại đây.
+                    </p>
+                  </div>
+                )}
+
+              {items.map((n) => {
+                const meta = kindMeta(n.kind);
+                const Icon = meta.icon;
+                return (
+                  <button
+                    key={n.id}
+                    type="button"
+                    onClick={() => openDetail(n)}
+                    className={`
+                      group flex w-full gap-3 border-b border-slate-50 px-4 py-3.5 text-left
+                      transition-colors last:border-b-0 hover:bg-violet-50/60
+                      ${n.is_read ? "bg-white" : "bg-violet-50/40"}
+                    `}
+                  >
+                    <div
+                      className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${meta.iconWrap}`}
+                    >
+                      <Icon className="h-5 w-5" />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <p
+                          className={`text-sm leading-snug text-slate-900 line-clamp-2 ${
+                            n.is_read ? "font-medium" : "font-bold"
+                          }`}
+                        >
+                          {n.title}
+                        </p>
+                        {!n.is_read && (
+                          <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-violet-500 ring-2 ring-violet-100" />
+                        )}
+                      </div>
+
+                      <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-500 line-clamp-2">
+                        {n.body}
+                      </p>
+
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span
+                          className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${meta.badge}`}
+                        >
+                          {meta.label}
+                          {n.version ? ` · v${n.version}` : ""}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {formatRelativeTime(n.created_at)}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {items.length > 0 && (
+              <div className="border-t border-slate-100 bg-slate-50/80 px-4 py-2.5 text-center">
+                <p className="text-[11px] text-slate-400">
+                  Hiển thị {items.length} thông báo gần nhất · Bấm để xem đầy đủ
+                </p>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Modal chi tiết — giữa màn hình */}
+      {selected && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="notif-detail-title"
+        >
+          <div
+            className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
+            onClick={() => setSelected(null)}
+          />
+
+          <div className="relative z-10 flex max-h-[min(90vh,36rem)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-violet-100 bg-white shadow-2xl shadow-violet-300/30">
+            <div className="shrink-0 border-b border-slate-100 bg-gradient-to-r from-violet-50 via-white to-fuchsia-50 px-5 py-4 sm:px-6">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  {(() => {
+                    const meta = kindMeta(selected.kind);
+                    return (
+                      <span
+                        className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${meta.badge}`}
+                      >
+                        {meta.label}
+                        {selected.version ? ` · v${selected.version}` : ""}
+                      </span>
+                    );
+                  })()}
+                  <h2
+                    id="notif-detail-title"
+                    className="mt-2 text-lg font-bold leading-snug text-slate-900"
+                  >
+                    {selected.title}
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {formatFullTime(selected.created_at)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelected(null)}
+                  className="shrink-0 rounded-full p-2 text-slate-400 transition-colors hover:bg-white hover:text-slate-600"
+                  aria-label="Đóng"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
+              <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-slate-700">
+                {selected.body}
+              </p>
+            </div>
+
+            <div className="shrink-0 border-t border-slate-100 bg-slate-50/80 px-5 py-3.5 sm:px-6">
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 py-3 text-sm font-bold text-white shadow-md shadow-violet-200 transition hover:shadow-lg active:scale-[0.98]"
+              >
+                Đã hiểu
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -199,10 +602,8 @@ export default function ProfilePage() {
                 readOnly
               />
             </div>
-            <button className="relative p-3 bg-white rounded-full shadow-sm border border-violet-100 hover:bg-violet-50 transition-colors">
-              <Bell className="w-5 h-5 text-slate-600" />
-              <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-violet-500 rounded-full" />
-            </button>
+            {/* Chuông thông báo in-app */}
+            <ProfileNotificationBell />
           </div>
         </header>
 
@@ -668,7 +1069,7 @@ export default function ProfilePage() {
         </footer>
       </div>
 
-      {/* Decorative wave — fixed full-width at bottom of viewport */}
+      {/* Decorative wave */}
       <div
         className="pointer-events-none fixed bottom-0 left-0 right-0 z-0 h-48 sm:h-56 md:h-72 overflow-hidden opacity-30 select-none"
         aria-hidden="true"
@@ -680,12 +1081,10 @@ export default function ProfilePage() {
         />
       </div>
 
-      {/* Password Change Modal */}
       {showPasswordModal && (
         <PasswordChangeModal onClose={() => setShowPasswordModal(false)} />
       )}
 
-      {/* PIN Modal */}
       {showPinModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl border border-violet-100">
@@ -752,7 +1151,6 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* Avatar Preview Modal */}
       {isAvatarPreviewOpen && user?.avatar_url && !avatarFailed && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm"
@@ -806,7 +1204,6 @@ export default function ProfilePage() {
   );
 }
 
-// ===== Password Change Modal =====
 function PasswordChangeModal({ onClose }: { onClose: () => void }) {
   const [form, setForm] = useState({ current: "", new: "", confirm: "" });
   const [showPass, setShowPass] = useState({
