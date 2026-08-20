@@ -1,5 +1,5 @@
 import logging
-
+from src.app.api import admin_emails
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -40,7 +40,8 @@ app.include_router(admin.router, prefix="/api/v1")
 app.include_router(url_safety.router, prefix="/api/v1")
 app.include_router(assistant.router, prefix="/api/v1")
 app.include_router(guardian.router, prefix="/api/v1")
-
+app.include_router(admin_emails.router, prefix="/api/v1")
+app.include_router(admin_emails.notifications_router, prefix="/api/v1")
 
 @app.on_event("startup")
 def preload_face_ai() -> None:

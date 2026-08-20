@@ -1,35 +1,74 @@
-"""Email delivery via Resend.
+"""Email delivery via SMTP (Gmail / Auto mail).
 
-Env:
+Env (.env):
   EMAIL_ENABLED=true
-  RESEND_API_KEY=re_xxx
-  EMAIL_FROM=Timi <onboarding@resend.dev>
+  EMAIL_HOST=smtp.gmail.com
+  EMAIL_PORT=587
+  EMAIL_USER=your@gmail.com
+  EMAIL_PASSWORD=xxxx xxxx xxxx xxxx   # Gmail App Password (16 ký tự)
+  EMAIL_FROM=Timi <your@gmail.com>     # nên trùng EMAIL_USER với Gmail
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import smtplib
+import ssl
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.utils import formataddr, parseaddr
 from typing import Optional
+from pathlib import Path
+from dotenv import load_dotenv
 
+# load .env ở root project
+_ROOT = Path(__file__).resolve().parents[3]  # chỉnh nếu path khác
+load_dotenv(_ROOT / ".env")
+# hoặc đơn giản:
+load_dotenv()
 logger = logging.getLogger(__name__)
 
-try:
-    import resend
-except ImportError:  # pragma: no cover
-    resend = None  # type: ignore
+BATCH_SIZE = 50  # gửi tuần tự, nghỉ nhẹ giữa các mail nếu cần
 
 
 def _enabled() -> bool:
     return os.getenv("EMAIL_ENABLED", "false").lower() in {"1", "true", "yes"}
 
 
-def _api_key() -> str:
-    return (os.getenv("RESEND_API_KEY") or "").strip()
+def _host() -> str:
+    return (os.getenv("EMAIL_HOST") or "smtp.gmail.com").strip()
+
+
+def _port() -> int:
+    try:
+        return int(os.getenv("EMAIL_PORT") or "587")
+    except ValueError:
+        return 587
+
+
+def _user() -> str:
+    return (os.getenv("EMAIL_USER") or "").strip()
+
+
+def _password() -> str:
+    # Gmail app password thường có dấu cách — bỏ khoảng trắng cho chắc
+    return (os.getenv("EMAIL_PASSWORD") or "").replace(" ", "").strip()
 
 
 def _from_address() -> str:
-    return (os.getenv("EMAIL_FROM") or "Timi <onboarding@resend.dev>").strip()
+    raw = (os.getenv("EMAIL_FROM") or "").strip()
+    if raw:
+        return raw
+    user = _user()
+    return f"Timi <{user}>" if user else "Timi <noreply@localhost>"
+
+
+def _parse_from(from_header: str) -> tuple[str, str]:
+    name, addr = parseaddr(from_header)
+    if not addr:
+        addr = _user()
+    return name or "Timi", addr
 
 
 def send_email(
@@ -39,42 +78,97 @@ def send_email(
     html: str,
     text: Optional[str] = None,
 ) -> bool:
-    """Send one email. Returns True on success or when email is disabled."""
+    """Gửi 1 email qua SMTP. True khi gửi thành công."""
     if not _enabled():
         logger.warning("EMAIL_ENABLED=false — NOT sending to %s", to)
-    return False   # trước đây return True → dễ hiểu nhầm
-
-    if resend is None:
-        logger.error("Package 'resend' is not installed. Run: pip install resend")
         return False
 
-    key = _api_key()
-    if not key:
-        logger.warning("RESEND_API_KEY missing — cannot send email")
+    user = _user()
+    password = _password()
+    if not user or not password:
+        logger.warning("EMAIL_USER / EMAIL_PASSWORD missing — cannot send")
+        print("SMTP ERROR: thiếu EMAIL_USER hoặc EMAIL_PASSWORD trong .env")
         return False
 
-    resend.api_key = key
-    params: dict = {
-        "from": _from_address(),
-        "to": [to],
-        "subject": subject,
-        "html": html,
-    }
+    from_name, from_addr = _parse_from(_from_address())
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = formataddr((from_name, from_addr))
+    msg["To"] = to
+
     if text:
-        params["text"] = text
+        msg.attach(MIMEText(text, "plain", "utf-8"))
+    # Plain fallback nếu không có text
+    else:
+        msg.attach(MIMEText("Xem phiên bản HTML của email này.", "plain", "utf-8"))
+    msg.attach(MIMEText(html, "html", "utf-8"))
+
+    host = _host()
+    port = _port()
 
     try:
-        result = resend.Emails.send(params)
-        logger.info("Email sent to %s id=%s", to, getattr(result, "id", result))
+        if port == 465:
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(host, port, context=context, timeout=30) as server:
+                server.login(user, password)
+                server.sendmail(from_addr, [to], msg.as_string())
+        else:
+            # 587 STARTTLS (Gmail mặc định)
+            with smtplib.SMTP(host, port, timeout=30) as server:
+                server.ehlo()
+                server.starttls(context=ssl.create_default_context())
+                server.ehlo()
+                server.login(user, password)
+                server.sendmail(from_addr, [to], msg.as_string())
+
+        logger.info("SMTP OK to %s subject=%s", to, subject)
+        print(f"SMTP OK → {to}")
         return True
     except Exception as e:
-        logger.exception("Failed to send email to %s", to)
-        print("RESEND ERROR:", type(e).__name__, e)
-        if hasattr(e, "status_code"):
-            print("STATUS:", e.status_code)
-        if hasattr(e, "body"):
-            print("BODY:", e.body)
+        logger.exception("SMTP failed to %s", to)
+        print("SMTP ERROR:", type(e).__name__, e)
         return False
+
+
+def send_batch_emails(
+    *,
+    items: list[dict],
+) -> tuple[int, int]:
+    """
+    Gửi nhiều email tuần tự qua SMTP.
+
+    items: [{ "to", "subject", "html", "text"? }, ...]
+    Returns: (success_count, fail_count)
+    """
+    if not _enabled():
+        logger.warning("EMAIL_ENABLED=false — skip batch (%d)", len(items))
+        return 0, len(items)
+
+    if not items:
+        return 0, 0
+
+    ok = fail = 0
+    for i in range(0, len(items), BATCH_SIZE):
+        chunk = items[i : i + BATCH_SIZE]
+        for it in chunk:
+            success = send_email(
+                to=it["to"],
+                subject=it["subject"],
+                html=it["html"],
+                text=it.get("text"),
+            )
+            if success:
+                ok += 1
+            else:
+                fail += 1
+        logger.info(
+            "SMTP batch chunk %d–%d done",
+            i + 1,
+            i + len(chunk),
+        )
+
+    print(f"SMTP BATCH RESULT: ok={ok} fail={fail} total={len(items)}")
+    return ok, fail
 
 
 def send_transaction_email(

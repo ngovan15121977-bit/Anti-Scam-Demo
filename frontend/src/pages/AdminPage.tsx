@@ -1416,7 +1416,6 @@ function EmailTab() {
   const [broadcast, setBroadcast] = useState({
     subject: "",
     body: "",
-    audience: "active" as "all" | "active" | "product_opt_in",
   });
   const [updateForm, setUpdateForm] = useState({
     version: "",
@@ -1426,37 +1425,38 @@ function EmailTab() {
   });
   const [previewOpen, setPreviewOpen] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [statusTone, setStatusTone] = useState<"ok" | "err">("ok");
   const [sending, setSending] = useState(false);
-
-  const audienceLabel =
-    broadcast.audience === "all"
-      ? "Tất cả user đã đăng ký"
-      : broadcast.audience === "active"
-        ? "User đang active"
-        : "User bật nhận cập nhật / khuyến mãi";
 
   const handleSendTest = async () => {
     if (!broadcast.subject.trim() || !broadcast.body.trim()) {
+      setStatusTone("err");
       setStatusMsg("Vui lòng nhập tiêu đề và nội dung trước khi gửi thử.");
       return;
     }
     setSending(true);
     setStatusMsg(null);
     try {
-      // API sẵn sàng: POST /v1/admin/emails/broadcast { dry_run: true }
-      await axiosInstance.post("/v1/admin/emails/broadcast", {
-        subject: broadcast.subject,
-        html: broadcast.body.replace(/\n/g, "<br/>"),
-        audience: broadcast.audience,
-        dry_run: true,
-      });
-      setStatusMsg("Đã gửi thử (dry-run). Kiểm tra hộp thư admin / log server.");
+      const { data } = await axiosInstance.post<{ message?: string; queued?: number }>(
+        "/v1/admin/emails/broadcast",
+        {
+          subject: broadcast.subject,
+          html: broadcast.body.replace(/\n/g, "<br/>"),
+          dry_run: true,
+        },
+      );
+      setStatusTone("ok");
+      setStatusMsg(
+        data?.message ||
+          "Đã gửi thử tới email admin. Kiểm tra hộp thư (và Spam).",
+      );
     } catch (err) {
       const msg = axios.isAxiosError(err)
         ? typeof err.response?.data?.detail === "string"
           ? err.response.data.detail
-          : `Chưa có API broadcast (HTTP ${err.response?.status ?? "—"}). UI đã sẵn — nối backend sau.`
+          : `Gửi thử thất bại (HTTP ${err.response?.status ?? "—"}).`
         : "Không gửi được email thử.";
+      setStatusTone("err");
       setStatusMsg(msg);
     } finally {
       setSending(false);
@@ -1465,12 +1465,13 @@ function EmailTab() {
 
   const handleBroadcast = async () => {
     if (!broadcast.subject.trim() || !broadcast.body.trim()) {
+      setStatusTone("err");
       setStatusMsg("Vui lòng nhập tiêu đề và nội dung.");
       return;
     }
     if (
       !window.confirm(
-        `Gửi email cho: ${audienceLabel}?\n\nTiêu đề: ${broadcast.subject}`,
+        `Gửi email tới TẤT CẢ user có email trong hệ thống?\n\nTiêu đề: ${broadcast.subject}`,
       )
     ) {
       return;
@@ -1478,19 +1479,26 @@ function EmailTab() {
     setSending(true);
     setStatusMsg(null);
     try {
-      await axiosInstance.post("/v1/admin/emails/broadcast", {
-        subject: broadcast.subject,
-        html: broadcast.body.replace(/\n/g, "<br/>"),
-        audience: broadcast.audience,
-        dry_run: false,
-      });
-      setStatusMsg("Đã tạo job gửi email hàng loạt. Xem log / job status trên server.");
+      const { data } = await axiosInstance.post<{ message?: string; queued?: number }>(
+        "/v1/admin/emails/broadcast",
+        {
+          subject: broadcast.subject,
+          html: broadcast.body.replace(/\n/g, "<br/>"),
+          dry_run: false,
+        },
+      );
+      setStatusTone("ok");
+      setStatusMsg(
+        data?.message ||
+          `Đã xếp hàng gửi${data?.queued != null ? ` ${data.queued}` : ""} email.`,
+      );
     } catch (err) {
       const msg = axios.isAxiosError(err)
         ? typeof err.response?.data?.detail === "string"
           ? err.response.data.detail
-          : `Chưa có API broadcast (HTTP ${err.response?.status ?? "—"}). UI đã sẵn — nối backend sau.`
+          : `Gửi hàng loạt thất bại (HTTP ${err.response?.status ?? "—"}).`
         : "Không gửi được broadcast.";
+      setStatusTone("err");
       setStatusMsg(msg);
     } finally {
       setSending(false);
@@ -1499,30 +1507,37 @@ function EmailTab() {
 
   const handlePublishUpdate = async () => {
     if (!updateForm.title.trim() || !updateForm.body.trim()) {
+      setStatusTone("err");
       setStatusMsg("Nhập tiêu đề và nội dung cập nhật.");
       return;
     }
     setSending(true);
     setStatusMsg(null);
     try {
-      await axiosInstance.post("/v1/admin/emails/product-update", {
-        version: updateForm.version || undefined,
-        title: updateForm.title,
-        body: updateForm.body,
-        send_now: updateForm.sendNow,
-      });
+      const { data } = await axiosInstance.post<{ message?: string; queued?: number }>(
+        "/v1/admin/emails/product-update",
+        {
+          version: updateForm.version || undefined,
+          title: updateForm.title,
+          body: updateForm.body,
+          send_now: updateForm.sendNow,
+        },
+      );
+      setStatusTone("ok");
       setStatusMsg(
-        updateForm.sendNow
-          ? "Đã công bố cập nhật và enqueue mail tới user opt-in."
-          : "Đã lưu bản cập nhật (chưa gửi mail).",
+        data?.message ||
+          (updateForm.sendNow
+            ? "Đã công bố và gửi mail tới toàn bộ user."
+            : "Đã lưu cập nhật (chưa gửi mail)."),
       );
       setUpdateForm({ version: "", title: "", body: "", sendNow: true });
     } catch (err) {
       const msg = axios.isAxiosError(err)
         ? typeof err.response?.data?.detail === "string"
           ? err.response.data.detail
-          : `Chưa có API product-update (HTTP ${err.response?.status ?? "—"}). UI đã sẵn.`
+          : `Công bố thất bại (HTTP ${err.response?.status ?? "—"}).`
         : "Không công bố được cập nhật.";
+      setStatusTone("err");
       setStatusMsg(msg);
     } finally {
       setSending(false);
@@ -1532,15 +1547,20 @@ function EmailTab() {
   return (
     <div className="space-y-4">
       {statusMsg && (
-        <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        <div
+          className={`rounded-lg border px-4 py-3 text-sm ${
+            statusTone === "ok"
+              ? "border-emerald-100 bg-emerald-50 text-emerald-800"
+              : "border-red-100 bg-red-50 text-red-700"
+          }`}
+        >
           {statusMsg}
         </div>
       )}
 
-      {/* Broadcast composer */}
       <FalconCard
         title="Gửi email hàng loạt"
-        subtitle="Soạn thảo và gửi tới người dùng trong hệ thống"
+        subtitle="Soạn thảo và gửi tới toàn bộ user có email trong hệ thống (SMTP)"
         action={
           <SoftBadge tone="info">
             <span className="inline-flex items-center gap-1">
@@ -1551,38 +1571,8 @@ function EmailTab() {
         }
       >
         <div className="space-y-4">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-600">
-              Đối tượng nhận
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {(
-                [
-                  { key: "active" as const, label: "User active" },
-                  { key: "all" as const, label: "Tất cả đã đăng ký" },
-                  {
-                    key: "product_opt_in" as const,
-                    label: "Chỉ opt-in cập nhật",
-                  },
-                ] as const
-              ).map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() =>
-                    setBroadcast((s) => ({ ...s, audience: item.key }))
-                  }
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    broadcast.audience === item.key
-                      ? "bg-blue-600 text-white"
-                      : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <p className="mt-1.5 text-xs text-slate-400">{audienceLabel}</p>
+          <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            Người nhận: <span className="font-semibold text-slate-700">Tất cả user có email</span>
           </div>
 
           <div>
@@ -1650,16 +1640,15 @@ function EmailTab() {
               ) : (
                 <Mail className="h-4 w-4" />
               )}
-              Gửi hàng loạt
+              Gửi toàn bộ user
             </button>
           </div>
         </div>
       </FalconCard>
 
-      {/* Product update / changelog */}
       <FalconCard
         title="Cập nhật & cải tiến hệ thống"
-        subtitle="Công bố phiên bản mới — có thể gửi mail tự động cho user opt-in"
+        subtitle="Công bố phiên bản mới — gửi mail cho toàn bộ user (SMTP)"
         action={
           <SoftBadge tone="success">
             <span className="inline-flex items-center gap-1">
@@ -1737,7 +1726,7 @@ function EmailTab() {
               />
             </button>
             <span className="text-sm text-slate-700">
-              Gửi email ngay cho user đã bật nhận cập nhật
+              Gửi email ngay cho toàn bộ user có email
             </span>
           </label>
 
@@ -1754,21 +1743,15 @@ function EmailTab() {
       </FalconCard>
 
       <FalconCard
-        title="Gợi ý vận hành"
-        subtitle="Resend free tier & domain"
+        title="Lưu ý"
+        subtitle="SMTP Gmail"
         bodyClassName="p-4 text-sm text-slate-600 space-y-2"
       >
+        <p>• Gửi qua SMTP (Gmail App Password) — không cần Resend domain.</p>
+        <p>• <b>Gửi thử</b> chỉ gửi về email tài khoản admin đang đăng nhập.</p>
+        <p>• <b>Gửi toàn bộ user</b> / công bố cập nhật: mọi user có email trong DB.</p>
         <p>
-          • Chưa verify domain: gần như chỉ gửi được tới email đăng ký Resend
-          (admin test).
-        </p>
-        <p>
-          • Muốn gửi toàn bộ user: verify domain trên Resend, rồi trỏ{" "}
-          <code className="rounded bg-slate-100 px-1 text-xs">EMAIL_FROM</code>{" "}
-          về domain đó.
-        </p>
-        <p>
-          • API cần có:{" "}
+          • API:{" "}
           <code className="rounded bg-slate-100 px-1 text-xs">
             POST /v1/admin/emails/broadcast
           </code>{" "}
@@ -1776,11 +1759,9 @@ function EmailTab() {
           <code className="rounded bg-slate-100 px-1 text-xs">
             POST /v1/admin/emails/product-update
           </code>
-          .
         </p>
       </FalconCard>
 
-      {/* Preview modal */}
       {previewOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -1812,7 +1793,9 @@ function EmailTab() {
             <div className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-4 text-sm text-slate-700">
               {broadcast.body || "(Chưa có nội dung)"}
             </div>
-            <p className="mt-3 text-xs text-slate-400">Gửi tới: {audienceLabel}</p>
+            <p className="mt-3 text-xs text-slate-400">
+              Gửi tới: Tất cả user có email
+            </p>
           </div>
         </div>
       )}
