@@ -160,4 +160,12 @@ export const authApi = {
   logout: async () => {
     localStorage.removeItem("token");
   },
+forgotPassword: (email: string) =>
+  axiosInstance.post("/v1/auth/forgot-password", { email }),
+
+resetPassword: (payload: {
+  email: string;
+  otp: string;
+  new_password: string;
+}) => axiosInstance.post("/v1/auth/reset-password", payload),
 };
