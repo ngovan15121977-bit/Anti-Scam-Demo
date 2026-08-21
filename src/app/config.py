@@ -64,14 +64,23 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model_name: str = "openai/gpt-oss-20b"
     groq_base_url: str = "https://api.groq.com/openai/v1"
+    # Each specialist can use an independent provider account, quota, base URL
+    # and model. Empty values preserve compatibility by falling back to GROQ_*.
+    chat_agent_api_key: str = ""
+    chat_agent_base_url: str = ""
+    chat_agent_model: str = ""
     # Agent-owned Scam Guardian decisions. The backend validates the bounded
     # JSON contract and executes only the returned safety action.
     guardian_agent_enabled: bool = True
+    guardian_agent_api_key: str = ""
+    guardian_agent_base_url: str = ""
     guardian_agent_model: str = "llama-3.1-8b-instant"
     # Avoid spending a provider request on every short STT fragment.
     guardian_agent_min_interval_seconds: float = Field(default=6.0, ge=0.0, le=60.0)
     # Realtime Guardian fallback STT. Uses Groq Whisper when configured.
     guardian_stt_enabled: bool = True
+    guardian_stt_api_key: str = ""
+    guardian_stt_base_url: str = ""
     # Prefer the accuracy-oriented Whisper model for short Vietnamese call
     # segments; override with whisper-large-v3-turbo when latency/cost wins.
     guardian_stt_model: str = "whisper-large-v3"

@@ -17,6 +17,13 @@ from jose import JWTError
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from src.app.agents import (
+    AgentId,
+    GuardianAudioTask,
+    GuardianRiskTask,
+    GuardianTranscriptionResult,
+    get_multi_agent_supervisor,
+)
 from src.app.config import get_settings
 from src.app.core.deps import get_current_user
 from src.app.core.security import decode_access_token
@@ -43,13 +50,11 @@ from src.app.services.scam_guardian import (
 )
 from src.app.services.scam_guardian_agent import (
     GuardianAgentUnavailableError,
-    analyze_with_guardian_agent,
     degraded_guardian_result,
     fail_closed_guardian_result,
 )
 from src.app.services.scam_guardian_stt import (
     is_probable_ad_hallucination,
-    transcribe_guardian_audio,
 )
 
 logger = logging.getLogger(__name__)
@@ -366,9 +371,9 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
                 # LLM inference is blocking; keep the WebSocket event loop
                 # responsive while the agent evaluates the conversation.
                 result = await asyncio.to_thread(
-                    analyze_with_guardian_agent,
-                    state,
-                    transcript.text,
+                    get_multi_agent_supervisor().dispatch,
+                    AgentId.CALL_GUARDIAN,
+                    GuardianRiskTask(state=state, latest_text=transcript.text),
                 )
                 agent_failure_streak = 0
                 agent_retry_after_until = 0.0
@@ -470,11 +475,17 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
                         )
                         continue
                     try:
-                        text = await asyncio.to_thread(
-                            transcribe_guardian_audio,
-                            audio_bytes,
-                            audio.mime_type,
+                        transcription = await asyncio.to_thread(
+                            get_multi_agent_supervisor().dispatch,
+                            AgentId.CALL_GUARDIAN,
+                            GuardianAudioTask(
+                                audio_bytes=audio_bytes,
+                                mime_type=audio.mime_type,
+                            ),
                         )
+                        if not isinstance(transcription, GuardianTranscriptionResult):
+                            raise TypeError("Call Guardian Agent trả về transcript không hợp lệ")
+                        text = transcription.text
                     except Exception:
                         logger.exception("Guardian server-side STT failed")
                         await websocket.send_json(

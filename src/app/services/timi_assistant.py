@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from openai import OpenAI
 
 from src.app.config import get_settings
+from src.app.services.agent_provider_config import chat_provider_config
 
 if TYPE_CHECKING:
     from src.app.schemas.assistant import AssistantChatTurn
@@ -72,8 +73,9 @@ def answer_timi_question(message: str, history: list[AssistantChatTurn]) -> tupl
         return OUT_OF_SCOPE_ANSWER, True
 
     settings = get_settings()
-    if not settings.groq_api_key:
-        raise RuntimeError("Groq API key is not configured")
+    provider = chat_provider_config(settings)
+    if not provider.api_key:
+        raise RuntimeError("Chat Agent API key is not configured")
 
     conversation = [
         {"role": turn.role, "content": turn.content}
@@ -83,10 +85,10 @@ def answer_timi_question(message: str, history: list[AssistantChatTurn]) -> tupl
     # Groq exposes the Chat Completions API through an OpenAI-compatible base URL.
     # The key remains server-side; neither the browser nor the chat response sees it.
     response = OpenAI(
-        api_key=settings.groq_api_key,
-        base_url=settings.groq_base_url,
+        api_key=provider.api_key,
+        base_url=provider.base_url,
     ).chat.completions.create(
-        model=settings.groq_model_name,
+        model=provider.model,
         messages=[{"role": "system", "content": _SYSTEM_INSTRUCTIONS}, *conversation],
         max_completion_tokens=320,
     )

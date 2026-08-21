@@ -439,6 +439,7 @@ export default function ProfilePage() {
     voiceMonitoringEnabled,
     setVoiceMonitoringEnabled,
     status: guardianStatus,
+    error: guardianError,
   } = useScamGuardian();
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
@@ -932,7 +933,9 @@ export default function ProfilePage() {
                         ? guardianStatus === "active"
                           ? "Đang hoạt động ngầm khi bạn sử dụng ứng dụng"
                           : "Đang bật, sẽ tự khởi động lại khi cần"
-                        : "Đã tắt, Timi sẽ không truy cập microphone"}
+                        : guardianError.includes("Đã tự động tắt nghe và bảo vệ cuộc gọi")
+                          ? "Đã tự động tắt vì Guardian Risk Agent không phản hồi"
+                          : "Đã tắt, Timi sẽ không truy cập microphone"}
                     </p>
                   </div>
                   <button

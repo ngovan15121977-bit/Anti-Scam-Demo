@@ -156,10 +156,13 @@ Không commit .env. Các biến quan trọng:
 | GROQ_API_KEY | Cho chat + Guardian | Key server-side cho Timi Assistant và Guardian Risk Agent |
 | GROQ_MODEL_NAME | Cho chat | Mặc định openai/gpt-oss-20b |
 | GROQ_BASE_URL | Không | Mặc định https://api.groq.com/openai/v1 |
+| CHAT_AGENT_API_KEY, CHAT_AGENT_BASE_URL, CHAT_AGENT_MODEL | Không | Provider/quota/model riêng cho Chat Support Agent; để trống sẽ dùng `GROQ_*` |
 | GUARDIAN_AGENT_ENABLED | Không | Bật Guardian Risk Agent; mặc định true |
+| GUARDIAN_AGENT_API_KEY, GUARDIAN_AGENT_BASE_URL | Không | Provider/quota riêng cho Call Guardian Agent; để trống sẽ dùng `GROQ_*` |
 | GUARDIAN_AGENT_MODEL | Không | Model Groq dùng chấm điểm/ngưỡng Guardian; mặc định `llama-3.1-8b-instant` |
 | GUARDIAN_AGENT_MIN_INTERVAL_SECONDS | Không | Khoảng tối thiểu giữa hai lần agent phân tích transcript; mặc định 6 giây |
 | GUARDIAN_STT_ENABLED | Không | Bật server-side Whisper STT cho Guardian; mặc định true |
+| GUARDIAN_STT_API_KEY, GUARDIAN_STT_BASE_URL | Không | Provider/quota riêng cho bước nghe cuộc gọi; để trống sẽ dùng Guardian rồi `GROQ_*` |
 | GUARDIAN_STT_MODEL | Không | Mặc định whisper-large-v3; có thể đổi sang whisper-large-v3-turbo nếu ưu tiên tốc độ/chi phí |
 | OPENAI_API_KEY | Không | Nhánh giải thích transaction legacy khi bật LLM |
 | LLM_EXPLANATION_ENABLED | Không | Mặc định false; risk score vẫn chạy khi tắt |

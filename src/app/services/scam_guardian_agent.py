@@ -19,6 +19,7 @@ from pydantic import ValidationError
 
 from src.app.config import get_settings
 from src.app.schemas.guardian import GuardianAgentDecision
+from src.app.services.agent_provider_config import guardian_provider_config
 from src.app.services.scam_guardian import (
     GuardianConversationState,
     GuardianRiskResult,
@@ -281,21 +282,22 @@ def analyze_with_guardian_agent(
     """Ask Groq/OpenAI-compatible model for the authoritative risk decision."""
 
     settings = get_settings()
+    provider = guardian_provider_config(settings)
     if not settings.guardian_agent_enabled:
         raise GuardianAgentUnavailableError("Guardian risk agent đang bị tắt")
-    if not settings.groq_api_key:
-        raise GuardianAgentUnavailableError("Thiếu GROQ_API_KEY cho Guardian risk agent")
+    if not provider.api_key:
+        raise GuardianAgentUnavailableError("Thiếu API key cho Guardian risk agent")
 
     try:
         response = OpenAI(
-            api_key=settings.groq_api_key,
-            base_url=settings.groq_base_url,
+            api_key=provider.api_key,
+            base_url=provider.base_url,
             # The realtime stream must tolerate a transient 429/5xx or short
             # network flap without turning one chunk into a scam alert.
             max_retries=2,
             timeout=20.0,
         ).chat.completions.create(
-            model=settings.guardian_agent_model,
+            model=provider.model,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {

@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from src.app.api import (
     admin,
     admin_emails,
+    agents,
     assistant,
     auth,
     guardian,
@@ -41,6 +42,7 @@ app.include_router(recipients.router, prefix="/api/v1")
 app.include_router(transactions.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(url_safety.router, prefix="/api/v1")
+app.include_router(agents.router, prefix="/api/v1")
 app.include_router(assistant.router, prefix="/api/v1")
 app.include_router(guardian.router, prefix="/api/v1")
 app.include_router(admin_emails.router, prefix="/api/v1")

@@ -162,6 +162,7 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
   const recorderRef = useRef<MediaRecorder | null>(null);
   const speechRef = useRef<SpeechRecognitionLike | null>(null);
   const speechFallbackRef = useRef<() => void>(() => undefined);
+  const disableForAgentFailureRef = useRef<(message: string) => void>(() => undefined);
   const browserFallbackStartedRef = useRef(false);
   const finishResolverRef = useRef<(() => void) | null>(null);
   const readyResolverRef = useRef<ReadyWaiter | null>(null);
@@ -183,6 +184,7 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
   const autoStartRef = useRef(false);
   const guardianRunIdRef = useRef(0);
   const stoppingRef = useRef(false);
+  const agentFailureShutdownRef = useRef(false);
 
   useEffect(() => {
     statusRef.current = status;
@@ -268,8 +270,24 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
         type?: string;
         message?: string;
         code?: string;
+        status?: string;
+        consecutive_failures?: number;
+        decision_source?: string;
+        scenario?: string | null;
+        explanation?: string;
         transcription_mode?: string;
         accepted?: boolean;
+      };
+      const disableForUnavailableAgent = (reason?: string) => {
+        if (agentFailureShutdownRef.current) return;
+        agentFailureShutdownRef.current = true;
+        const cause = (reason?.trim() || "Không thể gọi Guardian risk agent").replace(
+          /[.!?]+$/,
+          "",
+        );
+        const shutdownMessage = `${cause}. Đã tự động tắt nghe và bảo vệ cuộc gọi.`;
+        setError(shutdownMessage);
+        disableForAgentFailureRef.current(shutdownMessage);
       };
       if (payload.type === "ready") {
         transcriptionModeRef.current = payload.transcription_mode ?? "browser_speech_recognition";
@@ -289,7 +307,16 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
           setTranscript((current) => [...current.slice(-49), transcriptEvent]);
         }
       } else if (payload.type === "risk_update") {
-        setRisk(payload as GuardianRiskEvent);
+        const riskEvent = payload as GuardianRiskEvent;
+        setRisk(riskEvent);
+        // Fallback for a server version that emits the fail-closed decision
+        // without the preceding agent_status event.
+        if (
+          riskEvent.decision_source === "fail_closed"
+          && riskEvent.scenario === "agent_unavailable"
+        ) {
+          disableForUnavailableAgent(riskEvent.explanation);
+        }
       } else if (payload.type === "alert") {
         setCriticalAlert(payload as GuardianAlertEvent);
       } else if (payload.type === "session_finished") {
@@ -302,6 +329,14 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
         // If server STT cannot decode a browser codec, continue protection
         // with browser transcript text instead of silently losing the call.
         speechFallbackRef.current();
+      } else if (
+        payload.type === "agent_status"
+        && (payload.status === "degraded" || payload.status === "blocked")
+      ) {
+        // Continuing to capture a call cannot protect the user while the only
+        // risk agent is unavailable. Persist the switch as off and tear down
+        // every microphone/recorder resource instead of silently retrying.
+        disableForUnavailableAgent(payload.message);
       } else if (payload.type === "error") {
         setError(payload.message ?? "Guardian không thể xử lý sự kiện.");
       }
@@ -378,6 +413,7 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
 
   const startGuardian = useCallback(async () => {
     if (!token || statusRef.current === "active" || statusRef.current === "starting") return;
+    agentFailureShutdownRef.current = false;
     const runId = guardianRunIdRef.current + 1;
     guardianRunIdRef.current = runId;
     statusRef.current = "starting";
@@ -830,6 +866,19 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
       await startGuardian();
     }
   }, [startGuardian, stopGuardian, token, userId]);
+
+  useEffect(() => {
+    disableForAgentFailureRef.current = (message: string) => {
+      void setVoiceMonitoringEnabled(false).finally(() => {
+        // stopGuardian may report a session-finalisation error. The actionable
+        // cause for this automatic shutdown remains the unavailable agent.
+        setError(message);
+      });
+    };
+    return () => {
+      disableForAgentFailureRef.current = () => undefined;
+    };
+  }, [setVoiceMonitoringEnabled]);
 
   const value: ScamGuardianContextValue = {
     status,

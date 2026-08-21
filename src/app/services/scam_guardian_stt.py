@@ -10,6 +10,7 @@ from io import BytesIO
 from openai import OpenAI
 
 from src.app.config import get_settings
+from src.app.services.agent_provider_config import guardian_stt_provider_config
 
 
 def _file_name(mime_type: str) -> str:
@@ -115,8 +116,8 @@ def is_probable_ad_hallucination(text: str) -> bool:
 
 @lru_cache(maxsize=1)
 def _client() -> OpenAI:
-    settings = get_settings()
-    return OpenAI(api_key=settings.groq_api_key, base_url=settings.groq_base_url)
+    provider = guardian_stt_provider_config()
+    return OpenAI(api_key=provider.api_key, base_url=provider.base_url)
 
 
 def transcribe_guardian_audio(audio_bytes: bytes, mime_type: str) -> str:
@@ -126,7 +127,8 @@ def transcribe_guardian_audio(audio_bytes: bytes, mime_type: str) -> str:
     file-like object; no audio is written to disk or stored in the database.
     """
     settings = get_settings()
-    if not settings.guardian_stt_enabled or not settings.groq_api_key:
+    provider = guardian_stt_provider_config(settings)
+    if not settings.guardian_stt_enabled or not provider.api_key:
         return ""
     if len(audio_bytes) < 1_000:
         return ""
@@ -135,7 +137,7 @@ def transcribe_guardian_audio(audio_bytes: bytes, mime_type: str) -> str:
     audio_file.name = _file_name(mime_type)
     result = _client().audio.transcriptions.create(
         file=audio_file,
-        model=settings.guardian_stt_model,
+        model=provider.model,
         language="vi",
         response_format="verbose_json",
         temperature=0,
