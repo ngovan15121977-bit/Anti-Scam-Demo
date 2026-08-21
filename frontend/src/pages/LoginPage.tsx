@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
-import { Shield, Mail, Lock, Eye, EyeOff, ArrowLeft, ArrowRight, Sparkles, Fingerprint, Globe, Zap } from "lucide-react";
+import { Shield, Mail, Lock, Eye, EyeOff, ArrowLeft, ArrowRight, Sparkles, Globe, Zap } from "lucide-react";
 import { authApi } from "@/api/auth";
 import type { GooglePhoneCompletionResponse, TokenResponse } from "@/api/auth";
 import { useAuthStore } from "@/stores/authStore";
@@ -11,7 +11,6 @@ import GoogleSignInButton, { hasGoogleSignInConfig } from "@/components/auth/Goo
 const floatingIcons = [
   { Icon: Shield, top: "10%", left: "8%", delay: "0s", size: 28 },
   { Icon: Sparkles, top: "25%", right: "12%", delay: "1.2s", size: 20 },
-  { Icon: Fingerprint, bottom: "20%", left: "15%", delay: "0.6s", size: 24 },
   { Icon: Globe, top: "60%", right: "8%", delay: "1.8s", size: 22 },
   { Icon: Zap, bottom: "35%", left: "5%", delay: "2.4s", size: 18 },
   { Icon: Lock, top: "40%", left: "20%", delay: "3s", size: 16 },

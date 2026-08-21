@@ -285,9 +285,12 @@ Chọn `New → Static Site`, dùng cùng repository và cấu hình:
 
 ```env
 VITE_API_URL=https://<backend-service>.onrender.com/api
+VITE_GOOGLE_CLIENT_ID=<Google OAuth 2.0 Web client ID>
 ```
 
-Sau khi có URL frontend thật, cập nhật lại `CORS_ORIGINS` ở backend rồi chọn `Save, rebuild, and deploy`.
+Đặt cùng Web client ID đó làm `GOOGLE_OAUTH_CLIENT_ID` tại backend. Sau khi có
+URL frontend thật, khai báo URL này trong Google Cloud Console, cập nhật lại
+`CORS_ORIGINS` ở backend rồi chọn `Save, rebuild, and deploy`.
 
 ### Kiểm tra end-to-end
 

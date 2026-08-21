@@ -1,5 +1,6 @@
 import re
 import uuid
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -40,6 +41,25 @@ class LoginRequest(BaseModel):
     remember_me: bool = False
 
 
+class GoogleLoginRequest(BaseModel):
+    """ID token returned by Google Identity Services after user consent."""
+
+    credential: str = Field(..., min_length=20, max_length=12_000)
+    remember_me: bool = False
+
+
+class GooglePhoneCompletionRequest(BaseModel):
+    """Complete a first Google sign-in with the required Timi phone number."""
+
+    phone_completion_token: str = Field(..., min_length=20, max_length=12_000)
+    phone: str = Field(..., min_length=10, max_length=10)
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def normalize_timi_account_phone(cls, value: object) -> str:
+        return RegisterRequest.normalize_timi_account_phone(value)
+
+
 class LoginLocationRequest(BaseModel):
     """Mandatory location submission immediately after an authenticated login."""
 
@@ -55,11 +75,6 @@ class FaceVerificationRequest(BaseModel):
     transaction_id: uuid.UUID | None = None
     nonce: str | None = Field(default=None, min_length=8, max_length=256)
     amount: int | None = Field(default=None, ge=0, le=10_000_000_000)
-
-
-class FaceLoginRequest(BaseModel):
-    remember_me: bool = False
-    image_data: str = Field(..., min_length=20, max_length=7_000_000)
 
 
 class FaceEnrollmentRequest(BaseModel):
@@ -81,13 +96,17 @@ class TokenResponse(BaseModel):
     user: UserOut
 
 
+class GooglePhoneCompletionResponse(BaseModel):
+    """Returned instead of an app session when a Google user needs a phone."""
+
+    requires_phone: Literal[True] = True
+    phone_completion_token: str
+    email: EmailStr
+    full_name: str
+
+
 class LoginLocationResponse(BaseModel):
     recorded: bool = True
-
-
-class FaceLoginResponse(TokenResponse):
-    similarity: float = Field(..., ge=0, le=1)
-    threshold: float = Field(..., ge=0, le=1)
 
 
 class AccountOverview(BaseModel):

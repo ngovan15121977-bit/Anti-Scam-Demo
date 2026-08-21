@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(default=60, ge=1)
     remember_me_expire_days: int = Field(default=30, ge=1, le=90)
     history_cursor_secret: str = ""
+    # Web OAuth client ID created in Google Cloud Console. This is an audience
+    # identifier (not a secret) and must match VITE_GOOGLE_CLIENT_ID at build time.
+    google_oauth_client_id: str = ""
 
     # ---- Cloudinary media storage ----
     cloudinary_cloud_name: str = ""
@@ -97,7 +100,6 @@ class Settings(BaseSettings):
     face_model_id: str = "opencv-sface-yunet"
     face_embedding_version: str = "opencv-sface-face-crop-v1"
     face_similarity_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
-    face_login_similarity_threshold: float = Field(default=0.60, ge=0.0, le=1.0)
     face_transaction_similarity_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
     face_transaction_failure_limit: int = Field(default=5, ge=1)
     face_transaction_lock_seconds: int = Field(default=30, ge=1)

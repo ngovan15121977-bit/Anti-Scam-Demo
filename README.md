@@ -209,11 +209,18 @@ npm ci
 npm run dev
 ~~~
 
-Mở http://localhost:5173. Frontend mặc định gọi http://localhost:8000/api. Nếu backend ở URL khác, tạo frontend/.env.local:
+Mở http://localhost:5173. Frontend đọc các biến `VITE_*` từ file `.env` ở thư
+mục gốc. Nếu backend ở URL khác hoặc cần bật Google login, cập nhật file này:
 
 ~~~env
 VITE_API_URL=http://localhost:8000/api
+VITE_GOOGLE_CLIENT_ID=<Google OAuth 2.0 Web client ID>
 ~~~
+
+Để bật đăng nhập Google, đặt cùng một Web client ID ở `VITE_GOOGLE_CLIENT_ID`
+(frontend) và `GOOGLE_OAUTH_CLIENT_ID` (backend), rồi khai báo origin frontend
+trong Google Cloud Console. Người dùng Google lần đầu chỉ cần thêm số điện
+thoại 10 chữ số; tên hiển thị được lấy từ hồ sơ Google đã xác minh.
 
 ### Tài khoản demo
 

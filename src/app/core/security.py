@@ -49,6 +49,43 @@ def decode_access_token(token: str) -> dict[str, Any]:
         raise
 
 
+def create_google_phone_completion_token(
+    *, google_subject: str, email: str, full_name: str, remember_me: bool
+) -> str:
+    """Create a short-lived, single-purpose proof for Google phone collection.
+
+    The credential from Google is intentionally not stored or sent back to the
+    browser. The signed proof contains only the verified profile claims needed
+    to create/link the local account after the user enters their phone number.
+    """
+    settings = get_settings()
+    return jwt.encode(
+        {
+            "purpose": "google_phone_completion",
+            "google_subject": google_subject,
+            "email": email,
+            "full_name": full_name,
+            "remember_me": remember_me,
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
+        },
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+
+
+def decode_google_phone_completion_token(token: str) -> dict[str, Any]:
+    """Validate and return the verified Google profile carried by the proof."""
+    payload = decode_access_token(token)
+    required_strings = ("google_subject", "email", "full_name")
+    if payload.get("purpose") != "google_phone_completion":
+        raise ValueError("Invalid Google phone completion token")
+    if any(not isinstance(payload.get(field), str) or not payload[field] for field in required_strings):
+        raise ValueError("Google phone completion token is missing profile data")
+    if not isinstance(payload.get("remember_me"), bool):
+        raise ValueError("Google phone completion token is malformed")
+    return payload
+
+
 def create_recipient_lookup_token(
     *, user_id: str, account_number: str, bank_code: str, account_name: str
 ) -> str:

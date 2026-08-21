@@ -12,8 +12,8 @@ if TYPE_CHECKING:
     from src.app.models.compliance import UserConsent
     from src.app.models.risk_assessment import WarningFeedback
     from src.app.models.scam_report import ScamReport
-    from src.app.models.transaction import Transaction
     from src.app.models.timi_ledger_entry import TimiLedgerEntry
+    from src.app.models.transaction import Transaction
     from src.app.models.trusted_recipient import TrustedRecipient
 
 
@@ -43,6 +43,9 @@ class User(Base, TimestampMixin):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    # Google's immutable `sub` claim is the OAuth account identifier. Never use
+    # the email address as the federated identity key because it can change.
+    google_subject: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(255), nullable=True)

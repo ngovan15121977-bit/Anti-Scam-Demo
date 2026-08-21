@@ -1,10 +1,12 @@
 """Authentication, independent face enrollment, and account profile APIs."""
 
 import base64
+import secrets
 from datetime import UTC, datetime, timedelta
 
 import cloudinary
 import cloudinary.uploader
+from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +17,8 @@ from src.app.core.deps import get_current_user
 from src.app.core.security import (
     create_access_token,
     create_face_verification_token,
+    create_google_phone_completion_token,
+    decode_google_phone_completion_token,
     hash_password,
     verify_password,
 )
@@ -27,10 +31,11 @@ from src.app.models.user import User, UserRole
 from src.app.schemas.auth import (
     AccountOverview,
     FaceEnrollmentRequest,
-    FaceLoginRequest,
-    FaceLoginResponse,
     FaceVerificationRequest,
     FaceVerificationResponse,
+    GoogleLoginRequest,
+    GooglePhoneCompletionRequest,
+    GooglePhoneCompletionResponse,
     LoginLocationRequest,
     LoginLocationResponse,
     LoginRequest,
@@ -40,6 +45,7 @@ from src.app.schemas.auth import (
     TransactionPinRequest,
 )
 from src.app.schemas.user import UserOut
+from src.app.services import risk_rules
 from src.app.services.audit import add_audit_log
 from src.app.services.face_verification import (
     aggregate_embeddings,
@@ -48,12 +54,69 @@ from src.app.services.face_verification import (
     face_quality_rule_from_data_url,
     similarity_from_embedding,
 )
-from src.app.services import risk_rules
 from src.app.services.transaction_telemetry import build_risk_telemetry, persist_risk_telemetry
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 _AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 _MAX_IMAGE_SIZE = 5 * 1024 * 1024
+
+
+def _verified_google_identity(credential: str) -> tuple[str, str, str]:
+    """Verify Google's ID token and return its immutable ID, email, and name."""
+    settings = get_settings()
+    if not settings.google_oauth_client_id:
+        raise HTTPException(status_code=503, detail="Đăng nhập Google chưa được cấu hình")
+
+    try:
+        from google.auth import exceptions as google_auth_exceptions
+        from google.auth.transport import requests as google_requests
+        from google.oauth2 import id_token as google_id_token
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Máy chủ chưa cài đặt hỗ trợ đăng nhập Google",
+        ) from exc
+
+    try:
+        claims = google_id_token.verify_oauth2_token(
+            credential,
+            google_requests.Request(),
+            settings.google_oauth_client_id,
+        )
+    except (ValueError, google_auth_exceptions.GoogleAuthError) as exc:
+        raise HTTPException(status_code=401, detail="Xác thực Google không hợp lệ hoặc đã hết hạn") from exc
+
+    if claims.get("iss") not in {"accounts.google.com", "https://accounts.google.com"}:
+        raise HTTPException(status_code=401, detail="Nhà phát hành xác thực Google không hợp lệ")
+
+    google_subject = claims.get("sub")
+    if not isinstance(google_subject, str) or not google_subject.strip() or len(google_subject) > 255:
+        raise HTTPException(status_code=401, detail="Google không trả về mã định danh tài khoản hợp lệ")
+    if claims.get("email_verified") is not True:
+        raise HTTPException(status_code=401, detail="Email Google chưa được xác minh")
+
+    try:
+        email = validate_email(str(claims.get("email") or ""), check_deliverability=False).normalized
+    except EmailNotValidError as exc:
+        raise HTTPException(status_code=401, detail="Google không trả về email hợp lệ") from exc
+
+    full_name = str(claims.get("name") or "").strip()
+    if not full_name or len(full_name) > 255:
+        raise HTTPException(status_code=401, detail="Google không trả về tên hiển thị hợp lệ")
+    return google_subject, email, full_name
+
+
+def _token_response_for(user: User, *, remember_me: bool = False) -> TokenResponse:
+    return TokenResponse(
+        access_token=create_access_token(
+            subject=str(user.id),
+            role=user.role,
+            expires_delta=(timedelta(days=get_settings().remember_me_expire_days) if remember_me else None),
+        ),
+        user=UserOut.model_validate(user),
+    )
+
+
 def _face_state_for_update(db: Session, user_id) -> FaceVerificationState:
     """Lock shared Face ID state so lockout applies across all workers."""
     state = db.scalar(
@@ -198,6 +261,116 @@ def login(
     )
 
 
+@router.post("/google", response_model=TokenResponse | GooglePhoneCompletionResponse)
+def login_with_google(
+    payload: GoogleLoginRequest,
+    db: Session = Depends(get_db),
+) -> TokenResponse | GooglePhoneCompletionResponse:
+    """Sign in with a server-verified Google ID token.
+
+    New Google identities receive a short-lived completion proof instead of an
+    app session, so they must supply the mandatory Timi phone number first.
+    """
+    google_subject, email, full_name = _verified_google_identity(payload.credential)
+    user = db.scalar(select(User).where(User.google_subject == google_subject))
+    if user is not None:
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="Tài khoản đã bị vô hiệu hóa")
+        user.full_name = full_name
+        if user.phone:
+            db.commit()
+            db.refresh(user)
+            return _token_response_for(user, remember_me=payload.remember_me)
+
+        return GooglePhoneCompletionResponse(
+            phone_completion_token=create_google_phone_completion_token(
+                google_subject=google_subject,
+                email=user.email,
+                full_name=full_name,
+                remember_me=payload.remember_me,
+            ),
+            email=user.email,
+            full_name=full_name,
+        )
+
+    # Do not link a Google account to an existing password account based only
+    # on an email match. The Google `sub` is the immutable identity key; an
+    # automatic email-only link could allow takeover of certain third-party
+    # email addresses whose ownership later changes.
+    if db.scalar(select(User.id).where(User.email == email)):
+        raise HTTPException(
+            status_code=409,
+            detail="Email này đã có tài khoản. Hãy đăng nhập bằng phương thức hiện tại của bạn.",
+        )
+
+    return GooglePhoneCompletionResponse(
+        phone_completion_token=create_google_phone_completion_token(
+            google_subject=google_subject,
+            email=email,
+            full_name=full_name,
+            remember_me=payload.remember_me,
+        ),
+        email=email,
+        full_name=full_name,
+    )
+
+
+@router.post("/google/complete-phone", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+def complete_google_phone(
+    payload: GooglePhoneCompletionRequest,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    """Create the local Google account only after a valid phone is supplied."""
+    try:
+        profile = decode_google_phone_completion_token(payload.phone_completion_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="Phiên hoàn tất đăng nhập Google đã hết hạn") from exc
+
+    google_subject = profile["google_subject"]
+    email = profile["email"]
+    full_name = profile["full_name"]
+    user = db.scalar(
+        select(User).where(User.google_subject == google_subject).with_for_update()
+    )
+    created = user is None
+    if user is None:
+        if db.scalar(select(User.id).where(User.email == email)):
+            raise HTTPException(
+                status_code=409,
+                detail="Email này đã có tài khoản. Hãy đăng nhập bằng phương thức hiện tại của bạn.",
+            )
+        user = User(
+            email=email,
+            google_subject=google_subject,
+            full_name=full_name,
+            phone=payload.phone,
+            # Local password login is deliberately unusable for a Google-only
+            # account, while keeping the legacy non-null database column.
+            hashed_password=hash_password(secrets.token_urlsafe(32)),
+            role=UserRole.USER.value,
+            timi_bank_enabled=True,
+        )
+        db.add(user)
+    else:
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="Tài khoản đã bị vô hiệu hóa")
+        user.phone = payload.phone
+        user.full_name = full_name
+        user.timi_bank_enabled = True
+
+    try:
+        db.flush()
+        if created:
+            db.add(FaceVerificationState(user_id=user.id))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Số điện thoại này đã là tài khoản Timi Bank") from None
+
+    db.refresh(user)
+    return _token_response_for(user, remember_me=bool(profile["remember_me"]))
+
+
 @router.post("/login/location", response_model=LoginLocationResponse)
 def record_login_location(
     payload: LoginLocationRequest,
@@ -209,74 +382,6 @@ def record_login_location(
     _record_login_context(db, user=current_user, payload=payload, request=request)
     db.commit()
     return LoginLocationResponse()
-
-
-@router.post("/login/face", response_model=FaceLoginResponse)
-def login_with_face(
-    payload: FaceLoginRequest,
-    db: Session = Depends(get_db),
-) -> FaceLoginResponse:
-    settings = get_settings()
-    enrollments = db.scalars(select(FaceEnrollment).where(FaceEnrollment.is_active.is_(True), FaceEnrollment.model_id == settings.face_embedding_version)).all()
-    if not enrollments:
-        raise HTTPException(status_code=409, detail="Chưa có tài khoản nào đăng ký khuôn mặt")
-    probe = embedding_from_data_url(payload.image_data)
-    import numpy as np
-    probe_vector = np.asarray(probe, dtype=np.float32)
-    scored = sorted(
-        ((float(np.dot(probe_vector, np.asarray(row.reference_embedding, dtype=np.float32))), row) for row in enrollments),
-        key=lambda item: item[0],
-        reverse=True,
-    )
-    similarity, enrollment = scored[0]
-    second_similarity = scored[1][0] if len(scored) > 1 else -1.0
-    threshold = float(settings.face_login_similarity_threshold)
-    user = db.get(User, enrollment.user_id)
-    if user is None or not user.is_active:
-        raise HTTPException(status_code=401, detail="Tài khoản không hợp lệ")
-    if similarity < threshold or (second_similarity >= 0 and similarity - second_similarity < 0.03):
-        db.add(FaceVerificationLog(user_id=user.id, enrollment_id=enrollment.id, purpose="login", similarity=similarity, threshold=threshold, matched=False, model_id=enrollment.model_id, failure_reason="similarity_below_threshold_or_ambiguous", created_at=datetime.now(UTC)))
-        db.commit()
-        raise HTTPException(status_code=401, detail="Khuôn mặt chưa đủ độ khớp để đăng nhập")
-    db.add(FaceVerificationLog(user_id=user.id, enrollment_id=enrollment.id, purpose="login", similarity=similarity, threshold=threshold, matched=True, model_id=enrollment.model_id, created_at=datetime.now(UTC)))
-    add_audit_log(db, action="auth.face_login_verified", actor_id=user.id, resource_type="face_enrollment", resource_id=enrollment.id, metadata={"similarity": round(similarity, 4)})
-    db.commit()
-    return FaceLoginResponse(
-        access_token=create_access_token(
-            subject=str(user.id),
-            role=user.role,
-            expires_delta=(timedelta(days=get_settings().remember_me_expire_days) if payload.remember_me else None),
-        ),
-        user=UserOut.model_validate(user),
-        similarity=similarity,
-        threshold=threshold,
-    )
-
-    # Legacy account/password/PIN path retained below for migration reference.
-    user = db.scalar(select(User).where(User.email == payload.email))
-    if user is None or not verify_password(payload.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Email hoặc mật khẩu không đúng")
-    if not user.transaction_pin_hash or not verify_password(payload.pin, user.transaction_pin_hash):
-        raise HTTPException(status_code=401, detail="Mã PIN giao dịch không đúng")
-    enrollment = db.scalar(select(FaceEnrollment).where(FaceEnrollment.user_id == user.id, FaceEnrollment.is_active.is_(True)))
-    if enrollment is None:
-        raise HTTPException(status_code=409, detail="Tài khoản chưa đăng ký khuôn mặt")
-    if enrollment.model_id != settings.face_embedding_version:
-        raise HTTPException(status_code=409, detail="Dữ liệu khuôn mặt cần được đăng ký lại để dùng chuẩn quét khuôn mặt mới")
-    similarity = similarity_from_embedding(enrollment_embedding=enrollment.reference_embedding, selfie_data_url=payload.image_data)
-    if similarity < float(enrollment.similarity_threshold):
-        db.add(FaceVerificationLog(user_id=user.id, enrollment_id=enrollment.id, purpose="login", similarity=similarity, threshold=float(enrollment.similarity_threshold), matched=False, model_id=enrollment.model_id, failure_reason="similarity_below_threshold", created_at=datetime.now(UTC)))
-        db.commit()
-        raise HTTPException(status_code=401, detail="Khuôn mặt không khớp với tài khoản")
-    db.add(FaceVerificationLog(user_id=user.id, enrollment_id=enrollment.id, purpose="login", similarity=similarity, threshold=float(enrollment.similarity_threshold), matched=True, model_id=enrollment.model_id, created_at=datetime.now(UTC)))
-    add_audit_log(db, action="auth.face_login_verified", actor_id=user.id, resource_type="face_enrollment", resource_id=enrollment.id, metadata={"similarity": round(similarity, 4)})
-    db.commit()
-    return FaceLoginResponse(
-        access_token=create_access_token(subject=str(user.id), role=user.role),
-        user=UserOut.model_validate(user),
-        similarity=similarity,
-        threshold=float(enrollment.similarity_threshold),
-    )
 
 
 @router.put("/face/enrollment", response_model=FaceVerificationResponse)
