@@ -200,6 +200,7 @@ export default function TransferPage() {
   const [bankSearch, setBankSearch] = useState("");
   const [bankActiveIndex, setBankActiveIndex] = useState(0);
   const [selectedRecentId, setSelectedRecentId] = useState<string | null>(null);
+  const [assistantReviewRequested, setAssistantReviewRequested] = useState(false);
   const selectedBank = banks.find((bank) => bank.code === form.bank_code);
   const normalizedBankSearch = bankSearch.trim().toLocaleLowerCase("vi-VN");
   const filteredBanks = banks.filter((bank) =>
@@ -209,7 +210,7 @@ export default function TransferPage() {
   );
 
   useEffect(() => {
-    const payment = (
+    const incomingState = (
       location.state as {
         QrPayment?: Partial<{
           accountNumber: string;
@@ -217,8 +218,16 @@ export default function TransferPage() {
           amount: number;
           note: string;
         }>;
+        AssistantTransfer?: Partial<{
+          accountNumber: string;
+          bankCode: string;
+          amount: number;
+          note: string;
+        }>;
       } | null
-    )?.QrPayment;
+    );
+    const assistantTransfer = incomingState?.AssistantTransfer;
+    const payment = assistantTransfer ?? incomingState?.QrPayment;
     if (
       !payment ||
       typeof payment.accountNumber !== "string" ||
@@ -249,6 +258,7 @@ export default function TransferPage() {
     setBankSearch(banks.find((bank) => bank.code === bankCode)?.name ?? "");
     setRecipientLookupState({ status: "idle" });
     setSelectedRecentId(null);
+    setAssistantReviewRequested(Boolean(assistantTransfer));
     navigate("/transfer", { replace: true, state: null });
   }, [location.state, navigate]);
 
@@ -544,6 +554,15 @@ export default function TransferPage() {
     form.bank_code,
   );
   const requiresFaceVerification = Boolean(riskData?.requires_face_verification);
+
+  useEffect(() => {
+    // The Task Navigation Agent is allowed to prefill only.  Wait until the
+    // existing recipient lookup produces a fresh signed proof, then show the
+    // user the review screen.  It never starts risk analysis or a transfer.
+    if (!assistantReviewRequested || !isFormValid || recipientLookupState.status !== "success") return;
+    setAssistantReviewRequested(false);
+    setStep("review");
+  }, [assistantReviewRequested, isFormValid, recipientLookupState.status]);
 
   if (pinStatus.isLoading) {
     return (

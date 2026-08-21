@@ -1,6 +1,7 @@
 """Import all active ORM models so Alembic sees one metadata registry."""
 
 from src.app.db.base import Base
+from src.app.models.assistant_chat_exchange import AssistantChatExchange
 from src.app.models.audit_log import AuditLog
 from src.app.models.blacklist import Blacklist
 from src.app.models.compliance import DataRetentionPolicy, UserConsent
@@ -35,6 +36,7 @@ from src.app.models.user import User, UserRole
 
 __all__ = [
     "AuditLog",
+    "AssistantChatExchange",
     "Base",
     "Blacklist",
     "DataRetentionPolicy",

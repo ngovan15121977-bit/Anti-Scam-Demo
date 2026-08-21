@@ -8,15 +8,14 @@ API chuyên biệt -------->| MultiAgentSupervisor   |
                          | deterministic routing  |
                          +-----------+------------+
                                      |
-                   +-----------------+------------------+
-                   |                                    |
-          +--------v---------+                 +--------v---------+
-          | chat_support     |                 | call_guardian    |
-          | product chat     |                 | STT + scam risk  |
-          +--------+---------+                 +--------+---------+
-                   |                                    |
-          CHAT_AGENT_*                         GUARDIAN_AGENT_*
-                                               GUARDIAN_STT_*
+             +----------------+----------------+----------------+
+             |                |                |                |
+    +--------v---------+ +----v-----------+ +--v---------------+
+    | chat_support     | | call_guardian  | | task_navigator   |
+    | product chat     | | STT + risk     | | draft + redirect  |
+    +--------+---------+ +----+-----------+ +------------------+
+             |                |
+     CHAT_AGENT_*     GUARDIAN_AGENT_*/GUARDIAN_STT_*
 ```
 
 Mỗi API đã biết rõ domain nên gửi thẳng `agent_id` cho Supervisor. Supervisor
@@ -24,8 +23,16 @@ không gọi LLM để phân loại lại yêu cầu, vì một lượt phân lo
 token, độ trễ và thêm một điểm lỗi cho mọi request.
 
 Chat chỉ nhận câu hỏi cùng tối đa sáu lượt lịch sử chat. Call Guardian chỉ nhận
-audio/transcript của phiên cuộc gọi. Context không được chia sẻ ngầm giữa các
-agent.
+audio/transcript của phiên cuộc gọi. Task Navigator chỉ nhận tin nhắn hiện tại
+và bản nháp thao tác do trình duyệt giữ theo đúng tài khoản. Context không được
+chia sẻ ngầm giữa các agent.
+
+`task_navigator` không dùng API key hay LLM. Nó có ba quyền giới hạn: hỏi các
+trường còn thiếu của bản nháp chuyển tiền rồi điều hướng sang màn hình **xem
+lại**; bật/tắt nghe và bảo vệ cuộc gọi khi người dùng yêu cầu trực tiếp; hoặc mở
+một route nằm trong allowlist (Tổng quan, QR, lịch sử, Hồ sơ, PIN, Face ID và
+đổi mật khẩu). Nó không thể tạo giao dịch, bấm xác nhận, nhập mật khẩu/PIN,
+thay đổi dữ liệu tài khoản, hoặc thực thi quyền của agent khác.
 
 ## Thêm một agent mới
 

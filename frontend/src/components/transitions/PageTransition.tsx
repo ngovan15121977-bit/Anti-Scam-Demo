@@ -51,6 +51,7 @@ export default function PageTransition({
   const [displayChildren, setDisplayChildren] = useState(children);
   const lastTransitionTime = useRef<number>(0);
   const pendingChildren = useRef<ReactNode>(children);
+  const previousPathRef = useRef(location.pathname);
 
   // Track children change
   useEffect(() => {
@@ -59,6 +60,10 @@ export default function PageTransition({
 
   // Trigger transition on route change
   useEffect(() => {
+    const previousPath = previousPathRef.current;
+    const isLoginCompletion = previousPath === "/login"
+      && ["/dashboard", "/admin", "/confirm-location"].includes(location.pathname);
+    previousPathRef.current = location.pathname;
     const now = Date.now();
     const timeSinceLast = now - lastTransitionTime.current;
 
@@ -66,16 +71,24 @@ export default function PageTransition({
     if (timeSinceLast < minTransitionInterval && phase === "done") {
       const delay = minTransitionInterval - timeSinceLast;
       const timer = window.setTimeout(() => {
-        startTransition();
+        startTransition(isLoginCompletion);
       }, delay);
       return () => window.clearTimeout(timer);
     }
 
-    startTransition();
+    startTransition(isLoginCompletion);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname, location.search]);
 
-  function startTransition() {
+  function startTransition(isLoginCompletion = false) {
+    // Authentication already waited on the OAuth popup and server verification.
+    // Keep the brand cue, but do not add another noticeable pause before app use.
+    const currentRevealDuration = isLoginCompletion
+      ? Math.min(revealDuration, 120)
+      : revealDuration;
+    const currentExitDuration = isLoginCompletion
+      ? Math.min(exitDuration, 100)
+      : exitDuration;
     lastTransitionTime.current = Date.now();
     setPhase("revealing");
     setDisplayChildren(pendingChildren.current);
@@ -83,12 +96,12 @@ export default function PageTransition({
     // Bắt đầu exit sau revealDuration
     const exitTimer = window.setTimeout(() => {
       setPhase("exiting");
-    }, revealDuration);
+    }, currentRevealDuration);
 
     // Hoàn tất sau revealDuration + exitDuration
     const doneTimer = window.setTimeout(() => {
       setPhase("done");
-    }, revealDuration + exitDuration);
+    }, currentRevealDuration + currentExitDuration);
 
     return () => {
       window.clearTimeout(exitTimer);

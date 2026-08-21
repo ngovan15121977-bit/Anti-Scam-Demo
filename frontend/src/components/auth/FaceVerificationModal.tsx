@@ -93,6 +93,10 @@ export default function FaceVerificationModal({
   );
   const [frameBrightness, setFrameBrightness] = useState(128);
   const [scanProgress, setScanProgress] = useState(0);
+  // After a rejected capture, the camera may continue checking that the face
+  // is positioned correctly.  That must not look like a new verification
+  // attempt: only the user's explicit "Thử lại" starts a fresh progress ring.
+  const [awaitingManualRetry, setAwaitingManualRetry] = useState(false);
 
   const isEnrollment = mode === "enrollment";
   const isLockedOut = lockoutSeconds > 0;
@@ -228,7 +232,10 @@ export default function FaceVerificationModal({
     if (isBusy || isLockedOut || !qualityReadyRef.current) return;
     clearTimers();
     const captureStartProgress = automatic ? 55 : 15;
-    if (!automatic) autoCaptureBlockedRef.current = false;
+    if (!automatic) {
+      autoCaptureBlockedRef.current = false;
+      setAwaitingManualRetry(false);
+    }
     setError("");
     setResult(null);
     setIsSuccessHolding(false);
@@ -284,6 +291,7 @@ export default function FaceVerificationModal({
       } else {
         setResult(match);
         autoCaptureBlockedRef.current = true;
+        setAwaitingManualRetry(true);
         qualityReadyRef.current = false;
         qualityPollingStoppedRef.current = false;
         setCapturedImage(null);
@@ -307,6 +315,7 @@ export default function FaceVerificationModal({
       setError(message);
       setResult(null);
       setCapturedImage(null);
+      setAwaitingManualRetry(true);
       qualityReadyRef.current = false;
       qualityPollingStoppedRef.current = false;
       setScanProgress(0);
@@ -463,6 +472,7 @@ export default function FaceVerificationModal({
     setFrameQuality("checking");
     setFrameQualityMessage("Đang mở camera trực tiếp...");
     setScanProgress(0);
+    setAwaitingManualRetry(false);
     qualityReadyRef.current = false;
     qualityPollingStoppedRef.current = false;
     invalidQualityStreakRef.current = 0;
@@ -554,37 +564,41 @@ export default function FaceVerificationModal({
           {cameraReady && (
             <>
               <div className="pointer-events-none absolute inset-[15%] rounded-[45%] border-2 border-white/60 shadow-[0_0_0_999px_rgba(15,23,42,.18)]" />
-              <svg
-                className="pointer-events-none absolute inset-[13%] h-[74%] w-[74%] -rotate-90 overflow-visible"
-                viewBox="0 0 100 100"
-                aria-label={scanProgressLabel}
-                aria-valuemax={100}
-                aria-valuemin={0}
-                aria-valuenow={scanProgress}
-                role="progressbar"
-              >
-                <ellipse cx="50" cy="50" rx="44" ry="46" fill="none" pathLength="100" stroke="rgba(167, 243, 208, 0.35)" strokeWidth="1.5" />
-                <ellipse
-                  cx="50"
-                  cy="50"
-                  rx="44"
-                  ry="46"
-                  fill="none"
-                  pathLength="100"
-                  stroke={scanProgress === 100 ? "#16a34a" : "#34d399"}
-                  strokeWidth="2.25"
-                  strokeLinecap="round"
-                  strokeDasharray="100"
-                  strokeDashoffset={100 - scanProgress}
-                  style={{
-                    filter: "drop-shadow(0 0 4px rgba(52, 211, 153, 0.8))",
-                    transition: "stroke-dashoffset 420ms cubic-bezier(0.22, 1, 0.36, 1), stroke 300ms ease",
-                  }}
-                />
-              </svg>
-              <div className="pointer-events-none absolute inset-x-5 top-[17%] text-center text-[11px] font-bold tracking-wide text-emerald-100 drop-shadow">
-                {scanProgressLabel}
-              </div>
+              {!awaitingManualRetry && (
+                <>
+                  <svg
+                    className="pointer-events-none absolute inset-[13%] h-[74%] w-[74%] -rotate-90 overflow-visible"
+                    viewBox="0 0 100 100"
+                    aria-label={scanProgressLabel}
+                    aria-valuemax={100}
+                    aria-valuemin={0}
+                    aria-valuenow={scanProgress}
+                    role="progressbar"
+                  >
+                    <ellipse cx="50" cy="50" rx="44" ry="46" fill="none" pathLength="100" stroke="rgba(167, 243, 208, 0.35)" strokeWidth="1.5" />
+                    <ellipse
+                      cx="50"
+                      cy="50"
+                      rx="44"
+                      ry="46"
+                      fill="none"
+                      pathLength="100"
+                      stroke={scanProgress === 100 ? "#16a34a" : "#34d399"}
+                      strokeWidth="2.25"
+                      strokeLinecap="round"
+                      strokeDasharray="100"
+                      strokeDashoffset={100 - scanProgress}
+                      style={{
+                        filter: "drop-shadow(0 0 4px rgba(52, 211, 153, 0.8))",
+                        transition: "stroke-dashoffset 420ms cubic-bezier(0.22, 1, 0.36, 1), stroke 300ms ease",
+                      }}
+                    />
+                  </svg>
+                  <div className="pointer-events-none absolute inset-x-5 top-[17%] text-center text-[11px] font-bold tracking-wide text-emerald-100 drop-shadow">
+                    {scanProgressLabel}
+                  </div>
+                </>
+              )}
               {!isBusy && !capturedImage && (
                 <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-xl bg-slate-950/70 px-3 py-2 text-center text-xs font-medium text-white backdrop-blur-sm">
                   Đặt mặt gần, ở giữa khung và giữ yên trong ánh sáng đều.

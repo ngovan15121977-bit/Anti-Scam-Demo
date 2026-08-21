@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   User,
@@ -434,6 +434,7 @@ function ProfileNotificationBell() {
 
 export default function ProfilePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout, updateUser } = useAuthStore();
   const {
     voiceMonitoringEnabled,
@@ -463,6 +464,12 @@ export default function ProfilePage() {
     staleTime: 30_000,
   });
   const overview = overviewQuery.data;
+
+  useEffect(() => {
+    const open = new URLSearchParams(location.search).get("open");
+    if (open === "password") setShowPasswordModal(true);
+    if (open === "pin") setShowPinModal(true);
+  }, [location.search]);
 
   const handleAvatarChange = async (
     event: React.ChangeEvent<HTMLInputElement>,

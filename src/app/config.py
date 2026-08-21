@@ -69,6 +69,15 @@ class Settings(BaseSettings):
     chat_agent_api_key: str = ""
     chat_agent_base_url: str = ""
     chat_agent_model: str = ""
+    # Chat data is isolated by the authenticated user id.  The cache version
+    # lets an operator invalidate old answers after a prompt/model update.
+    assistant_chat_history_limit: int = Field(default=40, ge=1, le=100)
+    assistant_chat_context_exchanges: int = Field(default=3, ge=0, le=10)
+    assistant_chat_retention_days: int = Field(default=90, ge=1, le=365)
+    # gpt-oss uses part of this allowance for internal reasoning, so 320 can
+    # cut a normal Vietnamese support answer in the middle of a bullet.
+    assistant_chat_max_completion_tokens: int = Field(default=640, ge=128, le=1500)
+    assistant_chat_cache_version: str = Field(default="v2", min_length=1, max_length=32)
     # Agent-owned Scam Guardian decisions. The backend validates the bounded
     # JSON contract and executes only the returned safety action.
     guardian_agent_enabled: bool = True

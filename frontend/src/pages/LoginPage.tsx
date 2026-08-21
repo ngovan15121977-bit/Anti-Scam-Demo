@@ -6,7 +6,8 @@ import { authApi } from "@/api/auth";
 import type { GooglePhoneCompletionResponse, TokenResponse } from "@/api/auth";
 import { useAuthStore } from "@/stores/authStore";
 import GooglePhoneModal from "@/components/auth/GooglePhoneModal";
-import GoogleSignInButton, { hasGoogleSignInConfig } from "@/components/auth/GoogleSignInButton";
+import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
+import { hasGoogleSignInConfig } from "@/components/auth/googleIdentityConfig";
 
 const floatingIcons = [
   { Icon: Shield, top: "10%", left: "8%", delay: "0s", size: 28 },

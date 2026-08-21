@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -8,11 +9,69 @@ class AssistantChatTurn(BaseModel):
     content: str = Field(..., min_length=1, max_length=1200)
 
 
+class AssistantTransferDraft(BaseModel):
+    """Untrusted draft data that can only prefill the transfer review screen."""
+
+    recipient_name: str | None = Field(default=None, max_length=120)
+    recipient_account: str | None = Field(default=None, max_length=24)
+    bank_code: str | None = Field(default=None, max_length=20)
+    amount: int | None = Field(default=None, ge=1, le=999_999_999)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class AssistantTaskState(BaseModel):
+    """Browser-held state for one bounded assistant task.
+
+    It is deliberately not an authority to perform a transaction.  The
+    Transfer page still obtains a recipient proof and requires the user to
+    complete risk review and PIN/Face ID confirmation.
+    """
+
+    task: Literal["none", "transfer"] = "none"
+    transfer: AssistantTransferDraft = Field(default_factory=AssistantTransferDraft)
+
+
+class AssistantUiAction(BaseModel):
+    type: Literal[
+        "navigate_transfer_review",
+        "set_guardian_voice_monitoring",
+        "navigate_app",
+    ]
+    transfer: AssistantTransferDraft | None = None
+    voice_monitoring_enabled: bool | None = None
+    route: Literal[
+        "/dashboard",
+        "/transfer",
+        "/qr?mode=scan",
+        "/qr?mode=create",
+        "/history",
+        "/me",
+        "/me?open=password",
+        "/me?open=pin",
+        "/setup-pin",
+        "/setup-face",
+    ] | None = None
+
+
 class AssistantChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=800)
-    history: list[AssistantChatTurn] = Field(default_factory=list, max_length=6)
+    task_state: AssistantTaskState = Field(default_factory=AssistantTaskState)
 
 
 class AssistantChatResponse(BaseModel):
     answer: str
     out_of_scope: bool = False
+    cache_hit: bool = False
+    task_state: AssistantTaskState = Field(default_factory=AssistantTaskState)
+    action: AssistantUiAction | None = None
+
+
+class AssistantChatHistoryItem(BaseModel):
+    id: str
+    question: str
+    answer: str
+    created_at: datetime
+
+
+class AssistantChatHistoryResponse(BaseModel):
+    items: list[AssistantChatHistoryItem]

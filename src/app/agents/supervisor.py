@@ -12,7 +12,11 @@ from functools import lru_cache
 
 from src.app.agents.contracts import AgentCall, AgentExecution, AgentId
 from src.app.agents.registry import AgentRegistry
-from src.app.agents.specialists import CallGuardianAgent, ChatSupportAgent
+from src.app.agents.specialists import (
+    CallGuardianAgent,
+    ChatSupportAgent,
+    TaskNavigationAgent,
+)
 
 
 class MultiAgentSupervisor:
@@ -45,5 +49,5 @@ def get_multi_agent_supervisor() -> MultiAgentSupervisor:
     registry = AgentRegistry()
     registry.register(ChatSupportAgent())
     registry.register(CallGuardianAgent())
+    registry.register(TaskNavigationAgent())
     return MultiAgentSupervisor(registry)
-

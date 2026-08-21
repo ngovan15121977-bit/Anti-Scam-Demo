@@ -62,6 +62,7 @@ def test_production_supervisor_registers_current_domain_agents() -> None:
     assert {descriptor.agent_id for descriptor in descriptors} == {
         AgentId.CHAT_SUPPORT,
         AgentId.CALL_GUARDIAN,
+        AgentId.TASK_NAVIGATOR,
     }
 
 
@@ -73,5 +74,6 @@ def test_topology_reports_token_free_routing_without_credentials() -> None:
     assert {agent.agent_id for agent in topology.agents} == {
         AgentId.CHAT_SUPPORT,
         AgentId.CALL_GUARDIAN,
+        AgentId.TASK_NAVIGATOR,
     }
     assert "api_key" not in topology.model_dump_json()

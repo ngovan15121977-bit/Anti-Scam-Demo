@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
+import { googleClientId } from "@/components/auth/googleIdentityConfig";
+
 type CredentialResponse = { credential: string };
 
 type GoogleIdentityApi = {
@@ -34,11 +36,8 @@ declare global {
 }
 
 const GOOGLE_SCRIPT_ID = "google-identity-services";
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim();
-
-export function hasGoogleSignInConfig() {
-  return Boolean(GOOGLE_CLIENT_ID);
-}
+let initializedGoogleClientId: string | null = null;
+let activeCredentialCallback: ((credential: string) => void) | null = null;
 
 export default function GoogleSignInButton({
   disabled = false,
@@ -58,17 +57,24 @@ export default function GoogleSignInButton({
   }, [onCredential]);
 
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || !containerRef.current) return;
+    if (!googleClientId || !containerRef.current) return;
     let disposed = false;
     const renderButton = () => {
       if (disposed || !containerRef.current || !window.google) return;
       const container = containerRef.current;
       container.replaceChildren();
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: (response) => callbackRef.current(response.credential),
-        ux_mode: "popup",
-      });
+      activeCredentialCallback = (credential) => callbackRef.current(credential);
+      // GSI configuration is page-global. React Strict Mode can mount this
+      // component twice in development; re-initialising causes Google's own
+      // warning and adds avoidable work before the popup opens.
+      if (initializedGoogleClientId !== googleClientId) {
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: (response) => activeCredentialCallback?.(response.credential),
+          ux_mode: "popup",
+        });
+        initializedGoogleClientId = googleClientId;
+      }
       window.google.accounts.id.renderButton(container, {
         type: "standard",
         theme: "outline",
@@ -111,7 +117,7 @@ export default function GoogleSignInButton({
     };
   }, [onLoadError]);
 
-  if (!GOOGLE_CLIENT_ID) return null;
+  if (!googleClientId) return null;
 
   return (
     <div className={`relative flex min-h-12 items-center overflow-hidden rounded-2xl ${disabled ? "pointer-events-none opacity-60" : ""}`}>

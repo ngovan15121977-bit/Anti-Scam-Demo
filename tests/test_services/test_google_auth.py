@@ -2,7 +2,12 @@ from unittest.mock import patch
 
 import pytest
 
-from src.app.api.auth import _verified_google_identity
+from src.app.api.auth import (
+    _GOOGLE_CERTS_URL,
+    _clear_google_certificate_cache,
+    _GoogleCertificateCachingRequest,
+    _verified_google_identity,
+)
 from src.app.config import get_settings
 from src.app.core.security import (
     create_google_phone_completion_token,
@@ -58,6 +63,32 @@ def test_google_identity_uses_subject_and_google_display_name(monkeypatch) -> No
             "Tên từ Google",
         )
     get_settings.cache_clear()
+
+
+def test_google_certificate_request_reuses_the_public_certificate_response() -> None:
+    class Response:
+        status = 200
+        data = b'{"key-id": "certificate"}'
+        headers = {"Cache-Control": "public, max-age=3600"}
+
+    calls = 0
+
+    def delegate(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return Response()
+
+    _clear_google_certificate_cache()
+    request = _GoogleCertificateCachingRequest(delegate)
+
+    first = request(_GOOGLE_CERTS_URL)
+    second = request(_GOOGLE_CERTS_URL)
+
+    assert first.data == Response.data
+    assert second.data == Response.data
+    assert calls == 1
+    assert request.used_cached_certificate
+    _clear_google_certificate_cache()
 
 
 @pytest.mark.asyncio

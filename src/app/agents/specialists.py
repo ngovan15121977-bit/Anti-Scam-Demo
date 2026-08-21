@@ -10,12 +10,13 @@ from src.app.agents.contracts import (
     AgentDescriptor,
     AgentId,
 )
+from src.app.agents.task_navigation import route_task
 from src.app.services.scam_guardian_agent import analyze_with_guardian_agent
 from src.app.services.scam_guardian_stt import transcribe_guardian_audio
 from src.app.services.timi_assistant import answer_timi_question
 
 if TYPE_CHECKING:
-    from src.app.schemas.assistant import AssistantChatTurn
+    from src.app.schemas.assistant import AssistantChatTurn, AssistantTaskState, AssistantUiAction
     from src.app.services.scam_guardian import GuardianConversationState
 
 
@@ -29,6 +30,21 @@ class ChatSupportTask:
 class ChatSupportResult:
     answer: str
     out_of_scope: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TaskNavigationTask:
+    message: str
+    task_state: AssistantTaskState
+
+
+@dataclass(frozen=True, slots=True)
+class TaskNavigationResult:
+    handled: bool
+    answer: str | None
+    task_state: AssistantTaskState
+    action: AssistantUiAction | None
+    history_message: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +80,33 @@ class ChatSupportAgent:
         return ChatSupportResult(answer=answer, out_of_scope=out_of_scope)
 
 
+class TaskNavigationAgent:
+    """Collect only transfer-draft data or apply an explicit Guardian preference."""
+
+    descriptor = AgentDescriptor(
+        agent_id=AgentId.TASK_NAVIGATOR,
+        name="Timi Task Navigation Agent",
+        description="Thu thập bản nháp chuyển tiền và điều hướng thao tác đã được người dùng yêu cầu.",
+        capabilities=(
+            AgentCapability.TRANSFER_DRAFTING,
+            AgentCapability.GUARDIAN_PREFERENCE,
+        ),
+        api_path="/api/v1/assistant/chat",
+    )
+
+    def execute(self, payload: object) -> TaskNavigationResult:
+        if not isinstance(payload, TaskNavigationTask):
+            raise TypeError("Task Navigation Agent nhận sai loại tác vụ")
+        decision = route_task(payload.message, payload.task_state)
+        return TaskNavigationResult(
+            handled=decision.handled,
+            answer=decision.answer,
+            task_state=decision.task_state,
+            action=decision.action,
+            history_message=decision.history_message,
+        )
+
+
 class CallGuardianAgent:
     descriptor = AgentDescriptor(
         agent_id=AgentId.CALL_GUARDIAN,
@@ -84,4 +127,3 @@ class CallGuardianAgent:
                 text=transcribe_guardian_audio(payload.audio_bytes, payload.mime_type)
             )
         raise TypeError("Call Guardian Agent nhận sai loại tác vụ")
-

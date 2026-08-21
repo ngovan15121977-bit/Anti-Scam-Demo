@@ -2,7 +2,11 @@
 
 import base64
 import secrets
+import threading
+import time
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import cloudinary
 import cloudinary.uploader
@@ -60,6 +64,88 @@ from src.app.services.transaction_telemetry import build_risk_telemetry, persist
 router = APIRouter(prefix="/auth", tags=["auth"])
 _AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 _MAX_IMAGE_SIZE = 5 * 1024 * 1024
+_GOOGLE_CERTS_URL = "https://www.googleapis.com/oauth2/v1/certs"
+_GOOGLE_CERT_CACHE_DEFAULT_TTL_SECONDS = 300
+_GOOGLE_CERT_CACHE_MAX_TTL_SECONDS = 3_600
+
+
+@dataclass(frozen=True, slots=True)
+class _CachedGoogleCertificateResponse:
+    """Small immutable response surface required by google-auth's verifier."""
+
+    status: int
+    data: bytes
+    headers: dict[str, str]
+
+
+_google_cert_cache_lock = threading.Lock()
+_google_cert_cache: tuple[float, _CachedGoogleCertificateResponse] | None = None
+
+
+def _google_cert_cache_ttl(headers: dict[str, str]) -> int:
+    """Respect Google's cache header while keeping a conservative upper bound."""
+    cache_control = headers.get("cache-control", "")
+    for directive in cache_control.split(","):
+        key, separator, value = directive.strip().partition("=")
+        if key.lower() != "max-age" or not separator:
+            continue
+        try:
+            return min(max(int(value.strip().strip('"')), 60), _GOOGLE_CERT_CACHE_MAX_TTL_SECONDS)
+        except ValueError:
+            break
+    return _GOOGLE_CERT_CACHE_DEFAULT_TTL_SECONDS
+
+
+def _cached_google_certificate_response(
+    fetch: Any,
+    *,
+    force_refresh: bool = False,
+) -> tuple[_CachedGoogleCertificateResponse | Any, bool]:
+    """Cache Google's public signing certificates, never an ID token itself."""
+    global _google_cert_cache
+    now = time.monotonic()
+    with _google_cert_cache_lock:
+        cached = _google_cert_cache
+        if not force_refresh and cached and cached[0] > now:
+            return cached[1], True
+
+        response = fetch()
+        if response.status != 200:
+            return response, False
+        headers = {str(key).lower(): str(value) for key, value in response.headers.items()}
+        cached_response = _CachedGoogleCertificateResponse(
+            status=response.status,
+            data=response.data,
+            headers=headers,
+        )
+        _google_cert_cache = (now + _google_cert_cache_ttl(headers), cached_response)
+        return cached_response, False
+
+
+def _clear_google_certificate_cache() -> None:
+    """Force a refresh when Google has rotated to an unseen signing key."""
+    global _google_cert_cache
+    with _google_cert_cache_lock:
+        _google_cert_cache = None
+
+
+class _GoogleCertificateCachingRequest:
+    """google-auth transport wrapper which caches only the public cert endpoint."""
+
+    def __init__(self, request: Any, *, force_refresh: bool = False) -> None:
+        self._request = request
+        self._force_refresh = force_refresh
+        self.used_cached_certificate = False
+
+    def __call__(self, url: str, *args: Any, **kwargs: Any) -> Any:
+        if url != _GOOGLE_CERTS_URL:
+            return self._request(url, *args, **kwargs)
+        response, from_cache = _cached_google_certificate_response(
+            lambda: self._request(url, *args, **kwargs),
+            force_refresh=self._force_refresh,
+        )
+        self.used_cached_certificate = from_cache
+        return response
 
 
 def _verified_google_identity(credential: str) -> tuple[str, str, str]:
@@ -79,11 +165,27 @@ def _verified_google_identity(credential: str) -> tuple[str, str, str]:
         ) from exc
 
     try:
-        claims = google_id_token.verify_oauth2_token(
-            credential,
-            google_requests.Request(),
-            settings.google_oauth_client_id,
-        )
+        certificate_request = _GoogleCertificateCachingRequest(google_requests.Request())
+        try:
+            claims = google_id_token.verify_oauth2_token(
+                credential,
+                certificate_request,
+                settings.google_oauth_client_id,
+            )
+        except (ValueError, google_auth_exceptions.GoogleAuthError):
+            # A cached certificate set may very rarely miss a newly rotated
+            # Google key. Refresh once before treating the credential as bad.
+            if not certificate_request.used_cached_certificate:
+                raise
+            _clear_google_certificate_cache()
+            claims = google_id_token.verify_oauth2_token(
+                credential,
+                _GoogleCertificateCachingRequest(
+                    google_requests.Request(),
+                    force_refresh=True,
+                ),
+                settings.google_oauth_client_id,
+            )
     except (ValueError, google_auth_exceptions.GoogleAuthError) as exc:
         raise HTTPException(status_code=401, detail="Xác thực Google không hợp lệ hoặc đã hết hạn") from exc
 
@@ -290,10 +392,13 @@ def login_with_google(
     if user is not None:
         if not user.is_active:
             raise HTTPException(status_code=403, detail="Tài khoản đã bị vô hiệu hóa")
-        user.full_name = full_name
         if user.phone:
-            db.commit()
-            db.refresh(user)
+            # Returning Google users normally have unchanged profile data.
+            # Avoid an unnecessary write + refresh round-trip to the database.
+            if user.full_name != full_name:
+                user.full_name = full_name
+                db.commit()
+                db.refresh(user)
             return _token_response_for(user, remember_me=payload.remember_me)
 
         return GooglePhoneCompletionResponse(

@@ -39,6 +39,11 @@ if settings.database_url.startswith("postgresql"):
     @event.listens_for(Session, "after_begin")
     def set_transaction_schema(_session, _transaction, connection) -> None:
         """Apply the schema to every transaction, including post-commit refreshes."""
+        # Isolated SQLite tests can create their own Session while this module was
+        # imported under a PostgreSQL runtime configuration.  PostgreSQL alone
+        # supports ``SET LOCAL search_path``.
+        if connection.dialect.name != "postgresql":
+            return
         connection.exec_driver_sql(
             f"SET LOCAL search_path TO {settings.database_schema}, public"
         )

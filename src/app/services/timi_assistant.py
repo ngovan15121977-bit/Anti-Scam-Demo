@@ -24,12 +24,22 @@ SENSITIVE_CREDENTIAL_ANSWER = (
     "các mã này qua hội thoại."
 )
 
-_SCOPE_TERMS = (
-    "timi", "chuyen khoan", "giao dich", "nguoi nhan", "so tai khoan",
-    "ngan hang", "qr", "quet ma", "face id", "faceid", "khuon mat",
-    "pin", "dang nhap", "vi tri", "lich su", "blacklist", "lua dao",
-    "scam", "bao cao", "bao mat", "otp", "so du", "tai khoan", "admin",
-)
+_INTENT_TERMS = {
+    "scam_safety": (
+        "lua dao", "scam", "canh bao", "cuoc goi", "blacklist", "link la",
+        "duong dan", "nguoi la", "otp",
+    ),
+    "transfer": (
+        "chuyen tien", "chuyen khoan", "gui tien", "tao giao dich", "nguoi nhan",
+        "so tai khoan", "ngan hang", "thanh toan",
+    ),
+    "qr": ("qr", "quet ma", "ma thanh toan"),
+    "face": ("face id", "faceid", "khuon mat", "nhan dien khuon mat"),
+    "pin": ("ma pin", "pin giao dich", "pin"),
+    "login": ("dang nhap", "google", "email", "so dien thoai", "vi tri"),
+    "history": ("lich su", "giao dich da gui", "xem giao dich"),
+}
+_DIRECT_SCOPE_TERMS = ("timi", "tai khoan", "bao mat", "bao cao", "so du", "admin")
 _SENSITIVE_CREDENTIAL_PATTERN = re.compile(
     r"(?:ma\s*(?:otp|pin)|otp|pin|mat\s*khau|password)\s*[:=-]?\s*\d{4,}",
     re.IGNORECASE,
@@ -48,8 +58,11 @@ Không bao giờ yêu cầu, tiếp nhận, lặp lại hoặc suy luận OTP, P
 ảnh khuôn mặt hay số tài khoản đầy đủ. Không khẳng định đã xem dữ liệu tài khoản, lịch sử,
 giao dịch hoặc blacklist của người dùng nếu bạn không được cung cấp dữ liệu đó.
 Bạn không thể tự chuyển/hủy tiền hoặc thay đổi thiết lập. Nếu người dùng hỏi ngoài phạm vi,
-trả lời đúng câu sau: """ + OUT_OF_SCOPE_ANSWER
+trả lời đúng câu sau: """ + OUT_OF_SCOPE_ANSWER + """
 
+Với câu hỏi trong phạm vi, hãy trả lời hoàn chỉnh trong tối đa khoảng 250 từ. Nếu dùng danh
+sách bước hoặc gạch đầu dòng, luôn kết thúc trọn vẹn từng mục và toàn bộ câu trả lời; không
+để dở dang ở dấu gạch đầu dòng, tiêu đề hoặc câu chưa hoàn chỉnh."""
 
 def _normalize(value: str) -> str:
     decomposed = unicodedata.normalize("NFD", value.lower())
@@ -60,9 +73,21 @@ def contains_sensitive_credential(message: str) -> bool:
     return bool(_SENSITIVE_CREDENTIAL_PATTERN.search(_normalize(message)))
 
 
+def detect_timi_intent(message: str) -> str | None:
+    """Recognise product domains before spending a provider request."""
+    normalized = _normalize(message)
+    # Safety intent takes precedence over a transfer mention in the same text.
+    for intent in ("scam_safety", "qr", "face", "pin", "login", "history", "transfer"):
+        if any(term in normalized for term in _INTENT_TERMS[intent]):
+            return intent
+    return None
+
+
 def is_in_scope(message: str) -> bool:
     normalized = _normalize(message)
-    return any(term in normalized for term in _SCOPE_TERMS)
+    return detect_timi_intent(message) is not None or any(
+        term in normalized for term in _DIRECT_SCOPE_TERMS
+    )
 
 
 def answer_timi_question(message: str, history: list[AssistantChatTurn]) -> tuple[str, bool]:
@@ -71,7 +96,6 @@ def answer_timi_question(message: str, history: list[AssistantChatTurn]) -> tupl
         return SENSITIVE_CREDENTIAL_ANSWER, False
     if not is_in_scope(message):
         return OUT_OF_SCOPE_ANSWER, True
-
     settings = get_settings()
     provider = chat_provider_config(settings)
     if not provider.api_key:
@@ -90,7 +114,7 @@ def answer_timi_question(message: str, history: list[AssistantChatTurn]) -> tupl
     ).chat.completions.create(
         model=provider.model,
         messages=[{"role": "system", "content": _SYSTEM_INSTRUCTIONS}, *conversation],
-        max_completion_tokens=320,
+        max_completion_tokens=settings.assistant_chat_max_completion_tokens,
     )
     answer = (response.choices[0].message.content or "").strip()
-    return (answer[:1800] if answer else OUT_OF_SCOPE_ANSWER), False
+    return (answer if answer else OUT_OF_SCOPE_ANSWER), False

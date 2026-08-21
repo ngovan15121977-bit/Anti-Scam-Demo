@@ -7,6 +7,8 @@ from src.app.agents.specialists import (
     GuardianAudioTask,
     GuardianRiskTask,
     GuardianTranscriptionResult,
+    TaskNavigationResult,
+    TaskNavigationTask,
 )
 from src.app.agents.supervisor import MultiAgentSupervisor, get_multi_agent_supervisor
 
@@ -20,5 +22,7 @@ __all__ = [
     "GuardianRiskTask",
     "GuardianTranscriptionResult",
     "MultiAgentSupervisor",
+    "TaskNavigationResult",
+    "TaskNavigationTask",
     "get_multi_agent_supervisor",
 ]

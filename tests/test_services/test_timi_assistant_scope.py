@@ -12,6 +12,8 @@ from src.app.services.timi_assistant import (
 def test_timi_assistant_allows_product_questions() -> None:
     assert is_in_scope("Tôi quét QR bị chặn thì phải làm sao?")
     assert is_in_scope("Face ID cần bao nhiêu phần trăm để xác thực?")
+    assert is_in_scope("Tôi không hiểu cách chuyển tiền")
+    assert is_in_scope("Tôi muốn gửi tiền cho người thân")
 
 
 def test_timi_assistant_rejects_unrelated_questions() -> None:
@@ -51,14 +53,16 @@ def test_timi_assistant_uses_groq_chat_completions(monkeypatch) -> None:
             groq_api_key="test-key",
             groq_model_name="test-model",
             groq_base_url="https://example.test/openai/v1",
+            assistant_chat_max_completion_tokens=640,
         ),
     )
     monkeypatch.setattr(timi_assistant, "OpenAI", FakeOpenAI)
 
-    answer, out_of_scope = timi_assistant.answer_timi_question("Quét QR thế nào?", [])
+    answer, out_of_scope = timi_assistant.answer_timi_question("Tôi không hiểu cách chuyển tiền", [])
 
     assert answer == "Bạn có thể mở mục QR để quét mã."
     assert not out_of_scope
     assert captured["model"] == "test-model"
+    assert captured["max_completion_tokens"] == 640
     assert captured["base_url"] == "https://example.test/openai/v1"
     assert captured["messages"][0] == {"role": "system", "content": timi_assistant._SYSTEM_INSTRUCTIONS}

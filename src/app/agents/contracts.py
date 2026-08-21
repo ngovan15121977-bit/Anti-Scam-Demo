@@ -12,12 +12,15 @@ class AgentId(StrEnum):
 
     CHAT_SUPPORT = "chat_support"
     CALL_GUARDIAN = "call_guardian"
+    TASK_NAVIGATOR = "task_navigator"
 
 
 class AgentCapability(StrEnum):
     PRODUCT_CHAT = "product_chat"
     CALL_TRANSCRIPTION = "call_transcription"
     SCAM_RISK_DECISION = "scam_risk_decision"
+    TRANSFER_DRAFTING = "transfer_drafting"
+    GUARDIAN_PREFERENCE = "guardian_preference"
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,4 +51,3 @@ class SpecialistAgent(Protocol):
 
     def execute(self, payload: object) -> object:
         """Execute one bounded domain task without seeing other agents' context."""
-
