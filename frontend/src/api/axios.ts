@@ -31,6 +31,7 @@ axiosInstance.interceptors.response.use(
     const requestUrl = error.config?.url ?? "";
     const isAuthAttempt = requestUrl.includes("/v1/auth/login")
       || requestUrl.includes("/v1/auth/register")
+      || requestUrl.includes("/v1/auth/google")
       || requestUrl.includes("/v1/auth/transaction-pin/status");
     if (error.response?.status === 401 && !isAuthAttempt) {
       localStorage.removeItem("token");

@@ -44,6 +44,20 @@ export interface LoginRequest {
   remember_me?: boolean;
 }
 
+export interface GoogleLoginRequest {
+  credential: string;
+  remember_me?: boolean;
+}
+
+export interface GooglePhoneCompletionResponse {
+  requires_phone: true;
+  phone_completion_token: string;
+  email: string;
+  full_name: string;
+}
+
+export type GoogleLoginResponse = TokenResponse | GooglePhoneCompletionResponse;
+
 export interface RegisterRequest {
   full_name: string;
   email: string;
@@ -67,12 +81,19 @@ export interface FaceVerificationResponse {
   verification_token?: string | null;
 }
 
-export interface FaceLoginRequest { image_data: string; remember_me?: boolean; }
-export interface FaceLoginResponse extends TokenResponse { similarity: number; threshold: number; }
-
 export const authApi = {
   login: async (data: LoginRequest): Promise<TokenResponse> => {
     const response = await axiosInstance.post<TokenResponse>("/v1/auth/login", data);
+    return response.data;
+  },
+
+  loginWithGoogle: async (data: GoogleLoginRequest): Promise<GoogleLoginResponse> => {
+    const response = await axiosInstance.post<GoogleLoginResponse>("/v1/auth/google", data);
+    return response.data;
+  },
+
+  completeGooglePhone: async (data: { phone_completion_token: string; phone: string }): Promise<TokenResponse> => {
+    const response = await axiosInstance.post<TokenResponse>("/v1/auth/google/complete-phone", data);
     return response.data;
   },
 
@@ -108,11 +129,6 @@ export const authApi = {
 
   deleteAvatar: async (): Promise<User> => {
     const response = await axiosInstance.delete<User>("/v1/auth/avatar");
-    return response.data;
-  },
-
-  loginWithFace: async (data: FaceLoginRequest): Promise<FaceLoginResponse> => {
-    const response = await axiosInstance.post<FaceLoginResponse>("/v1/auth/login/face", data);
     return response.data;
   },
 

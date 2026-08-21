@@ -55,6 +55,34 @@
   }
 }
 
+/* The Google button adds a complete sign-in method to the existing card.
+   Keep every control visible on common laptop-height viewports without
+   changing the type scale or visual language of the login screen. */
+@media (min-width: 1024px) and (max-height: 820px) {
+  .login-form-column {
+    padding-block: 0.75rem;
+  }
+
+  .login-card {
+    padding: 1.25rem;
+  }
+
+  .login-card > :not([hidden]) ~ :not([hidden]),
+  .login-form-fields > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.75rem;
+  }
+
+  .login-form-fields input {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .login-form-fields > button {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+}
+
 /* Hide scrollbar for horizontal scroll */
 .scrollbar-hide {
   -ms-overflow-style: none;

@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { Shield, Mail, Lock, Eye, EyeOff, ArrowLeft, ArrowRight, Sparkles, Fingerprint, Globe, Zap } from "lucide-react";
 import { authApi } from "@/api/auth";
+import type { GooglePhoneCompletionResponse, TokenResponse } from "@/api/auth";
 import { useAuthStore } from "@/stores/authStore";
-import FaceVerificationModal, { type FaceMatchResult } from "@/components/auth/FaceVerificationModal";
+import GooglePhoneModal from "@/components/auth/GooglePhoneModal";
+import GoogleSignInButton, { hasGoogleSignInConfig } from "@/components/auth/GoogleSignInButton";
 
 const floatingIcons = [
   { Icon: Shield, top: "10%", left: "8%", delay: "0s", size: 28 },
@@ -23,9 +25,14 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: registrationEmail ?? "", password: "" });
   const [showPass, setShowPass] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [faceStep, setFaceStep] = useState(false);
   const [rememberLogin, setRememberLogin] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [googleCompletion, setGoogleCompletion] = useState<GooglePhoneCompletionResponse | null>(null);
+
+  const finishGoogleLogin = useCallback((data: TokenResponse) => {
+    setAuth(data.access_token, data.user, rememberLogin);
+    navigate(data.user.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+  }, [navigate, rememberLogin, setAuth]);
 
   const loginMutation = useMutation({
     mutationFn: authApi.login,
@@ -38,6 +45,25 @@ export default function LoginPage() {
     },
   });
 
+  const googleLoginMutation = useMutation({
+    mutationFn: authApi.loginWithGoogle,
+    onSuccess: (data) => {
+      if ("requires_phone" in data) {
+        setGoogleCompletion(data);
+        return;
+      }
+      finishGoogleLogin(data);
+    },
+    onError: (err: any) => {
+      setErrors({ general: err.response?.data?.detail || "Không thể đăng nhập bằng Google" });
+    },
+  });
+
+  const completeGooglePhoneMutation = useMutation({
+    mutationFn: authApi.completeGooglePhone,
+    onSuccess: finishGoogleLogin,
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrors({});
@@ -48,12 +74,21 @@ export default function LoginPage() {
     loginMutation.mutate({ ...form, remember_me: rememberLogin });
   };
 
-  const verifyLoginFace = async (imageData: string): Promise<FaceMatchResult> => {
-    const data = await authApi.loginWithFace({ image_data: imageData, remember_me: rememberLogin });
-    setAuth(data.access_token, data.user, rememberLogin);
-    const pinStatus = await authApi.transactionPinStatus();
-    navigate(!pinStatus.configured ? "/setup-pin" : (data.user.role === "admin" ? "/admin" : "/dashboard"), { replace: true });
-    return { matched: true, similarity: data.similarity, threshold: data.threshold, message: "Khuôn mặt khớp với tài khoản." };
+  const handleGoogleCredential = useCallback((credential: string) => {
+    setErrors({});
+    googleLoginMutation.mutate({ credential, remember_me: rememberLogin });
+  }, [googleLoginMutation, rememberLogin]);
+
+  const handleGoogleLoadError = useCallback((message: string) => {
+    setErrors({ general: message });
+  }, []);
+
+  const submitGooglePhone = async (phone: string) => {
+    if (!googleCompletion) return;
+    await completeGooglePhoneMutation.mutateAsync({
+      phone_completion_token: googleCompletion.phone_completion_token,
+      phone,
+    });
   };
 
   const inputBase = "w-full pl-12 pr-4 py-4 bg-white/80 backdrop-blur-sm rounded-2xl border text-slate-800 placeholder-slate-400 transition-all duration-300 outline-none";
@@ -264,19 +299,17 @@ export default function LoginPage() {
               {/* Divider */}
               <div className="relative flex items-center gap-4 py-2">
                 <div className="flex-1 h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
-                <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">hoặc</span>
+                <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">hoặc tiếp tục với</span>
                 <div className="flex-1 h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
               </div>
 
-              {/* Face Login */}
-              <button
-                type="button"
-                onClick={() => setFaceStep(true)}
-                className="w-full py-4 bg-white border-2 border-slate-100 hover:border-blue-200 text-slate-700 font-semibold rounded-2xl transition-all hover:shadow-lg hover:shadow-blue-100/50 flex items-center justify-center gap-2 group"
-              >
-                <Fingerprint className="w-5 h-5 text-blue-500 group-hover:scale-110 transition-transform" />
-                Đăng nhập bằng khuôn mặt
-              </button>
+              {hasGoogleSignInConfig() && (
+                <GoogleSignInButton
+                  disabled={googleLoginMutation.isPending || completeGooglePhoneMutation.isPending}
+                  onCredential={handleGoogleCredential}
+                  onLoadError={handleGoogleLoadError}
+                />
+              )}
             </form>
 
             {/* Register link */}
@@ -296,12 +329,13 @@ export default function LoginPage() {
       </div>
       </div>
 
-      {/* Face Verification Modal */}
-      {faceStep && (
-        <FaceVerificationModal
-          onVerified={verifyLoginFace}
-          onCancel={() => setFaceStep(false)}
-          isLoading={loginMutation.isPending}
+      {googleCompletion && (
+        <GooglePhoneModal
+          email={googleCompletion.email}
+          fullName={googleCompletion.full_name}
+          isSaving={completeGooglePhoneMutation.isPending}
+          onCancel={() => setGoogleCompletion(null)}
+          onSubmit={submitGooglePhone}
         />
       )}
 
