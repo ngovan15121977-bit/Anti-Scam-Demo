@@ -152,51 +152,15 @@ def _feature_detectors():
 
 def _obstruction_rule(image, face_box) -> str:
     """Reject frames where the eyes or mouth area is hidden by an object."""
-    detectors = _feature_detectors()
-    if detectors is None:
-        return "ready"
     import numpy as np
 
-    cv2, eyes_detector = detectors
     x, y, width, height = map(int, face_box)
-    face = cv2.cvtColor(np.asarray(image)[y : y + height, x : x + width], cv2.COLOR_RGB2GRAY)
+    face = np.asarray(image)[y : y + height, x : x + width]
     if face.size == 0:
         return "obstructed_face"
-    upper = face[: int(height * 0.62), :]
-    eyes = eyes_detector.detectMultiScale(
-        upper, scaleFactor=1.1, minNeighbors=6, minSize=(max(12, width // 10), max(12, height // 12))
-    )
-    # Do not reject a face when Haar cannot see the eyes: prescription glasses,
-    # a slow head turn, lighting and camera compression commonly cause this
-    # false positive. Dedicated obstruction models are not used in this local
-    # lightweight flow.
+    # A dedicated obstruction model is outside this local flow. Do not reject
+    # prescription glasses or normal camera compression based on Haar guesses.
     return "ready"
-
-
-def _anti_spoof_rule(image, face_box) -> str:
-    """Passive anti-spoof check using texture, frequency, and motion analysis."""
-    try:
-        from src.app.services.passive_liveness import passive_liveness_check
-        
-        result = passive_liveness_check(image, face_box)
-        
-        if not result["is_live"]:
-            # Log the spoof indicators for audit
-            indicators = result.get("indicators", {})
-            spoof_score = indicators.get("weighted_spoof_score", 0.0)
-            _LOGGER.warning(
-                "Passive liveness check failed: spoof_score=%.2f, texture=%.2f, freq=%.2f",
-                spoof_score,
-                indicators.get("texture_spoof_score", 0.0),
-                indicators.get("frequency_artifacts", 0.0),
-            )
-            return "spoof_detected"
-        
-        return "live"
-    except Exception as exc:
-        _LOGGER.exception("Passive liveness check failed with exception")
-        # Fall back to accepting frame if check fails (don't block on error)
-        return "live"
 
 
 def _crop_primary_face(image):
@@ -231,32 +195,34 @@ def _crop_primary_face(image):
     image_width, image_height = image.size
     face_center_x = (x + width / 2) / image_width
     face_center_y = (y + height / 2) / image_height
-    if not 0.28 <= face_center_x <= 0.72 or not 0.24 <= face_center_y <= 0.76:
-        if face_center_x < 0.28:
+    # Webcam crops vary considerably across laptop/phone cameras. Keep enough
+    # margin for a reliable embedding without forcing a pixel-perfect center.
+    if not 0.20 <= face_center_x <= 0.80 or not 0.18 <= face_center_y <= 0.82:
+        if face_center_x < 0.20:
             detail = "Khuôn mặt đang lệch sang trái. Hãy dịch mặt sang phải một chút."
-        elif face_center_x > 0.72:
+        elif face_center_x > 0.80:
             detail = "Khuôn mặt đang lệch sang phải. Hãy dịch mặt sang trái một chút."
         elif face_center_y < 0.24:
             detail = "Khuôn mặt đang quá cao. Hãy hạ camera hoặc đưa mặt xuống một chút."
         else:
             detail = "Khuôn mặt đang quá thấp. Hãy nâng camera hoặc đưa mặt lên một chút."
         raise HTTPException(status_code=422, detail=detail)
-    if x < image_width * 0.02 or y < image_height * 0.02 or x + width > image_width * 0.98 or y + height > image_height * 0.98:
-        if x < image_width * 0.02:
+    if x < image_width * 0.01 or y < image_height * 0.01 or x + width > image_width * 0.99 or y + height > image_height * 0.99:
+        if x < image_width * 0.01:
             detail = "Phần mặt bên trái đang sát mép hoặc ra khỏi khung. Hãy dịch mặt sang phải."
-        elif x + width > image_width * 0.98:
+        elif x + width > image_width * 0.99:
             detail = "Phần mặt bên phải đang sát mép hoặc ra khỏi khung. Hãy dịch mặt sang trái."
         elif y < image_height * 0.02:
             detail = "Phần trán đang sát mép trên. Hãy hạ mặt hoặc điều chỉnh camera xuống."
         else:
             detail = "Phần cằm đang sát mép dưới. Hãy nâng mặt hoặc điều chỉnh camera lên."
         raise HTTPException(status_code=422, detail=detail)
-    if width < image_width * 0.25 or height < image_height * 0.25:
+    if width < image_width * 0.18 or height < image_height * 0.18:
         raise HTTPException(
             status_code=422,
             detail="Khuôn mặt chưa đủ gần. Hãy đưa mặt lại gần camera hơn.",
         )
-    if width > image_width * 0.78 or height > image_height * 0.78:
+    if width > image_width * 0.84 or height > image_height * 0.84:
         raise HTTPException(
             status_code=422,
             detail="Khuôn mặt đang quá gần camera. Hãy lùi ra xa một chút để thấy trọn khuôn mặt.",
@@ -266,10 +232,6 @@ def _crop_primary_face(image):
             status_code=422,
             detail="Vui lòng loại bỏ các vật cản khỏi khuôn mặt trước khi quét.",
         )
-    anti_spoof = _anti_spoof_rule(image, ordered_faces[0])
-    if anti_spoof != "live":
-        detail = "Model chống giả mạo chưa sẵn sàng." if anti_spoof == "anti_spoof_unavailable" else "Không xác minh được người thật. Hãy dùng khuôn mặt thật trước camera, không dùng ảnh hoặc video."
-        raise HTTPException(status_code=503 if anti_spoof == "anti_spoof_unavailable" else 422, detail=detail)
     face_region = np.asarray(image)[y : y + height, x : x + width]
     gray = cv2.cvtColor(face_region, cv2.COLOR_RGB2GRAY)
     brightness = float(gray.mean())
@@ -319,7 +281,7 @@ def embedding_from_data_url(data_url: str) -> list[float]:
 def face_quality_rule_from_data_url(data_url: str) -> str:
     """Return quality using YuNet, with Haar fallback while models download."""
     try:
-        import cv2
+        __import__("cv2")
     except ModuleNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -363,34 +325,29 @@ def face_quality_rule_from_data_url(data_url: str) -> str:
     image_width, image_height = image.size
     center_x = (x + width / 2) / image_width
     center_y = (y + height / 2) / image_height
-    if not 0.28 <= center_x <= 0.72 or not 0.24 <= center_y <= 0.76:
-        if center_x < 0.28:
+    if not 0.20 <= center_x <= 0.80 or not 0.18 <= center_y <= 0.82:
+        if center_x < 0.20:
             return "off_center_left"
-        if center_x > 0.72:
+        if center_x > 0.80:
             return "off_center_right"
         if center_y < 0.24:
             return "off_center_top"
         return "off_center_bottom"
-    if x < image_width * 0.02 or y < image_height * 0.02 or x + width > image_width * 0.98 or y + height > image_height * 0.98:
-        if x < image_width * 0.02:
+    if x < image_width * 0.01 or y < image_height * 0.01 or x + width > image_width * 0.99 or y + height > image_height * 0.99:
+        if x < image_width * 0.01:
             return "off_center_left"
-        if x + width > image_width * 0.98:
+        if x + width > image_width * 0.99:
             return "off_center_right"
         if y < image_height * 0.02:
             return "off_center_top"
         return "off_center_bottom"
-    if width < image_width * 0.25 or height < image_height * 0.25:
+    if width < image_width * 0.18 or height < image_height * 0.18:
         return "too_far"
-    if width > image_width * 0.78 or height > image_height * 0.78:
+    if width > image_width * 0.84 or height > image_height * 0.84:
         return "too_near"
     obstruction = _obstruction_rule(image, ordered[0])
     if obstruction != "ready":
         return obstruction
-    anti_spoof = _anti_spoof_rule(image, ordered[0])
-    if anti_spoof == "anti_spoof_unavailable":
-        return "anti_spoof_unavailable"
-    if anti_spoof != "live":
-        return "spoof_detected"
     face_gray = cv2_module.cvtColor(rgb[y : y + height, x : x + width], cv2_module.COLOR_RGB2GRAY)
     if float(face_gray.mean()) < 45 or float(face_gray.mean()) > 225:
         return "lighting"
@@ -433,7 +390,7 @@ def validate_face_quality_from_data_url(data_url: str) -> None:
         raise HTTPException(status_code=422, detail=f"FACE_QUALITY:{rule}")
 
 
-def aggregate_embeddings(embeddings: list[list[float]] | list[tuple[float, ...]]) -> "numpy.ndarray":
+def aggregate_embeddings(embeddings: list[list[float]] | list[tuple[float, ...]]):
     """Average several accepted frames into a stable reference embedding."""
     import numpy as np
 
@@ -450,66 +407,105 @@ def aggregate_embeddings(embeddings: list[list[float]] | list[tuple[float, ...]]
 
 
 def validate_multiframe_liveness(image_data_urls: list[str]) -> dict:
+    """Validate a short camera burst before Face Match or enrollment.
+
+    Quality, face detection and passive anti-spoofing all execute server-side.
+    A caller cannot turn liveness into a client-side/UI-only check by posting a
+    single cropped photo directly to the verification endpoint.
     """
-    Validate liveness across multiple frames (e.g., multi-frame enrollment).
-    
-    Returns dict with:
-    - is_live: bool
-    - confidence: float
-    - consistency_score: float
-    - indicators: dict
-    """
-    from PIL import Image
-    from src.app.services.passive_liveness import multiframe_liveness_check
     import numpy as np
-    
-    if not image_data_urls or len(image_data_urls) == 0:
+    from PIL import Image
+
+    from src.app.services.passive_liveness import (
+        PassiveLivenessUnavailableError,
+        multiframe_liveness_check,
+        warm_passive_liveness_model,
+    )
+
+    settings = get_settings()
+    if not image_data_urls:
         raise HTTPException(status_code=422, detail="Không có ảnh khuôn mặt để kiểm tra.")
-    
-    # Convert data URLs to numpy arrays
-    frames = []
-    face_boxes = []
-    
+    if len(image_data_urls) < settings.face_liveness_min_frames:
+        raise HTTPException(
+            status_code=422,
+            detail="Cần thu thêm một vài khung hình từ camera để kiểm tra người thật.",
+        )
+    if len(image_data_urls) > settings.face_liveness_max_frames:
+        raise HTTPException(status_code=422, detail="Số lượng khung hình khuôn mặt không hợp lệ.")
+
+    try:
+        warm_passive_liveness_model()
+    except PassiveLivenessUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model Passive Liveness chưa sẵn sàng trên máy chủ.",
+        ) from exc
+
+    frames: list[np.ndarray] = []
+    face_boxes: list[tuple[int, int, int, int]] = []
     for data_url in image_data_urls:
         try:
-            raw = _image_bytes(data_url)
-            image = Image.open(io.BytesIO(raw))
-            
-            # Detect face to get bounding box
+            image = Image.open(io.BytesIO(_image_bytes(data_url))).convert("RGB")
             rgb = np.asarray(image)
             cv2, detector, _ = _model()
             frame = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-            
             with _MODEL_INFERENCE_LOCK:
                 detector.setInputSize((frame.shape[1], frame.shape[0]))
                 _, detected = detector.detect(frame)
-            
-            if detected is None or len(detected) == 0:
-                continue
-            
-            face = detected[0][:4]
+            faces = [] if detected is None else [face[:4] for face in detected]
+            if not faces:
+                raise ValueError("missing_face")
+            ordered_faces = sorted(
+                faces,
+                key=lambda item: float(item[2]) * float(item[3]),
+                reverse=True,
+            )
+            if len(ordered_faces) > 1:
+                primary_area = float(ordered_faces[0][2]) * float(ordered_faces[0][3])
+                second_area = float(ordered_faces[1][2]) * float(ordered_faces[1][3])
+                if second_area >= primary_area * 0.55:
+                    raise ValueError("multiple_primary_faces")
+            face = ordered_faces[0]
             frames.append(rgb)
             face_boxes.append(tuple(map(int, face)))
+        except HTTPException:
+            raise
         except Exception as exc:
-            _LOGGER.warning(f"Could not process frame for liveness check: {exc}")
-            continue
-    
-    if len(frames) < len(image_data_urls) // 2:
-        raise HTTPException(status_code=422, detail="Không thể phát hiện khuôn mặt trong đủ số lượng khung hình.")
-    
-    result = multiframe_liveness_check(frames, face_boxes)
-    
+            _LOGGER.info("Rejected invalid liveness capture frame: %s", exc)
+            raise HTTPException(
+                status_code=422,
+                detail="Có khung hình không nhìn rõ đúng một khuôn mặt. Hãy thử lại với ánh sáng tốt hơn.",
+            ) from exc
+
+    try:
+        result = multiframe_liveness_check(frames, face_boxes)
+    except PassiveLivenessUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model Passive Liveness chưa sẵn sàng trên máy chủ.",
+        ) from exc
+
     if not result["is_live"]:
+        frame_results = result.get("indicators", {}).get("frame_results", [])
+        live_scores = [
+            round(float(frame.get("indicators", {}).get("live_score", 0.0)), 4)
+            for frame in frame_results
+        ]
+        strongest_spoof_scores = [
+            round(float(frame.get("indicators", {}).get("strongest_spoof_score", 0.0)), 4)
+            for frame in frame_results
+        ]
         _LOGGER.warning(
-            "Multi-frame liveness check failed: consistency=%.2f, avg_spoof=%.2f",
-            result.get("consistency_score", 0.0),
-            result.get("indicators", {}).get("avg_spoof_score", 0.0),
+            "Passive liveness rejected capture: duplicate=%s frames=%s live=%s spoof=%s",
+            result.get("duplicate_detected", False),
+            result.get("indicators", {}).get("frame_count", 0),
+            live_scores,
+            strongest_spoof_scores,
         )
         raise HTTPException(
             status_code=422,
-            detail="Kiểm tra tính xác thực khuôn mặt không thành công. Có thể bạn đang dùng ảnh hoặc video ghi sẵn.",
+            detail="Không xác minh được người thật. Không dùng ảnh, màn hình hoặc video ghi sẵn trước camera.",
         )
-    
     return result
 
 
@@ -519,6 +515,18 @@ def similarity_from_embedding(*, enrollment_embedding: list[float], selfie_data_
     reference = reference / max(float(np.linalg.norm(reference)), 1e-8)
     selfie = _embedding(_image_bytes(selfie_data_url))
     return float((reference * selfie).sum())
+
+
+def similarity_from_embeddings(*, enrollment_embedding: list[float], selfie_data_urls: list[str]) -> float:
+    """Compare a stable aggregate of the accepted capture burst to enrollment."""
+    import numpy as np
+
+    reference = np.asarray(enrollment_embedding, dtype=np.float32)
+    reference = reference / max(float(np.linalg.norm(reference)), 1e-8)
+    candidate = aggregate_embeddings(
+        [embedding_from_data_url(data_url) for data_url in selfie_data_urls]
+    )
+    return float((reference * candidate).sum())
 
 
 def compare_avatar_to_selfie(*, avatar_url: str, selfie_data_url: str) -> float:

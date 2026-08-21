@@ -27,7 +27,7 @@ import { transactionsApi } from "@/api/transactions";
 import { authApi } from "@/api/auth";
 import AIRiskModal, { type RiskAssessment } from "@/components/ai/AIRiskModal";
 import TransactionAnalysisScreen from "@/components/ai/TransactionAnalysisScreen";
-import FaceVerificationModal from "@/components/auth/FaceVerificationModal";
+import FaceVerificationModal, { type FaceMatchResult } from "@/components/auth/FaceVerificationModal";
 import { collectRiskClientContext } from "@/lib/riskTelemetry";
 import { useAuthStore } from "@/stores/authStore";
 import { useTimiAssistantStore } from "@/stores/timiAssistantStore";
@@ -503,7 +503,7 @@ export default function TransferPage() {
       pin: transactionPin,
     });
   };
-  const handleFaceVerified = async (imageData: string) => {
+  const handleFaceVerified = async (imageData: string | string[]) => {
     if (!txId) throw new Error("Không tìm thấy giao dịch cần xác thực");
     const amount = Number(form.amount || 0);
     const result = await authApi.verifyFace(
@@ -512,8 +512,13 @@ export default function TransferPage() {
       riskData?.face_verification_nonce ?? undefined,
       Number.isFinite(amount) ? amount : undefined,
     );
-    if (!result.matched || !result.verification_token) return result;
-    decisionMutation.mutate({
+    return result;
+  };
+  const completeFaceVerification = async (result: FaceMatchResult) => {
+    if (!txId || !result.verification_token) {
+      throw new Error("Thiếu dữ liệu xác nhận Face ID cho giao dịch.");
+    }
+    await decisionMutation.mutateAsync({
       transactionId: txId,
       decision: "proceeded",
       verified: true,
@@ -521,7 +526,6 @@ export default function TransferPage() {
       verificationMethod: "face_liveness_camera",
       faceVerificationToken: result.verification_token,
     });
-    return result;
   };
   const handleCancel = () => {
     if (!txId) return;
@@ -1388,6 +1392,7 @@ export default function TransferPage() {
     return (
       <FaceVerificationModal
         onVerified={handleFaceVerified}
+        onVerificationComplete={completeFaceVerification}
         onCancel={handleCancel}
         onSetupFace={() => navigate("/setup-face")}
         isLoading={decisionMutation.isPending}

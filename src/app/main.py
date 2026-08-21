@@ -1,22 +1,24 @@
 import logging
-from src.app.api import admin_emails
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from src.app.api import password_reset
-from src.app.api import admin_emails
+
 from src.app.api import (
     admin,
+    admin_emails,
     assistant,
     auth,
     guardian,
     health,
+    password_reset,
     recipients,
     transactions,
     url_safety,
 )
 from src.app.config import get_settings
 from src.app.services.face_verification import warm_face_model
+from src.app.services.passive_liveness import warm_passive_liveness_model
 
 settings = get_settings()
 settings.validate_production_secrets()
@@ -51,6 +53,7 @@ def preload_face_ai() -> None:
         return
     try:
         warm_face_model()
+        warm_passive_liveness_model()
     except Exception:
         logging.getLogger(__name__).warning("Face AI warm-up failed; it will retry on first verification.")
 

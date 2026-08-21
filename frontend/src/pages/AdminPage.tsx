@@ -1334,21 +1334,21 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
     return true;
   });
   const deleteEntry = filtered.find((entry) => entry.id === deleteTarget);
-  const verifyAndDelete = async (imageData: string): Promise<FaceMatchResult> => {
+  const verifyAndDelete = async (imageData: string | string[]): Promise<FaceMatchResult> => {
     const match = await authApi.verifyFace(imageData);
     if (!match.matched || !match.verification_token) {
       throw new Error("Khuôn mặt admin chưa được xác thực.");
+    }
+    return match;
+  };
+  const completeVerifiedDelete = async (match: FaceMatchResult) => {
+    if (!match.verification_token) {
+      throw new Error("Thiếu dữ liệu xác nhận Face ID của admin.");
     }
     await deleteBlacklist.mutateAsync({
       entryId: deleteTarget!,
       faceVerificationToken: match.verification_token,
     });
-    return {
-      matched: match.matched,
-      similarity: match.similarity,
-      threshold: match.threshold,
-      message: match.message,
-    };
   };
 
   return (
@@ -1551,6 +1551,7 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
         <FaceVerificationModal
           mode="verification"
           onVerified={verifyAndDelete}
+          onVerificationComplete={completeVerifiedDelete}
           onCancel={() => {
             setDeleteTarget(null);
             setShowDeleteConfirm(false);

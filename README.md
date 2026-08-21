@@ -121,13 +121,15 @@ FastAPI (src/app)
 - PostgreSQL hoặc Neon PostgreSQL; bật pgvector nếu dùng vector store.
 - Docker Desktop + Linux containers/WSL 2 nếu chạy Docker.
 - Trình duyệt có camera và quyền định vị. Camera trên deployment phải chạy HTTPS; localhost được phép trong development.
-- Face ID dùng hai model ONNX nhẹ được lưu trong `models/face/`; không dùng Hugging Face/PyTorch.
+- Face ID dùng các model ONNX chạy local: YuNet (phát hiện), SFace (đối chiếu) và bộ đôi MiniFASNet-V2 + V1SE (Passive Liveness). Không cần gửi ảnh camera đến dịch vụ bên thứ ba.
 
-Hai file model cần có:
+Bốn file model cần có:
 
 ```text
 models/face/face_detection_yunet_2023mar.onnx
 models/face/face_recognition_sface_2021dec.onnx
+models/face/minifasnet_v2.onnx
+models/face/minifasnet_v1se.onnx
 ```
 
 Các file model được đóng gói vào Docker image tại `/opt/face-models`. Khi đổi model hoặc preprocessing, người dùng cần đăng ký Face ID lại.
@@ -163,9 +165,13 @@ Không commit .env. Các biến quan trọng:
 | LLM_EXPLANATION_ENABLED | Không | Mặc định false; risk score vẫn chạy khi tắt |
 | RISK_TELEMETRY_HASH_KEY | Production | HMAC IP/device telemetry, phải khác JWT secret |
 | FACE_MODEL_ID | Không | Nhận diện `opencv-sface-yunet` |
-| FACE_MODEL_DIR | Không | Thư mục chứa 2 model ONNX; local mặc định `models/face`, Docker dùng `/opt/face-models` |
+| FACE_MODEL_DIR | Không | Thư mục chứa model YuNet/SFace; local mặc định `models/face`, Docker dùng `/opt/face-models` |
 | FACE_SIMILARITY_THRESHOLD | Không | Ngưỡng mặc định 0.70 |
-| FACE_MODEL_PRELOAD | Không | true preload model; false lazy-load |
+| FACE_LIVENESS_MODEL_PATH | Không | Đường dẫn model MiniFASNet-V2 Passive Liveness |
+| FACE_LIVENESS_V1SE_MODEL_PATH | Không | Đường dẫn model MiniFASNet-V1SE ghép điểm với V2 |
+| FACE_LIVENESS_LIVE_THRESHOLD | Không | Sàn chống kết quả mơ hồ của MiniFASNet ba lớp; mặc định 0.36 và lớp real vẫn phải thắng hai lớp spoof |
+| FACE_LIVENESS_MIN_FRAMES | Không | Số mẫu tối thiểu trong đoạn camera ngắn; mặc định 3, không phải yêu cầu 8–15 frame |
+| FACE_MODEL_PRELOAD | Không | true preload toàn bộ model Face ID; false lazy-load |
 | CLOUDINARY_* | Tuỳ chọn | Upload avatar |
 | LANGCHAIN_*, AI_LOG_* | Tuỳ chọn | Tracing/logging local hoặc production |
 
@@ -417,7 +423,7 @@ Mở bằng http://localhost:5173 hoặc HTTPS, cấp quyền camera cho đúng 
 
 ### Face ID không nhận diện
 
-Đảm bảo đã cài `requirements.txt`, có đủ 2 file trong `models/face/`, ảnh dưới 5 MB, đủ sáng, chỉ một người và nhìn thẳng. Khi đăng ký, giữ mặt giữa khung rồi quay trái và quay về giữa (`1/2`), sau đó quay phải và quay về giữa (`2/2`).
+Đảm bảo đã cài `requirements.txt`, có đủ 4 file trong `models/face/`, camera được cấp quyền, đủ sáng, chỉ một người và nhìn thẳng. Đặt mặt vào giữa khung và giữ yên trong giây lát; hệ thống tự thu một đoạn camera ngắn để chạy hai model Passive Liveness rồi mới đối chiếu khuôn mặt. Ảnh in, màn hình hoặc video ghi sẵn sẽ bị từ chối. Passive Liveness giảm presentation attack nhưng không thể tự bảo đảm hoàn toàn chống digital injection trong trình duyệt web.
 
 ### Không kết nối Neon
 

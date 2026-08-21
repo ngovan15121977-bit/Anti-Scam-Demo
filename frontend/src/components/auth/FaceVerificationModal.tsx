@@ -1,14 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  Camera,
-  KeyRound,
-  Loader2,
-  ScanFace,
-  ShieldAlert,
-  Shield,
-  Lock,
-} from "lucide-react";
+import { Camera, Loader2, ScanFace, Shield, ShieldAlert } from "lucide-react";
 import { authApi } from "@/api/auth";
 
 export interface FaceMatchResult {
@@ -16,552 +8,466 @@ export interface FaceMatchResult {
   similarity: number;
   threshold: number;
   message: string;
+  verification_token?: string | null;
 }
+
 interface Props {
-  onVerified: (imageData: string, pin?: string) => Promise<FaceMatchResult>;
+  onVerified: (
+    imageData: string | string[],
+    pin?: string,
+  ) => Promise<FaceMatchResult>;
+  onVerificationComplete?: (result: FaceMatchResult) => void | Promise<void>;
   onCancel: () => void;
   isLoading: boolean;
-  requirePin?: boolean;
   onSetupFace?: () => void;
   mode?: "verification" | "enrollment";
 }
 
+type FrameQuality = "checking" | "holding" | "ready" | "invalid";
+
+const CAPTURE_DELAYS_MS = [0, 240, 480];
+const SUCCESS_CONFIRM_DELAY_MS = 900;
+
+function sleep(delay: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, delay));
+}
+
+function errorMessage(error: unknown) {
+  const response = error as {
+    response?: {
+      status?: number;
+      data?: {
+        detail?: unknown;
+      };
+    };
+    message?: string;
+  };
+  const detail = response.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) =>
+        item && typeof item === "object" && "msg" in item && typeof item.msg === "string"
+          ? item.msg
+          : null,
+      )
+      .filter((message): message is string => Boolean(message));
+    if (messages.length > 0) return messages.join(". ");
+  }
+  return response.message || "Không thể xác thực khuôn mặt. Hãy thử lại.";
+}
+
 export default function FaceVerificationModal({
   onVerified,
+  onVerificationComplete,
   onCancel,
   isLoading,
-  requirePin = false,
   onSetupFace,
   mode = "verification",
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const [step, setStep] = useState<"pin" | "face">(requirePin ? "pin" : "face");
-  const [pin, setPin] = useState("");
+  const stableTimerRef = useRef<number | null>(null);
+  const verificationTimerRefs = useRef<number[]>([]);
+  const qualityRequestId = useRef(0);
+  const qualityCheckInFlight = useRef(false);
+  const qualityReadyRef = useRef(false);
+  const qualityPollingStoppedRef = useRef(false);
+  const invalidQualityStreakRef = useRef(0);
+  const autoCaptureBlockedRef = useRef(false);
+  const hadLockoutRef = useRef(false);
+  const verifyRef = useRef<(automatic?: boolean) => Promise<void>>(async () => undefined);
+
   const [cameraReady, setCameraReady] = useState(false);
   const [videoLoaded, setVideoLoaded] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSuccessHolding, setIsSuccessHolding] = useState(false);
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [error, setError] = useState("");
   const [result, setResult] = useState<FaceMatchResult | null>(null);
   const [needsFaceSetup, setNeedsFaceSetup] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [frameQuality, setFrameQuality] = useState<
-    | "checking"
-    | "holding"
-    | "ready"
-    | "adjust-light"
-    | "too-dark"
-    | "too-bright"
-    | "invalid"
-  >("checking");
+  const [frameQuality, setFrameQuality] = useState<FrameQuality>("checking");
+  const [frameQualityMessage, setFrameQualityMessage] = useState(
+    "Đặt khuôn mặt vào giữa khung để bắt đầu.",
+  );
   const [frameBrightness, setFrameBrightness] = useState(128);
-  const [frameQualityMessage, setFrameQualityMessage] = useState("Đang kiểm tra người dùng trong khung hình...");
-  const [autoCaptureCounting, setAutoCaptureCounting] = useState(false);
-  const qualityCheckInFlight = useRef(false);
-  const qualityRequestId = useRef(0);
-  const lastGoodFrame = useRef<string | null>(null);
-  const qualityReady = useRef(false);
-  const stablePositionReady = useRef(false);
-  const livenessPassed = useRef(false);
-  const stableTimer = useRef<number | null>(null);
-  const verifyButtonRef = useRef<HTMLButtonElement>(null);
-  const autoVerifyTimerRef = useRef<number | null>(null);
-  const frameScoresRef = useRef<Array<{ score: number; timestamp: number }>>([]);
-  const stopCamera = () => {
+  const [scanProgress, setScanProgress] = useState(0);
+
+  const isEnrollment = mode === "enrollment";
+  const isLockedOut = lockoutSeconds > 0;
+  const isRequestBusy = isLoading || isSubmitting;
+  const isBusy = isRequestBusy || isSuccessHolding;
+  const faceTitle = isEnrollment ? "Đăng ký khuôn mặt" : "Xác thực khuôn mặt";
+  const faceDescription = isEnrollment
+    ? "Giữ khuôn mặt trong khung. Hệ thống sẽ tự thu một đoạn hình ngắn để kiểm tra người thật."
+    : "Giữ khuôn mặt trong khung. Hệ thống sẽ tự kiểm tra người thật và đối chiếu an toàn.";
+  const scanProgressLabel =
+    scanProgress >= 100
+      ? "Hoàn tất"
+      : scanProgress >= 92
+        ? "Đang đối chiếu khuôn mặt"
+        : scanProgress >= 78
+          ? "Đang kiểm tra người thật"
+          : scanProgress >= 55
+            ? "Đang thu mẫu camera"
+            : scanProgress >= 45
+              ? "Khuôn mặt đã sẵn sàng"
+              : "Đang căn khuôn mặt";
+
+  const clearTimers = useCallback(() => {
+    if (stableTimerRef.current !== null) {
+      window.clearTimeout(stableTimerRef.current);
+      stableTimerRef.current = null;
+    }
+    verificationTimerRefs.current.forEach((timerId) => window.clearTimeout(timerId));
+    verificationTimerRefs.current = [];
+  }, []);
+
+  const stopCamera = useCallback(() => {
+    clearTimers();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-    if (autoVerifyTimerRef.current !== null) {
-      window.clearTimeout(autoVerifyTimerRef.current);
-      autoVerifyTimerRef.current = null;
+  }, [clearTimers]);
+
+  useEffect(() => () => stopCamera(), [stopCamera]);
+
+  useEffect(() => {
+    if (!isLockedOut) {
+      if (hadLockoutRef.current) {
+        hadLockoutRef.current = false;
+        setError("");
+        setFrameQuality("checking");
+        setFrameQualityMessage("Đưa mặt vào giữa khung để thử lại.");
+      }
+      return;
     }
-  };
-  useEffect(() => () => stopCamera(), []);
+    hadLockoutRef.current = true;
+    const timerId = window.setInterval(() => {
+      setLockoutSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => window.clearInterval(timerId);
+  }, [isLockedOut]);
+
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
     const scrollTop = window.scrollY;
     const previousHtmlOverflow = html.style.overflow;
     const previousBodyOverflow = body.style.overflow;
-
     html.style.overflow = "hidden";
     body.style.overflow = "hidden";
-
     return () => {
       html.style.overflow = previousHtmlOverflow;
       body.style.overflow = previousBodyOverflow;
       window.scrollTo({ top: scrollTop, left: 0, behavior: "auto" });
     };
   }, []);
+
   useEffect(() => {
     const video = videoRef.current;
     const stream = streamRef.current;
     if (!cameraReady || !video || !stream) return;
     video.srcObject = stream;
-    void video
-      .play()
-      .catch(() =>
-        setError("Không thể phát hình từ camera. Hãy thử mở lại camera."),
-      );
+    void video.play().catch(() => {
+      setError("Không thể phát hình từ camera. Hãy thử mở lại camera.");
+    });
   }, [cameraReady]);
 
+  const captureFrame = () => {
+    if (document.visibilityState !== "visible") {
+      throw new Error("Hãy quay lại màn hình xác thực trước khi tiếp tục.");
+    }
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (!track || track.readyState !== "live" || track.muted) {
+      throw new Error("Luồng camera không còn hoạt động. Hãy mở lại camera.");
+    }
+    const video = videoRef.current;
+    if (!videoLoaded || !video?.videoWidth || !video.videoHeight) {
+      throw new Error("Camera chưa sẵn sàng. Hãy thử lại.");
+    }
+
+    const cropSize = Math.min(video.videoWidth, video.videoHeight);
+    const cropX = (video.videoWidth - cropSize) / 2;
+    const cropY = (video.videoHeight - cropSize) / 2;
+    const outputSize = Math.min(512, cropSize);
+    const canvas = document.createElement("canvas");
+    canvas.width = outputSize;
+    canvas.height = outputSize;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Không thể chuẩn bị ảnh từ camera.");
+    if (frameBrightness < 110) {
+      context.filter = `brightness(${Math.min(1.3, 128 / Math.max(frameBrightness, 48))}) contrast(1.06)`;
+    }
+    context.save();
+    context.translate(outputSize, 0);
+    context.scale(-1, 1);
+    context.drawImage(video, cropX, cropY, cropSize, cropSize, 0, 0, outputSize, outputSize);
+    context.restore();
+    context.filter = "none";
+    return canvas.toDataURL("image/jpeg", 0.88);
+  };
+
+  const collectCaptureBurst = async (startProgress: number) => {
+    const frames: string[] = [];
+    let previousDelay = 0;
+    for (const [index, delay] of CAPTURE_DELAYS_MS.entries()) {
+      const wait = delay - previousDelay;
+      if (wait > 0) await sleep(wait);
+      previousDelay = delay;
+      frames.push(captureFrame());
+      setScanProgress(
+        startProgress
+          + Math.round(((index + 1) / CAPTURE_DELAYS_MS.length) * (76 - startProgress)),
+      );
+    }
+    return frames;
+  };
+
+  const verify = async (automatic = false) => {
+    if (isBusy || isLockedOut || !qualityReadyRef.current) return;
+    clearTimers();
+    const captureStartProgress = automatic ? 55 : 15;
+    if (!automatic) autoCaptureBlockedRef.current = false;
+    setError("");
+    setResult(null);
+    setIsSuccessHolding(false);
+    setNeedsFaceSetup(false);
+    setIsSubmitting(true);
+    setFrameQuality("holding");
+    if (automatic) {
+      setFrameQualityMessage("Đang thu mẫu từ camera trực tiếp...");
+      setScanProgress((progress) => Math.max(progress, captureStartProgress));
+    } else {
+      // A manual retry is a new bank-style verification transaction. Render
+      // an empty ring first, then scan through every stage from the beginning.
+      setCapturedImage(null);
+      setScanProgress(0);
+      setFrameQualityMessage("Đang bắt đầu lượt quét mới...");
+      await sleep(260);
+      setScanProgress(captureStartProgress);
+      setFrameQualityMessage("Đang thu lại mẫu camera trực tiếp...");
+    }
+    try {
+      const frames = await collectCaptureBurst(captureStartProgress);
+      setCapturedImage(frames[frames.length - 1]);
+      setScanProgress(78);
+      setFrameQualityMessage("Đang kiểm tra người thật...");
+      verificationTimerRefs.current = [
+        window.setTimeout(() => {
+          setScanProgress((progress) => Math.max(progress, 86));
+          setFrameQualityMessage("Đang phân tích Passive Liveness...");
+        }, 300),
+        window.setTimeout(() => {
+          setScanProgress((progress) => Math.max(progress, 94));
+          setFrameQualityMessage("Đang đối chiếu với khuôn mặt đã đăng ký...");
+        }, 900),
+      ];
+      const match = await onVerified(frames);
+      clearTimers();
+      if (match.matched) {
+        qualityReadyRef.current = false;
+        setScanProgress(100);
+        setFrameQuality("ready");
+        setFrameQualityMessage("Đã quét đủ. Đang hoàn tất xác thực...");
+        setIsSubmitting(false);
+        setIsSuccessHolding(true);
+        // Let the 420 ms ring transition reach 100%, then keep the completed
+        // state visible briefly before the parent navigates or mutates data.
+        await sleep(SUCCESS_CONFIRM_DELAY_MS);
+        setResult(match);
+        setFrameQualityMessage("Xác thực thành công.");
+        await onVerificationComplete?.(match);
+        setIsSuccessHolding(false);
+        stopCamera();
+        setCameraReady(false);
+      } else {
+        setResult(match);
+        autoCaptureBlockedRef.current = true;
+        qualityReadyRef.current = false;
+        qualityPollingStoppedRef.current = false;
+        setCapturedImage(null);
+        setScanProgress(0);
+        setFrameQuality("checking");
+        setFrameQualityMessage("Hãy giữ khuôn mặt trong khung để thử lại.");
+      }
+    } catch (requestError) {
+      clearTimers();
+      // A server-side liveness/match rejection must not immediately trigger
+      // another automatic submission. Keep the camera ready and let the user
+      // correct lighting/position, then choose "Xác thực khuôn mặt" to retry.
+      autoCaptureBlockedRef.current = true;
+      const message = errorMessage(requestError);
+      const statusCode = (requestError as { response?: { status?: number } }).response?.status;
+      if (statusCode === 429) {
+        const secondsFromMessage = Number(message.match(/(\d+)\s*giây/i)?.[1] ?? 30);
+        setLockoutSeconds(Math.max(1, secondsFromMessage));
+      }
+      if (statusCode === 409) setNeedsFaceSetup(true);
+      setError(message);
+      setResult(null);
+      setCapturedImage(null);
+      qualityReadyRef.current = false;
+      qualityPollingStoppedRef.current = false;
+      setScanProgress(0);
+      setFrameQuality("checking");
+      setFrameQualityMessage(
+        statusCode === 429
+          ? "Face ID đang tạm khóa để bảo vệ tài khoản."
+          : "Hãy giữ khuôn mặt trong khung để thử lại.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  verifyRef.current = verify;
+
   useEffect(() => {
-    if (!cameraReady || !videoLoaded) return;
+    if (!cameraReady || !videoLoaded || isBusy || isLockedOut) return;
     const video = videoRef.current;
     if (!video) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = 64;
-    canvas.height = 64;
-    const context = canvas.getContext("2d", { willReadFrequently: true });
-    if (!context) return;
-    const motionCanvas = document.createElement("canvas");
-    motionCanvas.width = 32;
-    motionCanvas.height = 32;
-    const motionContext = motionCanvas.getContext("2d", {
+    const brightnessCanvas = document.createElement("canvas");
+    brightnessCanvas.width = 64;
+    brightnessCanvas.height = 64;
+    const brightnessContext = brightnessCanvas.getContext("2d", {
       willReadFrequently: true,
     });
-    let previousMotionFrame: Uint8ClampedArray | null = null;
-    let motionEvents = 0;
-    let motionStreak = 0;
-    let motionPhase: "left" | "left_return" | "right" | "right_return" =
-      "left";
-    let lastMotionAt = 0;
-    let challengeStartedAt = 0;
-    let centeredFramesAfterChallenge = 0;
-    let centerConfirmationFrames = 0;
-    let directionStreak = 0;
-    let directionStreakValue: "left" | "right" | null = null;
-    let poseStreak = 0;
-    let poseStreakValue: "left" | "right" | null = null;
+    const qualityCanvas = document.createElement("canvas");
+    qualityCanvas.width = 256;
+    qualityCanvas.height = 256;
+    const qualityContext = qualityCanvas.getContext("2d");
+    if (!brightnessContext || !qualityContext) return;
+
+    const resetReadiness = (message: string) => {
+      qualityReadyRef.current = false;
+      invalidQualityStreakRef.current = 0;
+      if (stableTimerRef.current !== null) {
+        window.clearTimeout(stableTimerRef.current);
+        stableTimerRef.current = null;
+      }
+      qualityPollingStoppedRef.current = false;
+      setScanProgress((progress) => (progress >= 45 ? 25 : progress));
+      setFrameQuality("invalid");
+      setFrameQualityMessage(message);
+    };
+
     const inspectFrame = () => {
-      if (!video.videoWidth || !video.videoHeight) return;
-      if (motionContext) {
-        motionContext.drawImage(video, 0, 0, 32, 32);
-        const currentFrame = motionContext.getImageData(0, 0, 32, 32).data;
-        if (previousMotionFrame) {
-          let difference = 0;
-          let changedX = 0;
-          for (let index = 0; index < currentFrame.length; index += 4) {
-            const pixelDifference =
-              Math.abs(currentFrame[index] - previousMotionFrame[index]) +
-              Math.abs(
-                currentFrame[index + 1] - previousMotionFrame[index + 1],
-              ) +
-              Math.abs(
-                currentFrame[index + 2] - previousMotionFrame[index + 2],
-              );
-            difference += pixelDifference;
-            changedX += pixelDifference * ((index / 4) % 32);
-          }
-          // Do not use whole-frame pixel motion for liveness: camera shake or
-          // a moving background must never count as a head turn.
-          const motion = 0;
-          const motionCenterX = changedX / Math.max(difference, 1) / 31;
-          const now = performance.now();
-          if (
-            stablePositionReady.current &&
-            challengeStartedAt > 0 &&
-            now - challengeStartedAt >= 1200 &&
-            motion >= 9
-          ) {
-            motionStreak += 1;
-            if (motionStreak >= 2 && now - lastMotionAt >= 900) {
-              motionEvents += 1;
-              motionStreak = 0;
-              lastMotionAt = now;
-              // The webcam stream is mirrored in the preview/capture canvas,
-              // so the raw motion axis must be mapped back to the user's view.
-              const direction =
-                motionCenterX < 0.43
-                  ? "right"
-                  : motionCenterX > 0.57
-                    ? "left"
-                    : null;
-              if (mode === "enrollment" && !livenessPassed.current) {
-                if (motionPhase === "left" && direction === "left") {
-                  motionPhase = "left_return";
-                  setFrameQualityMessage(
-                    "Đã nhận quay trái. Hãy quay mặt về chính giữa để hoàn thành 1/2...",
-                  );
-                } else if (motionPhase === "right" && direction === "right") {
-                  motionPhase = "right_return";
-                  setFrameQualityMessage(
-                    "Đã nhận quay phải. Hãy quay mặt về chính giữa để hoàn thành 2/2...",
-                  );
-                }
-              }
-            }
-          } else {
-            motionStreak = 0;
-          }
-          // Require several independent changes. A single compressed/static
-          // image must not immediately unlock enrollment or verification.
-          if (
-            stablePositionReady.current &&
-            motionEvents >= 2 &&
-            now - challengeStartedAt >= 1800
-          ) {
-            const livenessWasPending = !livenessPassed.current;
-            if (livenessWasPending) {
-              livenessPassed.current = true;
-            }
-            if (mode === "enrollment" && livenessWasPending) {
-              centeredFramesAfterChallenge = 0;
-              setFrameQualityMessage(
-                "Đã nhận đủ chuyển động. Hãy quay mặt trở lại chính giữa khung...",
-              );
-            }
-          }
-        }
-        previousMotionFrame = new Uint8ClampedArray(currentFrame);
-      }
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const pixels = context.getImageData(
-        0,
-        0,
-        canvas.width,
-        canvas.height,
-      ).data;
-      let total = 0;
+      // One accepted frame starts the stability window. Polling again during
+      // that window allowed a transient detector miss to cancel its timer and
+      // left the UI permanently at “Đang giữ ổn định…”.
+      if (
+        !video.videoWidth ||
+        !video.videoHeight ||
+        qualityCheckInFlight.current ||
+        qualityReadyRef.current ||
+        qualityPollingStoppedRef.current ||
+        stableTimerRef.current !== null
+      ) return;
+      brightnessContext.drawImage(video, 0, 0, 64, 64);
+      const pixels = brightnessContext.getImageData(0, 0, 64, 64).data;
+      let brightnessTotal = 0;
       for (let index = 0; index < pixels.length; index += 4) {
-        total +=
-          0.299 * pixels[index] +
-          0.587 * pixels[index + 1] +
-          0.114 * pixels[index + 2];
+        brightnessTotal += 0.299 * pixels[index] + 0.587 * pixels[index + 1] + 0.114 * pixels[index + 2];
       }
-      const brightness = total / (pixels.length / 4);
+      const brightness = brightnessTotal / (pixels.length / 4);
       setFrameBrightness(brightness);
       if (brightness < 45) {
-        qualityReady.current = false;
-        setFrameQuality("too-dark");
-        setFrameQualityMessage(
-          "Ánh sáng quá yếu. Hãy bật đèn hoặc di chuyển đến nơi sáng hơn.",
-        );
+        resetReadiness("Ánh sáng quá yếu. Hãy bật đèn hoặc đến nơi sáng hơn.");
         return;
       }
       if (brightness > 225) {
-        qualityReady.current = false;
-        setFrameQuality("too-bright");
-        setFrameQualityMessage(
-          "Ảnh đang bị chói. Hãy tránh ánh sáng chiếu thẳng vào camera.",
-        );
+        resetReadiness("Ảnh đang bị chói. Hãy tránh ánh sáng chiếu thẳng vào camera.");
         return;
       }
-      if (qualityCheckInFlight.current) return;
-      qualityCheckInFlight.current = true;
-      const requestId = ++qualityRequestId.current;
-      canvas.width = 256;
-      canvas.height = 256;
+
       const cropSize = Math.min(video.videoWidth, video.videoHeight);
       const cropX = (video.videoWidth - cropSize) / 2;
       const cropY = (video.videoHeight - cropSize) / 2;
-      context.filter = "contrast(1.12) saturate(1.05)";
-      context.save();
-      context.translate(canvas.width, 0);
-      context.scale(-1, 1);
-      context.drawImage(
-        video,
-        cropX,
-        cropY,
-        cropSize,
-        cropSize,
-        0,
-        0,
-        canvas.width,
-        canvas.height,
-      );
-      context.restore();
-      context.filter = "none";
+      qualityContext.save();
+      qualityContext.translate(256, 0);
+      qualityContext.scale(-1, 1);
+      qualityContext.drawImage(video, cropX, cropY, cropSize, cropSize, 0, 0, 256, 256);
+      qualityContext.restore();
+
+      qualityCheckInFlight.current = true;
+      const requestId = ++qualityRequestId.current;
       void authApi
-        .checkFaceQuality(canvas.toDataURL("image/jpeg", 0.85))
+        .checkFaceQuality(qualityCanvas.toDataURL("image/jpeg", 0.84))
         .then((quality) => {
           if (requestId !== qualityRequestId.current) return;
-          if (
-            mode === "enrollment" &&
-            stablePositionReady.current &&
-            challengeStartedAt > 0 &&
-            !livenessPassed.current &&
-            (quality.pose === "left" || quality.pose === "right")
-          ) {
-            const expectedPose =
-              motionPhase === "left"
-                ? "left"
-                : motionPhase === "right"
-                  ? "right"
-                  : null;
-            if (quality.pose === expectedPose) {
-              poseStreakValue = quality.pose;
-              poseStreak += 1;
-              if (poseStreak >= 2) {
-                motionPhase =
-                  quality.pose === "left" ? "left_return" : "right_return";
-                poseStreak = 0;
-                poseStreakValue = null;
-              }
-            } else if (quality.pose !== poseStreakValue) {
-              poseStreak = 0;
-              poseStreakValue = quality.pose;
+          if (!quality.ready) {
+            invalidQualityStreakRef.current += 1;
+            // Face detection can miss a single webcam frame because of focus
+            // hunting or compression. Do not restart the whole capture for
+            // one transient miss; two consecutive misses are meaningful.
+            if (invalidQualityStreakRef.current < 2) {
+              setFrameQuality("holding");
+              setFrameQualityMessage("Đang giữ ổn định khuôn mặt trong khung...");
+              return;
             }
+            resetReadiness(quality.message);
+            return;
           }
-          if (quality.ready) {
-            if (!stablePositionReady.current) {
-              qualityReady.current = false;
-              if (stableTimer.current !== null)
-                window.clearTimeout(stableTimer.current);
-              setFrameQuality("holding");
-              setFrameQualityMessage(
-                "Đã nhận diện khuôn mặt. Hãy giữ nguyên vị trí trong 1 giây...",
-              );
-              stableTimer.current = window.setTimeout(() => {
-                stablePositionReady.current = true;
-                if (mode !== "enrollment") {
-                  livenessPassed.current = true;
-                  setFrameQualityMessage(
-                    "Đã ổn định. Đang tiếp tục xác thực...",
-                  );
-                  return;
-                }
-                motionEvents = 0;
-                motionStreak = 0;
-                motionPhase = "left";
-                directionStreak = 0;
-                directionStreakValue = null;
-                poseStreak = 0;
-                poseStreakValue = null;
-                lastMotionAt = performance.now();
-                centerConfirmationFrames = 0;
-                challengeStartedAt = 0;
-                setFrameQuality("holding");
-                setFrameQualityMessage(
-                  "Đã ổn định. Hãy giữ mặt đúng giữa khung tròn thêm một chút...",
-                );
-              }, 1000);
-              return;
-            }
-            // A completed turn is counted only after the face returns to the
-            // center. This prevents a small shake from becoming 1/2 or 2/2.
-            if (
-              mode === "enrollment" &&
-              challengeStartedAt > 0 &&
-              !livenessPassed.current
-            ) {
-              if (motionPhase === "left_return") {
-                motionEvents = 1;
-                motionPhase = "right";
-                qualityReady.current = false;
-                setFrameQuality("holding");
-                setFrameQualityMessage(
-                  "Đã hoàn thành quay trái về giữa 1/2. Hãy quay phải thật chậm...",
-                );
-                return;
-              }
-              if (motionPhase === "right_return") {
-                motionEvents = 2;
-                livenessPassed.current = true;
-                centeredFramesAfterChallenge = 0;
-                qualityReady.current = false;
-                setFrameQuality("holding");
-                setFrameQualityMessage(
-                  "Đã hoàn thành quay phải về giữa 2/2. Hãy giữ mặt yên...",
-                );
-                return;
-              }
-            }
-            if (!livenessPassed.current) {
-              qualityReady.current = false;
-              setFrameQuality("holding");
-              if (challengeStartedAt === 0) {
-                centerConfirmationFrames += 1;
-                if (centerConfirmationFrames >= 2) {
-                  challengeStartedAt = performance.now();
-                  lastMotionAt = performance.now();
-                  setFrameQualityMessage(
-                    "Đã xác nhận mặt ở giữa khung. Bước 1/2: hãy quay sang trái rồi quay về chính giữa.",
-                  );
-                } else {
-                  setFrameQualityMessage(
-                    "Hãy giữ mặt ở chính giữa khung tròn và giữ yên...",
-                  );
-                }
-              } else {
-                const detectedDirection =
-                  quality.rule === "off_center_left"
-                    ? "right"
-                    : quality.rule === "off_center_right"
-                      ? "left"
-                      : null;
-                const expectedDirection =
-                  motionPhase === "left"
-                    ? "left"
-                    : motionPhase === "right"
-                      ? "right"
-                      : null;
-                if (
-                  detectedDirection &&
-                  expectedDirection === detectedDirection
-                ) {
-                  directionStreakValue = detectedDirection;
-                  directionStreak += 1;
-                  if (directionStreak >= 2) {
-                    motionPhase =
-                      detectedDirection === "left"
-                        ? "left_return"
-                        : "right_return";
-                    directionStreak = 0;
-                    directionStreakValue = null;
-                  }
-                } else if (detectedDirection !== directionStreakValue) {
-                  directionStreak = 0;
-                  directionStreakValue = detectedDirection;
-                }
-                setFrameQualityMessage(
-                  motionPhase === "left_return"
-                    ? "Đã nhận đủ hướng trái. Hãy quay mặt về chính giữa để hoàn thành 1/2..."
-                    : motionPhase === "right_return"
-                      ? "Đã nhận đủ hướng phải. Hãy quay mặt về chính giữa để hoàn thành 2/2..."
-                      : motionPhase === "right"
-                        ? "Đã chuyển sang bước 2/2. Hãy quay sang phải rồi quay về chính giữa..."
-                        : "Đang ở bước 1/2. Hãy quay sang trái rồi quay về chính giữa...",
-                );
-              }
-              return;
-            }
-            if (mode === "enrollment" && centeredFramesAfterChallenge < 2) {
-              centeredFramesAfterChallenge += 1;
-              qualityReady.current = false;
-              setFrameQuality("holding");
-              setFrameQualityMessage(
-                centeredFramesAfterChallenge === 1
-                  ? "Đã quay về giữa. Hãy giữ mặt yên thêm một chút..."
-                  : "Đang kiểm tra lại khuôn mặt ở chính giữa...",
-              );
-              return;
-            }
-            lastGoodFrame.current = canvas.toDataURL("image/jpeg", 0.88);
-            if (qualityReady.current) return;
-            qualityReady.current = true;
+          invalidQualityStreakRef.current = 0;
+          if (qualityReadyRef.current) return;
+          setScanProgress((progress) => Math.max(progress, 25));
+          if (stableTimerRef.current !== null) return;
+          setFrameQuality("holding");
+          setFrameQualityMessage("Đã nhận diện khuôn mặt. Hãy giữ yên trong giây lát...");
+          stableTimerRef.current = window.setTimeout(() => {
+            stableTimerRef.current = null;
+            qualityReadyRef.current = true;
+            qualityPollingStoppedRef.current = true;
+            setScanProgress(45);
             setFrameQuality("ready");
-            setFrameQualityMessage(
-              mode === "enrollment"
-                ? "Đã hoàn thành quay trái/phải. Đang lưu dữ liệu khuôn mặt..."
-                : "Đã xác minh người thật. Đang tiếp tục...",
-            );
-            // Track frame quality score and auto-capture with best-frame selection
-            const now = performance.now();
-            frameScoresRef.current.push({ score: quality.ready ? 1.0 : 0.8, timestamp: now });
-            // Keep only recent scores (last 2 seconds)
-            frameScoresRef.current = frameScoresRef.current.filter((f) => now - f.timestamp < 2000);
-            // Calculate average quality score from recent frames
-            const avgScore =
-              frameScoresRef.current.length > 0
-                ? frameScoresRef.current.reduce((sum, f) => sum + f.score, 0) / frameScoresRef.current.length
-                : 0;
-            // Auto-capture after a short delay to ensure we have multiple good frames
-            if (frameScoresRef.current.length >= 1 && avgScore >= 0.9 && !autoVerifyTimerRef.current) {
-              setAutoCaptureCounting(true);
-              const captureDelay = mode === "enrollment" ? 600 : 300;
-              autoVerifyTimerRef.current = window.setTimeout(() => {
-                autoVerifyTimerRef.current = null;
-                setAutoCaptureCounting(false);
-                verifyButtonRef.current?.click();
-              }, captureDelay);
-            }
-          } else {
-            lastGoodFrame.current = null;
-            qualityReady.current = false;
-            frameScoresRef.current = [];
-            if (autoVerifyTimerRef.current !== null) {
-              window.clearTimeout(autoVerifyTimerRef.current);
-              autoVerifyTimerRef.current = null;
-            }
-            setAutoCaptureCounting(false);
-            // A deliberate head turn can briefly move the face outside the
-            // strict center box. Keep the liveness challenge alive so the
-            // instruction remains visible instead of restarting silently.
-            if (
-              mode === "enrollment" &&
-              stablePositionReady.current &&
-              (challengeStartedAt === 0 ||
-                performance.now() - challengeStartedAt < 20000) &&
-              (quality.rule === "no_face" ||
-                quality.rule === "multiple_faces" ||
-                quality.rule === "off_center" ||
-                quality.rule === "off_center_left" ||
-                quality.rule === "off_center_right" ||
-                quality.rule === "off_center_top" ||
-                quality.rule === "off_center_bottom" ||
-                quality.rule === "obstructed_eyes" ||
-                quality.rule === "blurry" ||
-                quality.rule === "too_far" ||
-                quality.rule === "too_near")
-            ) {
-              setFrameQuality("holding");
-              setFrameQualityMessage(
-                challengeStartedAt === 0
-                  ? "Hãy giữ toàn bộ khuôn mặt ở giữa khung tròn để bắt đầu quay trái..."
-                  : quality.rule === "too_far" || quality.rule === "too_near"
-                    ? quality.message
-                    : quality.rule === "multiple_faces"
-                      ? "Đang quay mặt, hệ thống tạm bỏ qua nhận diện nhầm. Hãy quay chậm và đưa mặt về giữa sau mỗi bên..."
-                      : "Đang xác minh chuyển động. Hãy đưa mặt về chính giữa và giữ yên...",
-              );
+            if (autoCaptureBlockedRef.current) {
+              // Do not create a retry loop after a server rejection. Keep the
+              // previous error visible and make the manual next action clear.
+              setFrameQualityMessage("Khuôn mặt đã sẵn sàng. Nhấn Thử lại xác thực bên dưới.");
               return;
             }
-            stablePositionReady.current = false;
-            livenessPassed.current = false;
-            motionEvents = 0;
-            motionStreak = 0;
-            motionPhase = "left";
-            centerConfirmationFrames = 0;
-            directionStreak = 0;
-            directionStreakValue = null;
-            poseStreak = 0;
-            poseStreakValue = null;
-            if (stableTimer.current !== null) window.clearTimeout(stableTimer.current);
-            if (autoVerifyTimerRef.current !== null) {
-              window.clearTimeout(autoVerifyTimerRef.current);
-              autoVerifyTimerRef.current = null;
-            }
-            setAutoCaptureCounting(false);
-            setFrameQuality("invalid");
-            setFrameQualityMessage(quality.message);
-          }
+            // This is the one automatic attempt for the current camera state.
+            // Calling directly avoids a second timer that could be cancelled
+            // by effect cleanup before it ever submitted /face/verify.
+            setFrameQualityMessage("Khuôn mặt đã sẵn sàng. Đang kiểm tra người thật...");
+            void verifyRef.current(true);
+          }, 800);
         })
         .catch(() => {
           if (requestId !== qualityRequestId.current) return;
-          setFrameQuality("invalid");
-          setFrameQualityMessage(
-            "Đưa mặt vào giữa khung, đến gần hơn, giữ yên và đảm bảo đủ sáng.",
-          );
+          invalidQualityStreakRef.current += 1;
+          if (invalidQualityStreakRef.current >= 2) {
+            resetReadiness("Đưa mặt vào giữa khung, giữ yên và đảm bảo đủ sáng.");
+          }
         })
         .finally(() => {
           qualityCheckInFlight.current = false;
         });
     };
+
     inspectFrame();
-    const intervalId = window.setInterval(inspectFrame, 450);
+    const intervalId = window.setInterval(inspectFrame, 500);
     return () => {
       window.clearInterval(intervalId);
       qualityRequestId.current += 1;
     };
-  }, [cameraReady, videoLoaded, requirePin, mode]);
+  }, [cameraReady, isBusy, isLockedOut, videoLoaded]);
 
   const startCamera = async () => {
     setError("");
-    setVideoLoaded(false);
+    setResult(null);
+    setNeedsFaceSetup(false);
     setCapturedImage(null);
+    setVideoLoaded(false);
+    setIsSuccessHolding(false);
     setFrameQuality("checking");
-    setFrameQualityMessage("Đang kiểm tra người dùng trong khung hình...");
-    setAutoCaptureCounting(false);
-    qualityReady.current = false;
-    stablePositionReady.current = false;
-    livenessPassed.current = false;
-    lastGoodFrame.current = null;
-    frameScoresRef.current = [];
-    if (stableTimer.current !== null) window.clearTimeout(stableTimer.current);
-    if (autoVerifyTimerRef.current !== null) {
-      window.clearTimeout(autoVerifyTimerRef.current);
-      autoVerifyTimerRef.current = null;
-    }
+    setFrameQualityMessage("Đang mở camera trực tiếp...");
+    setScanProgress(0);
+    qualityReadyRef.current = false;
+    qualityPollingStoppedRef.current = false;
+    invalidQualityStreakRef.current = 0;
+    autoCaptureBlockedRef.current = false;
+    clearTimers();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -575,378 +481,194 @@ export default function FaceVerificationModal({
       stopCamera();
       streamRef.current = stream;
       const track = stream.getVideoTracks()[0];
-      if (track) {
-        const capabilities = track.getCapabilities() as MediaTrackCapabilities & {
-          focusMode?: string[];
-          exposureMode?: string[];
-          whiteBalanceMode?: string[];
-        };
-        const advanced: Record<string, string> = {};
-        if (capabilities.focusMode?.includes("continuous"))
-          advanced.focusMode = "continuous";
-        if (capabilities.exposureMode?.includes("continuous"))
-          advanced.exposureMode = "continuous";
-        if (capabilities.whiteBalanceMode?.includes("continuous"))
-          advanced.whiteBalanceMode = "continuous";
-        if (Object.keys(advanced).length > 0) {
-          await track.applyConstraints({
-            advanced: [advanced],
-          } as MediaTrackConstraints);
-        }
+      if (!track || track.readyState !== "live") {
+        stopCamera();
+        throw new Error("Không nhận được luồng camera trực tiếp.");
+      }
+      const capabilities = track.getCapabilities() as MediaTrackCapabilities & {
+        focusMode?: string[];
+        exposureMode?: string[];
+        whiteBalanceMode?: string[];
+      };
+      const advanced: Record<string, string> = {};
+      if (capabilities.focusMode?.includes("continuous")) advanced.focusMode = "continuous";
+      if (capabilities.exposureMode?.includes("continuous")) advanced.exposureMode = "continuous";
+      if (capabilities.whiteBalanceMode?.includes("continuous")) advanced.whiteBalanceMode = "continuous";
+      if (Object.keys(advanced).length > 0) {
+        await track.applyConstraints({ advanced: [advanced] } as MediaTrackConstraints);
       }
       setCameraReady(true);
-    } catch {
-      setError("Không thể mở camera. Hãy cấp quyền camera và thử lại.");
-    }
-  };
-
-  const proceedToFace = () => {
-    if (!/^\d{4,6}$/.test(pin)) {
-      setError("Nhập mã PIN gồm 4–6 chữ số để tiếp tục.");
-      return;
-    }
-    setError("");
-    setStep("face");
-    void startCamera();
-  };
-
-  const verify = async (automatic = false) => {
-    if (isSubmitting || isLoading) return;
-    if (!automatic && frameQuality !== "ready") {
-      setError(
-        "Khung hình chưa đạt điều kiện. Hãy căn giữa khuôn mặt và điều chỉnh ánh sáng rồi thử lại.",
-      );
-      return;
-    }
-    const video = videoRef.current;
-    if (!videoLoaded || !video?.videoWidth || !video.videoHeight) {
-      setError("Camera chưa sẵn sàng. Vui lòng thử lại.");
-      return;
-    }
-    const canvas = document.createElement("canvas");
-    // The camera may return a 16:9 (or portrait) frame while the UI is square.
-    // Capture the same centered square that the user sees in the preview. This
-    // prevents the submitted face from appearing horizontally offset.
-    const cropSize = Math.min(video.videoWidth, video.videoHeight);
-    const cropX = (video.videoWidth - cropSize) / 2;
-    const cropY = (video.videoHeight - cropSize) / 2;
-    // 512px remains well below the 5 MB API limit at JPEG 0.82 while keeping
-    // the face large enough for the server detector.
-    const outputSize = Math.min(512, cropSize);
-    canvas.width = outputSize;
-    canvas.height = outputSize;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      setError("Không thể chuẩn bị ảnh từ camera. Hãy thử mở lại camera.");
-      return;
-    }
-    if (frameBrightness < 110) {
-      context.filter = `brightness(${Math.min(1.35, 128 / Math.max(frameBrightness, 45))}) contrast(1.08)`;
-    }
-    context.save();
-    context.translate(outputSize, 0);
-    context.scale(-1, 1);
-    context.drawImage(
-      video,
-      cropX,
-      cropY,
-      cropSize,
-      cropSize,
-      0,
-      0,
-      outputSize,
-      outputSize,
-    );
-    context.restore();
-    context.filter = "none";
-    // Reuse the exact frame that passed the quality gate for automatic
-    // enrollment/verification. Capturing a new frame here could catch a
-    // movement or obstruction after the UI already reported "ready".
-    const imageData =
-      automatic && lastGoodFrame.current
-        ? lastGoodFrame.current
-        : canvas.toDataURL("image/jpeg", 0.88);
-    setError("");
-    setResult(null);
-    setNeedsFaceSetup(false);
-    setCapturedImage(imageData);
-    // Enrollment uses the already-captured frame. Stop the camera while the
-    // embedding and Cloudinary upload finish so leaving the frame cannot
-    // invalidate the saved image or make the user think they must keep still.
-    if (isEnrollment) {
-      stopCamera();
+    } catch (cameraError) {
+      setError(errorMessage(cameraError) || "Không thể mở camera. Hãy cấp quyền camera và thử lại.");
       setCameraReady(false);
-      setVideoLoaded(false);
-    }
-    setIsSubmitting(true);
-    let matched = false;
-    try {
-      // Validate the exact frame that will be enrolled. This prevents the
-      // final request from failing with a generic 422 after the UI passed an
-      // earlier camera frame.
-      if (isEnrollment) {
-        const finalQuality = await authApi.checkFaceQuality(imageData);
-        if (!finalQuality.ready) {
-          throw new Error(finalQuality.message);
-        }
-      }
-      const match = await onVerified(imageData, pin);
-      setResult(match);
-      matched = match.matched;
-      if (matched) stopCamera();
-      if (!matched && !requirePin) {
-        qualityReady.current = false;
-        if (stableTimer.current !== null)
-          window.clearTimeout(stableTimer.current);
-        setFrameQuality("checking");
-        setFrameQualityMessage(
-          "Chưa đủ độ khớp. Đang lấy lại khung hình để xác thực lại...",
-        );
-      }
-    } catch (requestError: any) {
-      const detail = requestError?.response?.data?.detail;
-      const responseStatus = requestError?.response?.status;
-      setNeedsFaceSetup(requestError?.response?.status === 409);
-      setError(
-        Array.isArray(detail)
-          ? detail.map((item) => item.msg).join("; ")
-          : !requestError?.response && requestError?.code === "ERR_NETWORK"
-            ? "Không kết nối được backend. Hãy kiểm tra backend còn đang chạy rồi thử lại."
-            : responseStatus === 502
-              ? "Không thể lưu ảnh khuôn mặt lên máy chủ lưu trữ. Hãy kiểm tra kết nối mạng rồi thử lại."
-              : responseStatus === 503
-                ? detail ||
-                  "Dịch vụ Face ID chưa sẵn sàng. Hãy kiểm tra cấu hình model và Cloudinary."
-                : detail ||
-                  requestError?.message ||
-                  "Không thể xác thực khuôn mặt. Hãy thử lại.",
-      );
-    } finally {
-      if (!matched) setCapturedImage(null);
-      setIsSubmitting(false);
     }
   };
-
-  const isPinStep = step === "pin";
-  const isEnrollment = mode === "enrollment";
-  const isBusy = isLoading || isSubmitting;
-  const faceTitle = isEnrollment
-    ? "Đăng ký khuôn mặt"
-    : "Xác thực khuôn mặt";
-  const faceDescription = isEnrollment
-    ? "Đặt khuôn mặt vào khung hình để tạo dữ liệu khuôn mặt riêng cho tài khoản của bạn. Ảnh đại diện không được dùng để xác thực."
-    : "Đặt khuôn mặt vào khung hình để AI đối chiếu với dữ liệu đã đăng ký.";
 
   return createPortal(
-    <div className="fixed inset-0 z-[10000] overflow-y-auto overscroll-contain bg-slate-950/60 p-3 backdrop-blur-md sm:p-4">
-      <div className="flex min-h-full items-start justify-center">
-        <div className="my-3 w-full max-w-md rounded-3xl bg-white p-4 shadow-2xl border border-violet-100/80 sm:my-6 sm:p-7">
-        {/* Icon */}
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-lg shadow-violet-200">
-          {isPinStep ? (
-            <KeyRound className="h-8 w-8 text-white" />
+    <div className="fixed inset-0 z-[9999] flex min-h-screen items-center justify-center overflow-y-auto bg-slate-950/55 p-3 sm:p-5 backdrop-blur-sm">
+      <div className="my-auto w-full max-w-[440px] overflow-hidden rounded-[28px] border border-white/75 bg-white p-5 shadow-2xl shadow-slate-950/30 sm:p-6">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-600 shadow-lg shadow-violet-200">
+          <ScanFace className="h-7 w-7 text-white" />
+        </div>
+        <h2 className="mt-4 text-center text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+          {faceTitle}
+        </h2>
+        <p className="mt-2 text-center text-sm leading-relaxed text-slate-500">{faceDescription}</p>
+
+        <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-violet-100 bg-violet-50/80 px-3.5 py-2.5">
+          <Shield className="mt-0.5 h-4 w-4 shrink-0 text-violet-600" />
+          <p className="text-xs font-medium leading-relaxed text-violet-800">
+            Passive Liveness sẽ chặn ảnh, màn hình và video giả. Camera chỉ dùng trong phiên xác thực này.
+          </p>
+        </div>
+
+        <div className="relative mt-5 aspect-square overflow-hidden rounded-2xl bg-slate-900 ring-2 ring-violet-100">
+          {cameraReady ? (
+            <video
+              ref={videoRef}
+              muted
+              playsInline
+              autoPlay
+              onLoadedMetadata={() => setVideoLoaded(true)}
+              onCanPlay={() => setVideoLoaded(true)}
+              className="h-full w-full -scale-x-100 object-cover object-center"
+              style={{
+                filter: `${frameBrightness < 110 ? `brightness(${Math.min(1.3, 128 / Math.max(frameBrightness, 48))}) ` : ""}contrast(1.1) saturate(1.04)`,
+              }}
+            />
           ) : (
-            <ScanFace className="h-8 w-8 text-white" />
+            <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-slate-300">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10">
+                <Camera className="h-7 w-7" />
+              </div>
+              <span className="text-sm">Mở camera để bắt đầu xác thực.</span>
+            </div>
+          )}
+          {capturedImage && (
+            <img
+              src={capturedImage}
+              alt="Khung hình khuôn mặt vừa thu để xác thực"
+              className="absolute inset-0 h-full w-full object-cover object-center"
+            />
+          )}
+          {cameraReady && (
+            <>
+              <div className="pointer-events-none absolute inset-[15%] rounded-[45%] border-2 border-white/60 shadow-[0_0_0_999px_rgba(15,23,42,.18)]" />
+              <svg
+                className="pointer-events-none absolute inset-[13%] h-[74%] w-[74%] -rotate-90 overflow-visible"
+                viewBox="0 0 100 100"
+                aria-label={scanProgressLabel}
+                aria-valuemax={100}
+                aria-valuemin={0}
+                aria-valuenow={scanProgress}
+                role="progressbar"
+              >
+                <ellipse cx="50" cy="50" rx="44" ry="46" fill="none" pathLength="100" stroke="rgba(167, 243, 208, 0.35)" strokeWidth="1.5" />
+                <ellipse
+                  cx="50"
+                  cy="50"
+                  rx="44"
+                  ry="46"
+                  fill="none"
+                  pathLength="100"
+                  stroke={scanProgress === 100 ? "#16a34a" : "#34d399"}
+                  strokeWidth="2.25"
+                  strokeLinecap="round"
+                  strokeDasharray="100"
+                  strokeDashoffset={100 - scanProgress}
+                  style={{
+                    filter: "drop-shadow(0 0 4px rgba(52, 211, 153, 0.8))",
+                    transition: "stroke-dashoffset 420ms cubic-bezier(0.22, 1, 0.36, 1), stroke 300ms ease",
+                  }}
+                />
+              </svg>
+              <div className="pointer-events-none absolute inset-x-5 top-[17%] text-center text-[11px] font-bold tracking-wide text-emerald-100 drop-shadow">
+                {scanProgressLabel}
+              </div>
+              {!isBusy && !capturedImage && (
+                <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-xl bg-slate-950/70 px-3 py-2 text-center text-xs font-medium text-white backdrop-blur-sm">
+                  Đặt mặt gần, ở giữa khung và giữ yên trong ánh sáng đều.
+                </div>
+              )}
+              {(frameQuality !== "ready" || autoCaptureBlockedRef.current) && !isBusy && (
+                <div className={`pointer-events-none absolute inset-x-3 top-3 rounded-xl px-3 py-2 text-center text-xs font-semibold backdrop-blur-sm ${autoCaptureBlockedRef.current && frameQuality === "ready" ? "bg-amber-950/85 text-amber-100" : "bg-violet-950/80 text-violet-100"}`}>
+                  {frameQualityMessage}
+                </div>
+              )}
+            </>
+          )}
+          {isRequestBusy && !isSuccessHolding && (
+            <div className="pointer-events-none absolute inset-x-3 top-3 flex items-center justify-center gap-2 rounded-xl bg-slate-950/80 px-3 py-2.5 text-center text-xs font-semibold text-white backdrop-blur-sm">
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-300" />
+              <span>{frameQualityMessage}</span>
+            </div>
           )}
         </div>
 
-        <h2 className="mt-5 text-center text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-          {isPinStep ? "Xác nhận mã PIN" : faceTitle}
-        </h2>
-        <p className="mt-2 text-center text-sm leading-relaxed text-slate-500">
-          {isPinStep
-            ? "Bạn cần xác nhận mã PIN giao dịch trước khi quét khuôn mặt."
-            : faceDescription}
-        </p>
-
-        {!isPinStep && (
-          <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-violet-100 bg-violet-50/80 px-3.5 py-2.5">
-            <Shield className="h-4 w-4 text-violet-600 shrink-0 mt-0.5" />
-            <p className="text-xs font-medium text-violet-800 leading-relaxed">
-              Vui lòng loại bỏ các vật cản khỏi khuôn mặt trước khi quét.
-            </p>
-          </div>
-        )}
-
-        {isPinStep ? (
-          <div className="relative mt-6">
-            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
-            <input
-              autoFocus
-              value={pin}
-              onChange={(event) =>
-                setPin(event.target.value.replace(/\D/g, "").slice(0, 6))
-              }
-              inputMode="numeric"
-              type="password"
-              placeholder="••••••"
-              className="w-full rounded-xl border border-transparent bg-slate-50 py-4 pl-11 pr-4 text-center text-xl tracking-[0.45em] outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-300 transition-all text-slate-900"
-            />
-          </div>
-        ) : (
-          <div className="relative mt-5 aspect-square overflow-hidden rounded-2xl bg-slate-900 ring-2 ring-violet-100">
-            {cameraReady ? (
-              <video
-                ref={videoRef}
-                onLoadedMetadata={() => setVideoLoaded(true)}
-                onCanPlay={() => setVideoLoaded(true)}
-                muted
-                playsInline
-                autoPlay
-                style={{
-                  filter: `${
-                    frameBrightness < 110
-                      ? `brightness(${Math.min(1.35, 128 / Math.max(frameBrightness, 45))}) `
-                      : ""
-                  }contrast(1.12) saturate(1.05)`,
-                }}
-                className="h-full w-full -scale-x-100 object-cover object-center"
-              />
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-slate-300">
-                <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center">
-                  <Camera className="h-7 w-7" />
-                </div>
-                <span className="text-sm">
-                  Camera chỉ được dùng trong phiên này.
-                </span>
-              </div>
-            )}
-            {capturedImage && (
-              <img
-                src={capturedImage}
-                alt="Ảnh khuôn mặt vừa chụp để xác thực"
-                className="absolute inset-0 h-full w-full object-cover object-center"
-              />
-            )}
-            {cameraReady && (
-              <div
-                className={`pointer-events-none absolute inset-[15%] rounded-[45%] border-2 shadow-[0_0_0_999px_rgba(15,23,42,.18)] transition-colors ${
-                  frameQuality === "ready"
-                    ? "border-emerald-400"
-                    : frameQuality === "holding"
-                      ? "border-amber-300"
-                      : "border-violet-300"
-                }`}
-              />
-            )}
-            {cameraReady && !isBusy && (
-              <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-xl bg-slate-950/70 px-3 py-2 text-center text-xs font-medium text-white backdrop-blur-sm">
-                Đặt mặt gần, nằm giữa khung, nhìn rõ và giữ yên ở nơi đủ sáng.
-              </div>
-            )}
-            {cameraReady && !isBusy && frameQuality !== "ready" && (
-              <div className="pointer-events-none absolute inset-x-3 top-3 rounded-xl bg-violet-950/80 px-3 py-2 text-center text-xs font-semibold text-violet-100 backdrop-blur-sm">
-                {frameQualityMessage}
-              </div>
-            )}
-            {cameraReady && !isBusy && frameQuality === "ready" && autoCaptureCounting && (
-              <div className="pointer-events-none absolute inset-x-3 top-3 rounded-xl bg-emerald-950/75 px-3 py-2 text-center text-xs font-semibold text-emerald-100 animate-pulse">
-                ✓ Chất lượng tốt. Tự động chụp trong giây lát...
-              </div>
-            )}
-            {isBusy && !isPinStep && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/70 text-center text-white backdrop-blur-sm">
-                <div className="relative h-20 w-20">
-                  <div className="absolute inset-0 rounded-full border-4 border-white/20" />
-                  <div className="absolute inset-0 animate-spin rounded-full border-4 border-transparent border-t-violet-300 border-r-fuchsia-300" />
-                  <ScanFace className="absolute inset-0 m-auto h-8 w-8 text-white" />
-                </div>
-                <p className="mt-4 text-sm font-bold">
-                  {isEnrollment
-                    ? "Đang tạo dữ liệu khuôn mặt..."
-                    : "AI đang đối chiếu khuôn mặt..."}
-                </p>
-                <p className="mt-1.5 text-xs text-slate-300 max-w-[240px]">
-                  {isEnrollment
-                    ? "Ảnh đã được chụp. Hệ thống đang lưu dữ liệu; bạn không cần tiếp tục giữ mặt trong khung."
-                    : "Ảnh đã được chụp. Vui lòng không rời khỏi màn hình."}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
         {error && (
-          <p className="mt-4 flex min-w-0 gap-2.5 break-words rounded-xl border border-rose-100 bg-rose-50 p-3.5 text-sm leading-5 text-rose-700">
-            <ShieldAlert className="h-5 w-5 shrink-0 mt-0.5" />
-            <span className="min-w-0 break-words">{error}</span>
+          <p className="mt-4 flex gap-2.5 rounded-xl border border-rose-100 bg-rose-50 p-3.5 text-sm leading-5 text-rose-700">
+            <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
+            <span>{error}</span>
           </p>
         )}
 
         {needsFaceSetup && onSetupFace && (
           <button
+            type="button"
             onClick={onSetupFace}
-            className="mt-3 w-full rounded-xl bg-amber-50 border border-amber-200 py-3 text-sm font-bold text-amber-900 hover:bg-amber-100 transition-colors"
+            className="mt-3 w-full rounded-xl border border-amber-200 bg-amber-50 py-3 text-sm font-bold text-amber-900 transition-colors hover:bg-amber-100"
           >
             Đi tới cài đặt khuôn mặt
           </button>
         )}
 
         {result && (
-          <p
-            className={`mt-3 rounded-xl border p-3.5 text-sm ${
-              result.matched
-                ? "bg-emerald-50 border-emerald-100 text-emerald-700"
-                : "bg-rose-50 border-rose-100 text-rose-700"
-            }`}
-          >
-            {result.message} Độ khớp:{" "}
-            <strong>{Math.round(result.similarity * 100)}%</strong>.
+          <p className={`mt-3 rounded-xl border p-3.5 text-sm ${result.matched ? "border-emerald-100 bg-emerald-50 text-emerald-700" : "border-rose-100 bg-rose-50 text-rose-700"}`}>
+            {result.message}
           </p>
         )}
 
         <div className="mt-6 flex gap-3">
           <button
+            type="button"
             onClick={() => {
               stopCamera();
               onCancel();
             }}
             disabled={isBusy}
-            className="flex-1 rounded-xl bg-slate-100 px-4 py-3.5 font-semibold text-slate-700 hover:bg-slate-200 transition-colors disabled:opacity-50"
+            className="flex-1 rounded-xl bg-slate-100 px-4 py-3.5 font-semibold text-slate-700 transition-colors hover:bg-slate-200 disabled:opacity-50"
           >
             Hủy
           </button>
-          {isPinStep ? (
+          {!cameraReady ? (
             <button
-              onClick={proceedToFace}
-              className="flex-1 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3.5 font-semibold text-white shadow-md shadow-violet-200 hover:shadow-lg transition-all"
-            >
-              Tiếp tục
-            </button>
-          ) : !cameraReady ? (
-            <button
+              type="button"
               onClick={() => void startCamera()}
-              className="flex-1 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3.5 font-semibold text-white shadow-md shadow-violet-200 hover:shadow-lg transition-all flex items-center justify-center gap-2"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3.5 font-semibold text-white shadow-md shadow-violet-200 transition-all hover:shadow-lg"
             >
               <Camera className="h-4 w-4" />
               Mở camera
             </button>
           ) : (
             <button
-              ref={verifyButtonRef}
-              onClick={() => void verify()}
-              disabled={isBusy || !videoLoaded || frameQuality !== "ready"}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3.5 font-semibold text-white shadow-md shadow-violet-200 hover:shadow-lg transition-all disabled:opacity-50 disabled:shadow-none"
+              type="button"
+              onClick={() => void verify(false)}
+              disabled={isBusy || isLockedOut || !videoLoaded || frameQuality !== "ready"}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3.5 font-semibold text-white shadow-md shadow-violet-200 transition-all hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
             >
               {isBusy && <Loader2 className="h-4 w-4 animate-spin" />}
-              {autoCaptureCounting
-                ? isEnrollment
-                  ? "Đang đăng ký tự động..."
-                  : "Đang xác thực tự động..."
+              {isLockedOut
+                ? `Thử lại sau ${lockoutSeconds}s`
+                : isSuccessHolding
+                ? "Đang hoàn tất..."
                 : isBusy
-                  ? isEnrollment
-                    ? "Đang đăng ký..."
-                    : "Đang xác thực..."
-                  : isEnrollment
-                    ? "Đăng ký khuôn mặt"
-                    : videoLoaded
-                      ? "Xác thực khuôn mặt"
-                      : "Đang chuẩn bị camera..."}
+                  ? "Đang xác thực..."
+                : autoCaptureBlockedRef.current
+                  ? "Thử lại xác thực"
+                  : "Xác thực khuôn mặt"}
             </button>
           )}
         </div>
-      </div>
       </div>
     </div>,
     document.body,

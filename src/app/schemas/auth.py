@@ -7,6 +7,27 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from src.app.schemas.risk import RiskClientContextIn
 from src.app.schemas.user import UserOut
 
+_MAX_FACE_CAPTURE_LENGTH = 7_000_000
+_MAX_FACE_CAPTURE_FRAMES = 6
+
+
+def _validate_face_image_data(value: object) -> str | list[str]:
+    """Keep a short capture burst valid without applying string limits to a list."""
+    if isinstance(value, str):
+        frames = [value]
+    elif isinstance(value, list) and value and all(isinstance(item, str) for item in value):
+        frames = value
+    else:
+        raise ValueError("Ảnh khuôn mặt không hợp lệ")
+
+    if len(frames) > _MAX_FACE_CAPTURE_FRAMES:
+        raise ValueError("Số lượng khung hình khuôn mặt không hợp lệ")
+    if any(len(frame) < 20 for frame in frames):
+        raise ValueError("Ảnh khuôn mặt không hợp lệ")
+    if sum(len(frame) for frame in frames) > _MAX_FACE_CAPTURE_LENGTH:
+        raise ValueError("Dữ liệu khuôn mặt vượt quá giới hạn cho phép")
+    return value
+
 
 class LoginRiskClientContextIn(RiskClientContextIn):
     """Login requires a browser device ID and coarse location permission."""
@@ -71,15 +92,25 @@ class TransactionPinRequest(BaseModel):
 
 
 class FaceVerificationRequest(BaseModel):
-    image_data: str | list[str] = Field(..., min_length=20, max_length=7_000_000)
+    image_data: str | list[str]
     transaction_id: uuid.UUID | None = None
     nonce: str | None = Field(default=None, min_length=8, max_length=256)
     amount: int | None = Field(default=None, ge=0, le=10_000_000_000)
 
+    @field_validator("image_data")
+    @classmethod
+    def validate_image_data(cls, value: object) -> str | list[str]:
+        return _validate_face_image_data(value)
+
 
 class FaceEnrollmentRequest(BaseModel):
-    image_data: str | list[str] = Field(..., min_length=20, max_length=7_000_000)
+    image_data: str | list[str]
     consent: bool
+
+    @field_validator("image_data")
+    @classmethod
+    def validate_image_data(cls, value: object) -> str | list[str]:
+        return _validate_face_image_data(value)
 
 
 class FaceVerificationResponse(BaseModel):

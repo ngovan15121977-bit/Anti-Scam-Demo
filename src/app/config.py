@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     # It must be configured separately from JWT_SECRET_KEY in production.
     risk_telemetry_hash_key: str = ""
 
-    # ---- Local lightweight OpenCV face verification ----
+    # ---- Local Face ID: capture quality, passive liveness, and matching ----
     face_model_preload: bool = False
     # Production images ship verified models; do not fetch executable model
     # files from the network during a user request unless explicitly enabled.
@@ -101,6 +101,25 @@ class Settings(BaseSettings):
     face_embedding_version: str = "opencv-sface-face-crop-v1"
     face_similarity_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
     face_transaction_similarity_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
+    # Passive anti-spoofing runs locally on the backend. The checksum pins the
+    # model artifact so a replaced ONNX file cannot silently become trusted.
+    face_liveness_model_path: str = str(PROJECT_ROOT / "models" / "face" / "minifasnet_v2.onnx")
+    face_liveness_model_sha256: str = "d7b3cd9ba8a7ceb13baa8c4720902e27ca3112eff52f926c08804af6b6eecc7b"
+    face_liveness_model_id: str = "minifasnet-v2-2.7-80x80"
+    # The upstream MiniFASNet ensemble combines V2 (2.7x crop) and V1SE
+    # (4.0x crop). Averaging their predictions is less brittle under ordinary
+    # webcam lighting, glasses, and browser compression than V2 alone.
+    face_liveness_v1se_model_path: str = str(PROJECT_ROOT / "models" / "face" / "minifasnet_v1se.onnx")
+    face_liveness_v1se_model_sha256: str = "a25886a85cdcfa2c4ea23edb71de35f250c17827b4cadd253a972b28c80fdf1e"
+    # MiniFASNet is a three-class classifier whose upstream decision is argmax
+    # (label 1 = real). 0.36 is only an ambiguity floor; the real score must
+    # still beat both spoof-class scores on a majority of distinct frames.
+    face_liveness_live_threshold: float = Field(default=0.36, ge=0.34, le=0.99)
+    # The web client collects a short adaptive burst. This is deliberately not
+    # an 8–15-frame hard requirement; three distinct samples are sufficient for
+    # the local model and replay/duplicate checks used by this demo.
+    face_liveness_min_frames: int = Field(default=3, ge=2, le=6)
+    face_liveness_max_frames: int = Field(default=6, ge=2, le=10)
     face_transaction_failure_limit: int = Field(default=5, ge=1)
     face_transaction_lock_seconds: int = Field(default=30, ge=1)
 

@@ -52,7 +52,8 @@ from src.app.services.face_verification import (
     embedding_from_data_url,
     face_pose_from_data_url,
     face_quality_rule_from_data_url,
-    similarity_from_embedding,
+    similarity_from_embeddings,
+    validate_multiframe_liveness,
 )
 from src.app.services.transaction_telemetry import build_risk_telemetry, persist_risk_telemetry
 
@@ -142,6 +143,19 @@ def _face_lock_remaining(state: FaceVerificationState) -> int:
         state.locked_until = None
         return 0
     return remaining
+
+
+def _register_face_failure(
+    state: FaceVerificationState,
+    *,
+    failure_limit: int,
+    lock_seconds: int,
+) -> tuple[int, int]:
+    """Record one failed biometric attempt in the shared database state."""
+    state.failure_count += 1
+    if state.failure_count >= failure_limit:
+        state.locked_until = datetime.now(UTC) + timedelta(seconds=lock_seconds)
+    return state.failure_count, _face_lock_remaining(state)
 
 
 def _configure_cloudinary() -> None:
@@ -388,8 +402,10 @@ def record_login_location(
 def enroll_face(payload: FaceEnrollmentRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> FaceVerificationResponse:
     if not payload.consent:
         raise HTTPException(status_code=422, detail="Cần đồng ý lưu dữ liệu khuôn mặt để đăng ký")
-    settings = get_settings(); _configure_cloudinary()
+    settings = get_settings()
+    _configure_cloudinary()
     frames = _face_frames(payload.image_data)
+    validate_multiframe_liveness(frames)
     embeddings = [embedding_from_data_url(frame) for frame in frames]
     aggregate_embedding = aggregate_embeddings(embeddings)
     reference_frame = frames[0]
@@ -404,7 +420,8 @@ def enroll_face(payload: FaceEnrollmentRequest, db: Session = Depends(get_db), c
     row = db.scalar(select(FaceEnrollment).where(FaceEnrollment.user_id == current_user.id))
     if row is None:
         row = FaceEnrollment(user_id=current_user.id, reference_image_url=uploaded["secure_url"], reference_embedding=aggregate_embedding.tolist(), model_id=settings.face_embedding_version, similarity_threshold=settings.face_similarity_threshold, consent_at=datetime.now(UTC), is_active=True)
-        db.add(row); db.flush()
+        db.add(row)
+        db.flush()
     else:
         row.reference_image_url, row.reference_embedding = uploaded["secure_url"], aggregate_embedding.tolist()
         row.model_id, row.similarity_threshold, row.consent_at, row.is_active, row.revoked_at = settings.face_embedding_version, settings.face_similarity_threshold, datetime.now(UTC), True, None
@@ -417,8 +434,10 @@ def enroll_face(payload: FaceEnrollmentRequest, db: Session = Depends(get_db), c
 @router.post("/face/quality")
 def face_quality(
     payload: FaceVerificationRequest,
+    _current_user: User = Depends(get_current_user),
 ) -> dict[str, object]:
-    rule = face_quality_rule_from_data_url(payload.image_data)
+    frame = _face_frames(payload.image_data)[0]
+    rule = face_quality_rule_from_data_url(frame)
     messages = {
         "obstructed_hand": "Vui lòng đưa tay ra khỏi khuôn mặt trước khi quét.",
         "obstructed_mask": "Vui lòng tháo khẩu trang khỏi khuôn mặt trước khi quét.",
@@ -448,7 +467,7 @@ def face_quality(
     return {
         "ready": rule == "ready",
         "rule": rule,
-        "pose": face_pose_from_data_url(payload.image_data),
+        "pose": face_pose_from_data_url(frame),
         "message": messages.get(rule, "Khung hình chưa đạt yêu cầu."),
     }
 
@@ -457,42 +476,66 @@ def face_quality(
 def verify_face(payload: FaceVerificationRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> FaceVerificationResponse:
     settings = get_settings()
     is_transaction_verification = payload.transaction_id is not None
-    face_state = None
-    if is_transaction_verification:
-        face_state = _face_state_for_update(db, current_user.id)
-        remaining = _face_lock_remaining(face_state)
-        if remaining > 0:
-            raise HTTPException(
-                status_code=429,
-                headers={"Retry-After": str(remaining)},
-                detail=f"Face ID đang tạm khóa. Vui lòng thử lại sau {remaining} giây.",
-            )
+    face_state = _face_state_for_update(db, current_user.id)
+    remaining = _face_lock_remaining(face_state)
+    if remaining > 0:
+        raise HTTPException(
+            status_code=429,
+            headers={"Retry-After": str(remaining)},
+            detail=f"Face ID đang tạm khóa. Vui lòng thử lại sau {remaining} giây.",
+        )
     enrollment = db.scalar(select(FaceEnrollment).where(FaceEnrollment.user_id == current_user.id, FaceEnrollment.is_active.is_(True)))
     if enrollment is None:
         raise HTTPException(status_code=409, detail="Bạn chưa đăng ký khuôn mặt")
     if enrollment.model_id != settings.face_embedding_version:
         raise HTTPException(status_code=409, detail="Dữ liệu khuôn mặt cần được đăng ký lại để dùng chuẩn quét khuôn mặt mới")
 
-    frames = _face_frames(payload.image_data)
-    selfie = frames[0]
-    similarity = similarity_from_embedding(enrollment_embedding=enrollment.reference_embedding, selfie_data_url=selfie)
     threshold = settings.face_transaction_similarity_threshold if is_transaction_verification else float(enrollment.similarity_threshold)
+    frames = _face_frames(payload.image_data)
+    try:
+        validate_multiframe_liveness(frames)
+        similarity = similarity_from_embeddings(
+            enrollment_embedding=enrollment.reference_embedding,
+            selfie_data_urls=frames,
+        )
+    except HTTPException as exc:
+        # Count user/capture rejections, but never punish an account for a
+        # server/model outage. This closes the unlimited liveness retry path.
+        if exc.status_code != status.HTTP_422_UNPROCESSABLE_CONTENT:
+            raise
+        failures, locked_for = _register_face_failure(
+            face_state,
+            failure_limit=settings.face_transaction_failure_limit,
+            lock_seconds=settings.face_transaction_lock_seconds,
+        )
+        db.add(FaceVerificationLog(user_id=current_user.id, enrollment_id=enrollment.id, transaction_id=payload.transaction_id, purpose="transaction" if is_transaction_verification else "login", similarity=None, threshold=float(threshold), matched=False, model_id=enrollment.model_id, failure_reason="capture_or_liveness_rejected", created_at=datetime.now(UTC)))
+        db.commit()
+        if locked_for > 0:
+            raise HTTPException(
+                status_code=429,
+                headers={"Retry-After": str(locked_for)},
+                detail=f"Bạn đã xác thực Face ID sai {failures} lần. Chức năng tạm khóa {locked_for} giây.",
+            ) from exc
+        attempts_left = settings.face_transaction_failure_limit - failures
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{exc.detail} Bạn còn {attempts_left} lần thử trước khi Face ID tạm khóa.",
+        ) from exc
     matched = similarity >= float(threshold)
     db.add(FaceVerificationLog(user_id=current_user.id, enrollment_id=enrollment.id, transaction_id=payload.transaction_id, purpose="transaction" if is_transaction_verification else "login", similarity=similarity, threshold=float(threshold), matched=matched, model_id=enrollment.model_id, failure_reason=None if matched else "similarity_below_threshold", created_at=datetime.now(UTC)))
     locked_for = 0
     failures = 0
-    if is_transaction_verification:
-        if matched:
-            face_state.failure_count = 0
-            face_state.locked_until = None
-        else:
-            face_state.failure_count += 1
-            failures = face_state.failure_count
-            if failures >= settings.face_transaction_failure_limit:
-                face_state.locked_until = datetime.now(UTC) + timedelta(seconds=settings.face_transaction_lock_seconds)
-            locked_for = _face_lock_remaining(face_state)
+    if matched:
+        face_state.failure_count = 0
+        face_state.locked_until = None
+    else:
+        failures, locked_for = _register_face_failure(
+            face_state,
+            failure_limit=settings.face_transaction_failure_limit,
+            lock_seconds=settings.face_transaction_lock_seconds,
+        )
     db.commit()
-    if is_transaction_verification and not matched and locked_for > 0:
+    if not matched and locked_for > 0:
         raise HTTPException(status_code=429, headers={"Retry-After": str(locked_for)}, detail=f"Bạn đã xác thực Face ID sai {failures} lần. Chức năng tạm khóa {locked_for} giây.")
     token = create_face_verification_token(
         user_id=str(current_user.id),
@@ -500,7 +543,8 @@ def verify_face(payload: FaceVerificationRequest, db: Session = Depends(get_db),
         nonce=payload.nonce,
         amount=int(payload.amount) if payload.amount is not None else None,
     ) if matched else None
-    return FaceVerificationResponse(matched=matched, similarity=similarity, threshold=float(threshold), message="Khuôn mặt khớp với dữ liệu đã đăng ký." if matched else "Khuôn mặt chưa đủ độ khớp. Hãy chụp lại ở nơi đủ sáng.", verification_token=token)
+    attempts_left = max(0, settings.face_transaction_failure_limit - failures)
+    return FaceVerificationResponse(matched=matched, similarity=similarity, threshold=float(threshold), message="Khuôn mặt khớp với dữ liệu đã đăng ký." if matched else f"Khuôn mặt chưa đủ độ khớp. Bạn còn {attempts_left} lần thử trước khi Face ID tạm khóa.", verification_token=token)
 
 
 @router.get("/me", response_model=UserOut)
@@ -513,7 +557,8 @@ def account_overview(db: Session = Depends(get_db), current_user: User = Depends
     now = datetime.now(UTC)
     start_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     start_month = start_today.replace(day=1)
-    count = lambda since: db.scalar(select(func.count()).select_from(Transaction).where(Transaction.user_id == current_user.id, Transaction.created_at >= since)) or 0
+    def count(since):
+        return db.scalar(select(func.count()).select_from(Transaction).where(Transaction.user_id == current_user.id, Transaction.created_at >= since)) or 0
     enrolled = bool(db.scalar(select(FaceEnrollment).where(FaceEnrollment.user_id == current_user.id, FaceEnrollment.is_active.is_(True), FaceEnrollment.model_id == get_settings().face_embedding_version)))
     has_pin = bool(current_user.transaction_pin_hash)
     checks = [
@@ -534,7 +579,9 @@ def upload_avatar(avatar: UploadFile = File(...), db: Session = Depends(get_db),
         raise HTTPException(status_code=422, detail="Ảnh đại diện không hợp lệ hoặc vượt quá 5 MB")
     _configure_cloudinary()
     result = cloudinary.uploader.upload(content, folder="fintechguard/avatars", public_id=str(current_user.id), overwrite=True, resource_type="image")
-    current_user.avatar_url = result["secure_url"]; db.commit(); db.refresh(current_user)
+    current_user.avatar_url = result["secure_url"]
+    db.commit()
+    db.refresh(current_user)
     return UserOut.model_validate(current_user)
 
 
@@ -560,7 +607,8 @@ def delete_avatar(db: Session = Depends(get_db), current_user: User = Depends(ge
 
 @router.put("/transaction-pin")
 def set_transaction_pin(payload: TransactionPinRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, bool]:
-    current_user.transaction_pin_hash = hash_password(payload.pin); db.commit()
+    current_user.transaction_pin_hash = hash_password(payload.pin)
+    db.commit()
     return {"configured": True}
 
 

@@ -3,23 +3,23 @@
 from __future__ import annotations
 
 import base64
-import json
 import hashlib
+import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
 from cryptography.fernet import Fernet, InvalidToken
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from jose import JWTError
 from sqlalchemy import and_, desc, func, lateral, or_, select, true, union_all
 from sqlalchemy.orm import Session, aliased
 
 from src.agents.intervention_graph import intervention_graph
 from src.agents.transaction_graph import transaction_graph
-from src.app.core.deps import get_current_user
 from src.app.config import get_settings
+from src.app.core.deps import get_current_user
 from src.app.core.security import decode_face_verification_token, decode_recipient_lookup_token, verify_password
 from src.app.db.session import get_db
 from src.app.models.recipient_directory import RecipientDirectory
@@ -132,7 +132,7 @@ def _verified_recipient_request(payload: AssessRequest, current_user: User) -> A
     payload = _normalize_request(payload)
     account_number = payload.payee_account.replace(" ", "").strip()
     if not payload.bank_code:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Ngân hàng không hợp lệ")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Ngân hàng không hợp lệ")
 
     try:
         verified = decode_recipient_lookup_token(
@@ -140,13 +140,13 @@ def _verified_recipient_request(payload: AssessRequest, current_user: User) -> A
         )
     except (JWTError, ValueError):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Thông tin người nhận chưa được xác thực hoặc đã hết hạn. Vui lòng tra cứu lại.",
         ) from None
 
     if verified["account_number"] != account_number or verified["bank_code"] != payload.bank_code:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Thông tin người nhận đã thay đổi. Vui lòng tra cứu lại.",
         )
     return payload.model_copy(
@@ -631,7 +631,7 @@ def submit_decision(
                 )
             if False:  # PIN is the only confirmation step in the transfer flow.
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Bạn cần xác nhận đã kiểm tra lại thông tin trước khi tiếp tục",
                 )
         warning.user_decision = payload.decision
@@ -659,7 +659,7 @@ def submit_decision(
         )
         if requires_face_verification:
             if not payload.face_verification_token:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Giao dịch này phải được xác thực khuôn mặt trước khi hoàn tất.")
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Giao dịch này phải được xác thực khuôn mặt trước khi hoàn tất.")
             try:
                 decode_face_verification_token(
                     payload.face_verification_token,
@@ -668,7 +668,7 @@ def submit_decision(
                     amount=transaction.amount,
                 )
             except (JWTError, ValueError):
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Xác thực khuôn mặt không hợp lệ hoặc đã hết hạn.") from None
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Xác thực khuôn mặt không hợp lệ hoặc đã hết hạn.") from None
         is_internal_timi_transfer = is_timi_bank(transaction.bank_code)
         if is_internal_timi_transfer:
             try:
@@ -678,7 +678,7 @@ def submit_decision(
                     recipient_account_number=transaction.payee_account,
                 )
             except TimiSelfTransfer as exc:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
             except TimiTransferError as exc:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         else:
@@ -695,7 +695,7 @@ def submit_decision(
             not payload.pin or not verify_password(payload.pin, locked_user.transaction_pin_hash)
         ):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Mã PIN giao dịch không đúng.",
             )
         if locked_user is None or locked_user.balance < transaction.amount:

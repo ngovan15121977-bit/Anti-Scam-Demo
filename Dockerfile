@@ -16,6 +16,8 @@ WORKDIR /app
 ENV FACE_MODEL_PRELOAD=true \
     FACE_MODEL_ALLOW_DOWNLOAD=false \
     FACE_MODEL_DIR=/opt/face-models \
+    FACE_LIVENESS_MODEL_PATH=/opt/face-models/minifasnet_v2.onnx \
+    FACE_LIVENESS_V1SE_MODEL_PATH=/opt/face-models/minifasnet_v1se.onnx \
     OMP_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1
@@ -34,7 +36,9 @@ COPY . .
 # download them during build or during a user's first camera request.
 RUN mkdir -p /opt/face-models && \
     cp /app/models/face/face_detection_yunet_2023mar.onnx /opt/face-models/ && \
-    cp /app/models/face/face_recognition_sface_2021dec.onnx /opt/face-models/
+    cp /app/models/face/face_recognition_sface_2021dec.onnx /opt/face-models/ && \
+    cp /app/models/face/minifasnet_v2.onnx /opt/face-models/ && \
+    cp /app/models/face/minifasnet_v1se.onnx /opt/face-models/
 
 # Create data directory with correct ownership
 RUN mkdir -p /app/data && chown -R appuser:appuser /app

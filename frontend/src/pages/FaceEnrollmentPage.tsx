@@ -12,19 +12,19 @@ export default function FaceEnrollmentPage() {
   const user = useAuthStore((state) => state.user);
   const [isEnrolling, setIsEnrolling] = useState(false);
 
-  const enroll = async (imageData: string): Promise<FaceMatchResult> => {
+  const enroll = async (imageData: string | string[]): Promise<FaceMatchResult> => {
     setIsEnrolling(true);
     try {
-      const result = await authApi.enrollFace(imageData);
-      if (result.matched) {
-        navigate(user?.role === "admin" ? "/admin" : "/dashboard", {
-          replace: true,
-        });
-      }
-      return result;
+      return await authApi.enrollFace(imageData);
     } finally {
       setIsEnrolling(false);
     }
+  };
+
+  const completeEnrollment = () => {
+    navigate(user?.role === "admin" ? "/admin" : "/dashboard", {
+      replace: true,
+    });
   };
 
   return (
@@ -85,6 +85,7 @@ export default function FaceEnrollmentPage() {
       {/* Modal — logic & UI gốc giữ nguyên */}
       <FaceVerificationModal
         onVerified={enroll}
+        onVerificationComplete={completeEnrollment}
         onCancel={() => navigate("/dashboard", { replace: true })}
         isLoading={isEnrolling}
         mode="enrollment"

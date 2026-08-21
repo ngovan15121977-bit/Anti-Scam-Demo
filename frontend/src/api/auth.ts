@@ -153,7 +153,7 @@ export const authApi = {
     return response.data;
   },
 
-  enrollFace: async (imageData: string): Promise<FaceVerificationResponse> => {
+  enrollFace: async (imageData: string | string[]): Promise<FaceVerificationResponse> => {
     const response = await axiosInstance.put<FaceVerificationResponse>("/v1/auth/face/enrollment", {
       image_data: imageData,
       consent: true,
