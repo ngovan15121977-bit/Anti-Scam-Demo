@@ -18,7 +18,7 @@ def _fake_response(payload: dict) -> SimpleNamespace:
     )
 
 
-def test_agent_decision_owns_score_and_action(monkeypatch) -> None:
+def test_direct_evidence_guardrail_stabilizes_otp_request(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "guardian_agent_enabled", True)
     monkeypatch.setattr(settings, "groq_api_key", "test-key")
@@ -56,7 +56,9 @@ def test_agent_decision_owns_score_and_action(monkeypatch) -> None:
 
     result = scam_guardian_agent.analyze_with_guardian_agent(state, "Hãy đọc mã OTP.")
 
-    assert result.risk_score == 73
+    # The model can propose a score, but an explicit request to read an OTP
+    # is promoted to the stable PAUSE guardrail outcome.
+    assert result.risk_score == 60
     assert result.risk_level == "high"
     assert result.recommended_action == "PAUSE"
     assert result.signals[0].signal_type == "otp_request"
