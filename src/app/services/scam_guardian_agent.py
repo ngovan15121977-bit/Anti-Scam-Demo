@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from typing import Any
 
 from openai import OpenAI
@@ -27,6 +28,11 @@ from src.app.services.scam_guardian import (
 )
 
 logger = logging.getLogger(__name__)
+GUARDIAN_AGENT_PROMPT_VERSION = "v0.5-signal-complete"
+# gpt-oss reasoning models consume part of this budget before emitting the
+# short JSON decision.  400 tokens caused Groq to reject valid requests with
+# ``json_validate_failed`` before a decision was returned.
+GUARDIAN_MAX_COMPLETION_TOKENS = 512
 
 
 class GuardianAgentUnavailableError(RuntimeError):
@@ -39,23 +45,86 @@ class GuardianAgentUnavailableError(RuntimeError):
 
 _SYSTEM_PROMPT = """
 Bạn là Guardian Risk Decision Agent của Timi, chuyên phân tích transcript cuộc
-gọi có dấu hiệu lừa đảo tại Việt Nam. Bạn là thành phần duy nhất quyết định
-risk_score, risk_level, ngưỡng ngữ cảnh và recommended_action cho từng đoạn
-hội thoại. Backend sẽ không tự tính lại điểm hay dùng ngưỡng số cố định.
+gọi lừa đảo tại Việt Nam. Chỉ dùng bằng chứng có trong transcript; không suy
+đoán danh tính hay bịa bằng chứng. Bạn là thành phần duy nhất quyết định kết
+quả; backend không tự tính lại score hay thay đổi action.
 
-Chỉ phân tích nội dung transcript được cung cấp. Không được suy đoán danh tính
-hay bịa bằng chứng. Các tín hiệu có thể dùng gồm (nhưng không giới hạn):
-bank_impersonation, urgency, account_lock_threat, otp_request,
-credential_social_engineering, prevent_external_verification, authority_claim,
-authority_impersonation, legal_threat, secrecy_request, money_transfer_request,
-safe_account_scam, remote_access_request, screen_sharing_request.
+Chọn đúng MỘT mức, và luôn dùng cặp action/level/dải điểm nhất quán:
+- CONTINUE / safe / 0–24: hội thoại bình thường, lời nhắc an toàn, hoặc chỉ
+  nhắc tới ngân hàng, OTP, công an, khóa tài khoản hay chuyển tiền trong ngữ
+  cảnh kể chuyện, phủ định, khuyến cáo, hoặc giữa người quen. Không suy ra
+  lừa đảo chỉ từ một từ khóa. Cuộc gọi tự thông báo trạng thái/dịch vụ ngân
+  hàng, không đòi thao tác hay dữ liệu, và hướng dẫn tới chi nhánh/kênh chính
+  thức cũng là CONTINUE.
+- MONITOR / warning / 25–44: một dấu hiệu nhẹ chưa yêu cầu thao tác nhạy cảm,
+  ví dụ người lạ tự nhận ngân hàng và hỏi thông tin chung, hoặc thúc giục nhẹ
+  không có đe dọa/OTP/PIN/chuyển tiền. Cần theo dõi, chưa chặn.
+- PAUSE / high / 45–79: cần dừng để tự xác minh. Ví dụ giả ngân hàng/cơ quan
+  kèm đe dọa khóa/phong tỏa hoặc thúc giục nhưng CHƯA đòi OTP/PIN/mật khẩu hay
+  chuyển tiền; yêu cầu giữ bí mật; cấm gọi tổng đài; yêu cầu mã xác thực hay
+  thông tin bảo mật mơ hồ; hoặc yêu cầu chia sẻ màn hình. Một yêu cầu mã xác
+  thực đơn lẻ, không có giả mạo/chiếm quyền/ép chuyển tiền, là PAUSE.
+- STOP / critical / 80–100: nguy cơ rõ ràng cần chặn. Chỉ dùng khi có yêu cầu
+  OTP/PIN/mật khẩu cụ thể để mở khóa/xác minh/hỗ trợ; chuyển tiền vào tài
+  khoản an toàn/tạm giữ; cài AnyDesk/TeamViewer/điều khiển máy kèm OTP,
+  mật khẩu hoặc credential; hoặc tổ hợp mạnh: giả công an + phong tỏa + bí
+  mật + làm theo ngay, hay đe dọa khởi tố + bí mật + hạn gấp. Đừng nâng
+  PAUSE lên STOP chỉ vì caller nói "ngay" hoặc "tài khoản bị khóa" đơn lẻ.
 
-Hãy đánh giá toàn bộ diễn biến, không đánh dấu chỉ vì một từ riêng lẻ. Đặt
-recommended_action là CONTINUE nếu an toàn, MONITOR nếu cần theo dõi, PAUSE
-nếu phải tạm dừng để xác minh, và STOP nếu có nguy cơ rõ ràng cần ngăn giao
-dịch/cuộc gọi. Bạn tự chọn ngưỡng phù hợp với bằng chứng và phải trả về một
-quyết định ổn định, có thể giải thích được. Không gọi tool, không truy cập DB,
-không yêu cầu người dùng cung cấp OTP/PIN.
+Chỉ liệt kê signal có bằng chứng trực tiếp. `otp_request` cần caller yêu cầu
+đọc/gửi mã OTP hoặc mã xác thực, không dùng cho câu cảnh báo "đừng chia sẻ
+OTP". `account_lock_threat` phải là caller đe dọa khóa/phong tỏa tài khoản,
+không phải lời khuyên tự khóa. `bank_impersonation` là caller tự nhận nhân viên
+ngân hàng. `authority_impersonation` là tự nhận công an/cán bộ cụ thể, còn
+`authority_claim` là viện dẫn cơ quan/điều tra chung. `money_transfer_request`
+chỉ dùng khi yêu cầu chuyển tiền có dấu hiệu ép buộc/lừa đảo, không dùng cho
+việc bạn bè nhờ chuyển tiền bình thường.
+
+Phân biệt các ca dễ nhầm: tự xưng hỗ trợ kỹ thuật rồi chỉ hỏi đang gặp lỗi gì
+và hướng dẫn người dùng tự khắc phục là CONTINUE; câu giữa bạn bè kiểu "chuyển
+giúp 500 nghìn, tối trả" là CONTINUE. "Đừng gọi tổng đài, chỉ làm theo tôi"
+là PAUSE và có `prevent_external_verification`. Người tự nhận bảo mật ngân
+hàng và yêu cầu đọc OTP để mở khóa là STOP, gồm `bank_impersonation`,
+`otp_request`, `credential_social_engineering`. "Cài AnyDesk/TeamViewer rồi
+đọc OTP/cung cấp mật khẩu" là STOP. Tự nhận công an + phong tỏa + bí mật +
+làm theo ngay là STOP. Lời cảnh báo "ngân hàng không bao giờ hỏi OTP" luôn
+là CONTINUE và không có `otp_request`.
+
+Quy tắc signals (bắt buộc liệt kê hết từng tín hiệu trực tiếp):
+- "công an/cán bộ/điều tra viên" tự xưng -> `authority_impersonation`; chỉ
+  nói là cuộc gọi/vụ việc từ cơ quan điều tra -> `authority_claim`.
+- "khởi tố"/đe dọa pháp lý -> `legal_threat`; "khóa/phong tỏa" ->
+  `account_lock_threat`; "ngay/trong N phút/hạn chót" -> `urgency`.
+- "không nói với ai/giữ bí mật" -> `secrecy_request`; "đừng gọi tổng đài,
+  không ngắt máy, không liên hệ ai" -> `prevent_external_verification`.
+- "chuyển tiền" -> `money_transfer_request`; "tài khoản an toàn/tạm giữ" ->
+  `safe_account_scam`; AnyDesk/TeamViewer/cho điều khiển máy ->
+  `remote_access_request`.
+- "đọc/gửi OTP/mã xác thực" -> `otp_request`. Thêm
+  `credential_social_engineering` khi OTP/PIN/mật khẩu/thông tin bảo mật được
+  xin để xác minh/mở khóa/hỗ trợ; không thêm nó chỉ vì AnyDesk kèm OTP.
+
+Ví dụ ràng buộc: "cuộc gọi từ cơ quan điều tra" + "đừng nói với ai" là
+PAUSE với `authority_claim`, `secrecy_request`; "gửi mã xác minh" không có
+giả mạo hay chiếm quyền là PAUSE với `otp_request`; "có hạn chót, xử lý nhanh
+hôm nay" là MONITOR với `urgency`; "khởi tố trong 20 phút" + "giữ bí mật" là
+STOP với `legal_threat`, `urgency`, `secrecy_request`; xin "thông tin bảo
+mật" để xác minh là PAUSE với `credential_social_engineering`.
+
+Signals là bắt buộc và phải đầy đủ: liệt kê MỌI tín hiệu có bằng chứng trực
+tiếp, không chỉ một tín hiệu đại diện. Ví dụ: tự nhận ngân hàng + "khóa trong
+30 phút" + "ngay" phải có `bank_impersonation`, `account_lock_threat`,
+`urgency`; giả công an + đe dọa khởi tố + bắt giữ bí mật + cấm xác minh/chuyển
+tiền phải có từng signal tương ứng. "Có vấn đề, kiểm tra sớm hôm nay" hoặc
+"hạn cuối, xử lý nhanh" là MONITOR dù không có signal mạnh khác. Khi transcript
+an toàn, trả `signals: []`.
+
+Trước khi trả lời, tự kiểm tra action, level và score có đúng cùng một hàng ở
+trên; signals phải hỗ trợ trực tiếp cho kết luận. Không gọi tool, không truy
+cập DB, không yêu cầu người dùng cung cấp OTP/PIN.
+
+Giữ JSON ngắn gọn: explanation không quá 160 ký tự, evidence không quá 80 ký
+tự và tối đa 6 signals. Không thêm bất cứ chữ nào trước hoặc sau JSON.
 
 Chỉ trả về JSON hợp lệ, không markdown, đúng các khóa:
 {
@@ -275,6 +344,216 @@ def _conversation_payload(
     }
 
 
+def _normalize_for_policy(value: str) -> str:
+    """Normalize Vietnamese text for a small, auditable evidence policy."""
+
+    decomposed = unicodedata.normalize("NFD", value.lower())
+    return "".join(
+        character for character in decomposed if not unicodedata.combining(character)
+    ).replace("đ", "d")
+
+
+def _has_pattern(text: str, pattern: str) -> bool:
+    return re.search(pattern, text, flags=re.IGNORECASE) is not None
+
+
+def _has_phrase(text: str, *phrases: str) -> bool:
+    return any(phrase in text for phrase in phrases)
+
+
+def _direct_evidence_guardrail(
+    state: GuardianConversationState,
+    agent_result: GuardianRiskResult,
+) -> GuardianRiskResult:
+    """Stabilize decisions only when monitored speech has direct evidence.
+
+    The model continues to own ambiguous dialogue. This policy only takes
+    precedence for explicit credentials, remote access, money movement or
+    interference with official verification, where allowing variance is not
+    acceptable in a financial-safety flow.
+    """
+
+    monitored_text = " ".join(
+        text
+        for speaker, text in state.segments
+        if speaker.strip().lower() in {"caller", "speaker_a", "speaker_b"}
+    )
+    if not monitored_text:
+        return agent_result
+
+    text = _normalize_for_policy(monitored_text)
+    signals: list[GuardianSignal] = []
+
+    def add(signal_type: str, evidence: str) -> None:
+        if any(signal.signal_type == signal_type for signal in signals):
+            return
+        signals.append(
+            GuardianSignal(
+                signal_type=signal_type,
+                weight=100,
+                confidence=1.0,
+                evidence=evidence,
+            )
+        )
+
+    authority_impersonation = _has_pattern(
+        text,
+        r"(?:toi la|day la).{0,35}(?:cong an|can bo|dieu tra vien|phong chong toi pham)",
+    )
+    authority_claim = _has_phrase(text, "co quan dieu tra", "vu an dang dieu tra")
+    bank_impersonation = _has_pattern(
+        text,
+        r"(?:nhan vien.{0,45}ngan hang|cham soc khach hang ngan hang|bao mat ngan hang|ngan hang day)",
+    )
+    legal_threat = _has_phrase(text, "khoi to", "rua tien", "vu an dang dieu tra")
+    account_lock_threat = _has_phrase(
+        text,
+        "sap bi khoa",
+        "se bi khoa",
+        "bi phong toa",
+        "se bi phong toa",
+        "bi tam khoa",
+    )
+    secrecy_request = _has_phrase(
+        text,
+        "khong duoc noi voi ai",
+        "dung noi chuyen nay voi ai",
+        "dung noi voi ai",
+        "giu bi mat",
+        "tuyet doi giu bi mat",
+    )
+    prevent_external_verification = _has_phrase(
+        text,
+        "dung goi tong dai",
+        "khong duoc goi ngan hang",
+        "khong duoc goi cho ngan hang",
+        "khong duoc ngat may",
+        "dung ngat may",
+        "khong duoc tat may",
+        "khong lien he voi ai",
+        "chi lam theo toi",
+    ) or _has_pattern(text, r"khong duoc.{0,30}lien he voi ai")
+    urgency = _has_pattern(
+        text,
+        r"(?:ngay lap tuc|\bngay\b|trong\s+\d+\s*phut|han cuoi|xu ly nhanh)",
+    )
+    safe_account_scam = _has_phrase(text, "tai khoan an toan", "tai khoan tam giu")
+    remote_access_request = _has_phrase(text, "anydesk", "teamviewer", "dieu khien may")
+    screen_sharing_request = _has_phrase(text, "chia se man hinh")
+    otp_request = _has_pattern(
+        text,
+        r"(?:doc|gui|cung cap|nhap|xac nhan).{0,35}(?:ma\s+)?(?:otp|ma xac thuc|ma bao mat)|"
+        r"(?:otp|ma xac thuc|ma bao mat).{0,35}(?:doc|gui|cung cap|nhap|xac nhan)",
+    )
+    credential_social_engineering = _has_pattern(
+        text,
+        r"(?:cho toi biet|cung cap|doc|gui|nhap).{0,35}(?:ma pin|so pin|mat khau|"
+        r"thong tin bao mat)|(?:ma pin|so pin|mat khau|thong tin bao mat).{0,35}"
+        r"(?:cho toi|cung cap|doc|gui|nhap)",
+    ) or (otp_request and _has_phrase(text, "mo khoa", "xac minh", "ho tro"))
+    direct_sensitive_credential = _has_pattern(
+        text,
+        r"(?:ma pin|so pin|mat khau).{0,35}(?:cho toi|cung cap|doc|gui)|"
+        r"(?:cho toi biet|cung cap|doc|gui).{0,35}(?:ma pin|so pin|mat khau)",
+    )
+    money_transfer_request = (
+        _has_phrase(text, "chuyen tien", "chuyen khoan", "chuyen toan bo so tien")
+        and (
+            safe_account_scam
+            or authority_impersonation
+            or authority_claim
+            or legal_threat
+            or _has_phrase(text, "phai chuyen", "neu khong chuyen")
+        )
+    )
+
+    if authority_impersonation:
+        add("authority_impersonation", "Caller tu xung la co quan/can bo")
+    elif authority_claim:
+        add("authority_claim", "Caller vien dan co quan dieu tra")
+    if bank_impersonation:
+        add("bank_impersonation", "Caller tu xung nhan vien/bao mat ngan hang")
+    if legal_threat:
+        add("legal_threat", "Caller neu de doa phap ly")
+    if account_lock_threat:
+        add("account_lock_threat", "Caller de doa khoa hoac phong toa tai khoan")
+    if secrecy_request:
+        add("secrecy_request", "Caller yeu cau giu bi mat")
+    if prevent_external_verification:
+        add("prevent_external_verification", "Caller ngan xac minh qua kenh chinh thuc")
+    if urgency:
+        add("urgency", "Caller thuc giuc xu ly gap")
+    if otp_request:
+        add("otp_request", "Caller yeu cau OTP hoac ma xac thuc")
+    if credential_social_engineering:
+        add("credential_social_engineering", "Caller yeu cau thong tin bao mat")
+    if money_transfer_request:
+        add("money_transfer_request", "Caller yeu cau chuyen tien trong ngu canh rui ro")
+    if safe_account_scam:
+        add("safe_account_scam", "Caller nhac tai khoan an toan hoac tam giu")
+    if remote_access_request:
+        add("remote_access_request", "Caller yeu cau phan mem dieu khien tu xa")
+    if screen_sharing_request:
+        add("screen_sharing_request", "Caller yeu cau chia se man hinh")
+
+    critical = (
+        (money_transfer_request and safe_account_scam)
+        or (otp_request and (bank_impersonation or remote_access_request or credential_social_engineering))
+        or (remote_access_request and credential_social_engineering)
+        or direct_sensitive_credential
+        or (authority_impersonation and account_lock_threat and secrecy_request)
+        or (legal_threat and secrecy_request and urgency)
+    )
+    high = (
+        (bank_impersonation and account_lock_threat and urgency)
+        or (authority_claim and secrecy_request)
+        or prevent_external_verification
+        or otp_request
+        or credential_social_engineering
+        or remote_access_request
+        or screen_sharing_request
+        or (bank_impersonation and urgency)
+    )
+    warning = bank_impersonation or (
+        _has_phrase(text, "tai khoan", "han cuoi")
+        and _has_phrase(text, "co van de", "kiem tra som", "xu ly nhanh")
+    )
+
+    if critical:
+        action, level, score = "STOP", "critical", 90
+        explanation = "Phat hien yeu cau nhay cam co bang chung truc tiep; hay dung cuoc goi."
+    elif high:
+        action, level, score = "PAUSE", "high", 60
+        explanation = "Co tin hieu rui ro truc tiep; hay tam dung va tu xac minh qua kenh chinh thuc."
+    elif warning:
+        action, level, score = "MONITOR", "warning", 30
+        explanation = "Co tin hieu can theo doi; chua thuc hien thao tac nhay cam."
+    else:
+        return agent_result
+
+    scenario = (
+        "safe_account_scam"
+        if safe_account_scam
+        else "remote_access_scam"
+        if remote_access_request
+        else "otp_phishing"
+        if otp_request
+        else "authority_impersonation"
+        if authority_impersonation or authority_claim
+        else "bank_impersonation"
+        if bank_impersonation
+        else None
+    )
+    return GuardianRiskResult(
+        risk_score=score,
+        risk_level=level,
+        scenario=scenario,
+        recommended_action=action,
+        explanation=explanation,
+        signals=tuple(signals),
+    )
+
+
 def analyze_with_guardian_agent(
     state: GuardianConversationState,
     latest_text: str,
@@ -288,38 +567,66 @@ def analyze_with_guardian_agent(
     if not provider.api_key:
         raise GuardianAgentUnavailableError("Thiếu API key cho Guardian risk agent")
 
+    client = OpenAI(
+        api_key=provider.api_key,
+        base_url=provider.base_url,
+        # The realtime stream must tolerate a transient 429/5xx or short
+        # network flap without turning one chunk into a scam alert.
+        max_retries=2,
+        timeout=20.0,
+    )
+    request: dict[str, Any] = {
+        "model": provider.model,
+        "messages": [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": json.dumps(
+                    _conversation_payload(state, latest_text),
+                    ensure_ascii=False,
+                ),
+            },
+        ],
+        "temperature": 0,
+        "max_completion_tokens": GUARDIAN_MAX_COMPLETION_TOKENS,
+        "response_format": {"type": "json_object"},
+    }
+    if _is_gpt_oss_model(provider.model):
+        # Groq defaults GPT-OSS to medium reasoning. This short, deterministic
+        # classification task needs low effort: it avoids request timeouts and
+        # leaves enough of the completion budget for the JSON contract.
+        request["reasoning_effort"] = "low"
+        # The installed OpenAI SDK exposes ``reasoning_effort`` directly but
+        # not Groq's ``reasoning_format`` extension. Send only the extension
+        # through extra_body so SDK argument validation does not reject it.
+        request["extra_body"] = {"reasoning_format": "hidden"}
+
     try:
-        response = OpenAI(
-            api_key=provider.api_key,
-            base_url=provider.base_url,
-            # The realtime stream must tolerate a transient 429/5xx or short
-            # network flap without turning one chunk into a scam alert.
-            max_retries=2,
-            timeout=20.0,
-        ).chat.completions.create(
-            model=provider.model,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        _conversation_payload(state, latest_text),
-                        ensure_ascii=False,
-                    ),
-                },
-            ],
-            temperature=0,
-            max_completion_tokens=400,
-            response_format={"type": "json_object"},
-        )
+        response = client.chat.completions.create(**request)
     except Exception as exc:
-        raise GuardianAgentUnavailableError(
-            "Không thể gọi Guardian risk agent",
-            retry_after_seconds=_retry_after_seconds(exc),
-        ) from exc
+        if not _is_json_validation_failure(exc):
+            raise GuardianAgentUnavailableError(
+                "Không thể gọi Guardian risk agent",
+                retry_after_seconds=_retry_after_seconds(exc),
+            ) from exc
+
+        # Groq's structured-output validator can run out of completion budget
+        # for reasoning models and return HTTP 400 before emitting any text.
+        # The prompt still requests JSON and _parse_json below still enforces
+        # the exact Pydantic contract, so this does not relax a decision.
+        logger.info("Guardian JSON mode rejected by provider; retrying local JSON validation")
+        fallback_request = dict(request)
+        fallback_request.pop("response_format")
+        try:
+            response = client.chat.completions.create(**fallback_request)
+        except Exception as fallback_exc:
+            raise GuardianAgentUnavailableError(
+                "Không thể gọi Guardian risk agent",
+                retry_after_seconds=_retry_after_seconds(fallback_exc),
+            ) from fallback_exc
 
     decision = _parse_json(_response_text(response))
-    return GuardianRiskResult(
+    agent_result = GuardianRiskResult(
         risk_score=decision.risk_score,
         risk_level=decision.risk_level,
         scenario=decision.scenario,
@@ -335,6 +642,22 @@ def analyze_with_guardian_agent(
             for signal in decision.signals
         ),
     )
+    return _direct_evidence_guardrail(state, agent_result)
+
+
+def _is_json_validation_failure(exc: Exception) -> bool:
+    """True only for Groq's server-side structured-output generation failure."""
+
+    if getattr(exc, "status_code", None) != 400:
+        return False
+    message = str(exc).lower()
+    return "json_validate_failed" in message or "failed to validate json" in message
+
+
+def _is_gpt_oss_model(model: str) -> bool:
+    """Whether a Groq model supports the low reasoning-effort controls."""
+
+    return model.strip().lower().startswith("openai/gpt-oss-")
 
 
 def _retry_after_seconds(exc: Exception) -> float:
