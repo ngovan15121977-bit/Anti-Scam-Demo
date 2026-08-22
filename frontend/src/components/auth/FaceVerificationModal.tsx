@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Camera, Loader2, ScanFace, Shield, ShieldAlert } from "lucide-react";
-import { authApi } from "@/api/auth";
+import { authApi } from "@/services/api/auth";
 
 export interface FaceMatchResult {
   matched: boolean;
@@ -563,7 +563,7 @@ export default function FaceVerificationModal({
           )}
           {cameraReady && (
             <>
-              <div className="pointer-events-none absolute inset-[15%] rounded-[45%] border-2 border-white/60 shadow-[0_0_0_999px_rgba(15,23,42,.18)]" />
+              <div className="pointer-events-none absolute inset-[16%] rounded-full border-2 border-white/60 shadow-[0_0_0_999px_rgba(15,23,42,.18)]" />
               {!awaitingManualRetry && (
                 <>
                   <svg
@@ -575,11 +575,11 @@ export default function FaceVerificationModal({
                     aria-valuenow={scanProgress}
                     role="progressbar"
                   >
-                    <ellipse cx="50" cy="50" rx="44" ry="46" fill="none" pathLength="100" stroke="rgba(167, 243, 208, 0.35)" strokeWidth="1.5" />
+                    <ellipse cx="50" cy="50" rx="46" ry="46" fill="none" pathLength="100" stroke="rgba(167, 243, 208, 0.35)" strokeWidth="1.5" />
                     <ellipse
                       cx="50"
                       cy="50"
-                      rx="44"
+                      rx="46"
                       ry="46"
                       fill="none"
                       pathLength="100"

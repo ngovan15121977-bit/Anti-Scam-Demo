@@ -4,19 +4,21 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from src.app.api import (
-    admin,
-    admin_emails,
+from src.app.routers.api import (
+    newsletter,
     agents,
     assistant,
+    content,
     auth,
     guardian,
     health,
     password_reset,
     recipients,
+    support,
     transactions,
     url_safety,
 )
+from src.app.routers.api.admin import emails as admin_emails, routes as admin
 from src.app.config import get_settings
 from src.app.services.face_verification import warm_face_model
 from src.app.services.passive_liveness import warm_passive_liveness_model
@@ -36,6 +38,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(admin_emails.router, prefix="/api/v1")
+app.include_router(support.router, prefix="/api/v1")
+app.include_router(newsletter.router, prefix="/api/v1")
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(recipients.router, prefix="/api/v1")
@@ -44,8 +48,8 @@ app.include_router(admin.router, prefix="/api/v1")
 app.include_router(url_safety.router, prefix="/api/v1")
 app.include_router(agents.router, prefix="/api/v1")
 app.include_router(assistant.router, prefix="/api/v1")
+app.include_router(content.router, prefix="/api/v1")
 app.include_router(guardian.router, prefix="/api/v1")
-app.include_router(admin_emails.router, prefix="/api/v1")
 app.include_router(admin_emails.notifications_router, prefix="/api/v1")
 app.include_router(password_reset.router, prefix="/api/v1")
 @app.on_event("startup")

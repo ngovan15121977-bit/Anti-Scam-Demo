@@ -4,25 +4,27 @@ import { useEffect, lazy, Suspense } from "react";
 import { useAuthStore } from "@/stores/authStore";
 import PageTransition from "@/components/transitions/PageTransition";
 
-import LoginPage from "@/pages/LoginPage";
-import RegisterPage from "@/pages/RegisterPage";
-import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
-import HomePage from "@/pages/HomePage";
-import LegalPage from "@/pages/LegalPage";
-import MissionPage from "@/pages/MissionPage";
+import LoginPage from "@/pages/auth/LoginPage";
+import RegisterPage from "@/pages/auth/RegisterPage";
+import ForgotPasswordPage from "@/pages/auth/ForgotPasswordPage";
+import HomePage from "@/pages/public/HomePage";
+import LegalPage from "@/pages/public/LegalPage";
+import MissionPage from "@/pages/public/MissionPage";
 import MainLayout from "@/components/layout/MainLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import LocationRequiredRoute from "@/components/auth/LocationRequiredRoute";
 
-const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
-const TransferPage = lazy(() => import("@/pages/TransferPage"));
-const HistoryPage = lazy(() => import("@/pages/HistoryPage"));
-const AdminPage = lazy(() => import("@/pages/AdminPage"));
-const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
-const PinSetupPage = lazy(() => import("@/pages/PinSetupPage"));
-const LocationSetupPage = lazy(() => import("@/pages/LocationSetupPage"));
-const FaceEnrollmentPage = lazy(() => import("@/pages/FaceEnrollmentPage"));
-const QrPaymentPage = lazy(() => import("@/pages/QrPaymentPage"));
+const DashboardPage = lazy(() => import("@/pages/finance/DashboardPage"));
+const TransferPage = lazy(() => import("@/pages/finance/TransferPage"));
+const HistoryPage = lazy(() => import("@/pages/finance/HistoryPage"));
+const AdminPage = lazy(() => import("@/pages/admin/AdminPage"));
+const ProfilePage = lazy(() => import("@/pages/account/ProfilePage"));
+const PinSetupPage = lazy(() => import("@/pages/onboarding/PinSetupPage"));
+const LocationSetupPage = lazy(() => import("@/pages/onboarding/LocationSetupPage"));
+const FaceEnrollmentPage = lazy(() => import("@/pages/onboarding/FaceEnrollmentPage"));
+const QrPaymentPage = lazy(() => import("@/pages/finance/QrPaymentPage"));
+const NotificationSettingsPage = lazy(() => import("@/pages/account/NotificationSettingsPage"));
+const HelpPage = lazy(() => import("@/pages/support/HelpPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -115,6 +117,8 @@ function App() {
                   <Route path="/transfer" element={<TransferPage />} />
                   <Route path="/history" element={<HistoryPage />} />
                   <Route path="/me" element={<ProfilePage />} />
+                  <Route path="/notifications" element={<NotificationSettingsPage />} />
+                  <Route path="/help" element={<HelpPage />} />
                   <Route path="/qr" element={<QrPaymentPage />} />
                   <Route
                     path="/admin"

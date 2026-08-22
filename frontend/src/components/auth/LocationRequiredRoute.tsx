@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 
-import { hasConfirmedLoginLocation } from "@/lib/riskTelemetry";
+import { hasConfirmedLoginLocation } from "@/utils/riskTelemetry";
 import { useAuthStore } from "@/stores/authStore";
 
 /** Keep the app behind the required post-login location setup screen. */

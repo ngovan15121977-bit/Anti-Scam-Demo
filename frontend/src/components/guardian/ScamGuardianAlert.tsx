@@ -1,10 +1,12 @@
 import { AlertOctagon, ShieldAlert, X } from "lucide-react";
 
 import { useScamGuardian } from "@/components/guardian/ScamGuardianProvider";
+import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 
 /** Render nothing during normal operation; appear only after a critical signal. */
 export default function ScamGuardianAlert() {
   const { criticalAlert, dismissAlert, stopGuardian } = useScamGuardian();
+  useBodyScrollLock(criticalAlert !== null, "guardian-critical-alert");
 
   if (!criticalAlert) return null;
 

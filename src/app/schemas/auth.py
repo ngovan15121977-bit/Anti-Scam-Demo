@@ -47,6 +47,25 @@ class RegisterRequest(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=255)
     password: str = Field(..., min_length=8, max_length=128)
     phone: str = Field(..., min_length=10, max_length=10)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, value: str) -> str:
+        missing: list[str] = []
+        if len(value) < 8:
+            missing.append("ít nhất 8 ký tự")
+        if not re.search(r"[A-Z]", value):
+            missing.append("1 chữ viết hoa")
+        if not re.search(r"[a-z]", value):
+            missing.append("1 chữ viết thường")
+        if not re.search(r"[^A-Za-z0-9]", value):
+            missing.append("1 ký tự đặc biệt")
+        if not re.search(r"\d", value):
+            missing.append("1 chữ số")
+        if missing:
+            raise ValueError(f"Mật khẩu còn thiếu: {', '.join(missing)}")
+        return value
+
     @field_validator("phone", mode="before")
     @classmethod
     def normalize_timi_account_phone(cls, value: object) -> str:
@@ -54,6 +73,16 @@ class RegisterRequest(BaseModel):
         if not re.fullmatch(r"\d{10}", phone):
             raise ValueError("Số điện thoại phải gồm đúng 10 chữ số")
         return phone
+
+
+class RegisterOtpRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(..., min_length=6, max_length=6)
+
+
+class RegisterAvailabilityRequest(BaseModel):
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, min_length=10, max_length=10)
 
 
 class LoginRequest(BaseModel):
@@ -89,6 +118,42 @@ class LoginLocationRequest(BaseModel):
 
 class TransactionPinRequest(BaseModel):
     pin: str = Field(..., pattern=r"^\d{4,6}$")
+    current_pin: str | None = Field(default=None, pattern=r"^\d{4,6}$")
+
+
+class UserCardCreate(BaseModel):
+    nickname: str = Field(..., min_length=1, max_length=80)
+    holder_name: str = Field(..., min_length=2, max_length=255)
+    expiry_month: int = Field(..., ge=1, le=12)
+    expiry_year: int = Field(..., ge=2024, le=2100)
+    brand: str = Field(default="Visa", min_length=2, max_length=40)
+
+
+class UserCardSummary(BaseModel):
+    id: uuid.UUID
+    nickname: str
+    masked_number: str
+    holder_name: str
+    expiry_month: int
+    expiry_year: int
+    brand: str
+
+
+class UserCardDetail(UserCardSummary):
+    card_number: str
+
+
+class UserCardPinRequest(BaseModel):
+    pin: str = Field(..., pattern=r"^\d{4,6}$")
+
+
+class EmailChangeRequest(BaseModel):
+    new_email: EmailStr
+
+
+class EmailChangeVerifyRequest(BaseModel):
+    old_otp: str = Field(..., pattern=r"^\d{6}$")
+    new_otp: str = Field(..., pattern=r"^\d{6}$")
 
 
 class FaceVerificationRequest(BaseModel):

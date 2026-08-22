@@ -4,7 +4,7 @@ import { Loader2, MessageCircle, Mic, MicOff, Minimize2, Send, Sparkles, Shield,
 import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { assistantApi, type AssistantChatTurn, type AssistantTaskState } from "@/api/assistant";
+import { assistantApi, type AssistantChatTurn, type AssistantTaskState } from "@/services/api/assistant";
 import TimiChibi from "@/components/ai/TimiChibi";
 import { useScamGuardian } from "@/components/guardian/ScamGuardianProvider";
 import { useAuthStore } from "@/stores/authStore";

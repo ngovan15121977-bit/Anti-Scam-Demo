@@ -13,6 +13,7 @@ import {
 import MiniTimiAssistant from "@/components/ai/MiniTimiAssistant";
 import ScamGuardianAlert from "@/components/guardian/ScamGuardianAlert";
 import { ScamGuardianProvider } from "@/components/guardian/ScamGuardianProvider";
+import PinSetupEnforcer from "@/components/auth/PinSetupEnforcer";
 
 export default function MainLayout() {
   const navigate = useNavigate();
@@ -42,6 +43,7 @@ export default function MainLayout() {
 
   return (
     <ScamGuardianProvider>
+      <PinSetupEnforcer />
       <div className="min-h-screen bg-[#f5f3ff] w-full">
         {/* Top Navbar */}
         <header className="sticky top-0 z-50 w-full bg-white/80 backdrop-blur-lg border-b border-violet-100/80 shadow-sm shadow-violet-50/40">

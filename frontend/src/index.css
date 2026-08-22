@@ -92,6 +92,7 @@
   display: none;
 }
 
+
 @keyframes timi-chibi-walk {
   0%, 100% { transform: translateX(0) scaleX(1); }
   46% { transform: translateX(-22px) scaleX(1); }
@@ -131,4 +132,11 @@
   .timi-chibi-arm-right,
   .timi-chibi-leg-left,
   .timi-chibi-leg-right { animation: none; }
+}
+.auth-form-icon {
+  color: #93c5fd !important;
+  stroke: #93c5fd !important;
+  opacity: 1 !important;
+  filter: none !important;
+  mix-blend-mode: normal !important;
 }

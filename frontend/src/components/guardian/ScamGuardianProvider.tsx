@@ -10,7 +10,7 @@ import {
   type GuardianSession,
   type GuardianSpeaker,
   type GuardianTranscriptEvent,
-} from "@/api/guardian";
+} from "@/services/api/guardian";
 import { useAuthStore } from "@/stores/authStore";
 
 export type GuardianStatus = "idle" | "starting" | "active" | "stopped" | "error";

@@ -28,33 +28,33 @@ export default function TransactionAnalysisScreen() {
   }, []);
 
   return (
-    <div className="min-h-screen w-full overflow-hidden bg-gradient-to-br from-rose-50 via-white to-violet-50 px-4 py-8">
+    <div className="min-h-screen w-full overflow-hidden bg-gradient-to-br from-slate-50 via-white to-blue-50/40 px-4 py-8">
       <div className="mx-auto flex min-h-[calc(100dvh-4rem)] max-w-lg items-center justify-center">
-        <div className="relative w-full overflow-hidden rounded-[2rem] border border-white/90 bg-white/90 p-6 text-center shadow-xl shadow-rose-100 backdrop-blur sm:p-8">
-          <div className="absolute -left-8 -top-8 h-32 w-32 rounded-full bg-rose-200/40 blur-2xl" />
-          <div className="absolute -bottom-10 -right-8 h-36 w-36 rounded-full bg-violet-200/40 blur-2xl" />
+        <div className="relative w-full overflow-hidden rounded-[2rem] border border-white/90 bg-white/90 p-6 text-center shadow-xl shadow-blue-100 backdrop-blur sm:p-8">
+          <div className="absolute -left-8 -top-8 h-32 w-32 rounded-full bg-blue-200/40 blur-2xl" />
+          <div className="absolute -bottom-10 -right-8 h-36 w-36 rounded-full bg-indigo-200/40 blur-2xl" />
           <div className="relative">
             <div className="mx-auto grid h-36 place-items-center">
               <TimiChibi walking />
             </div>
-            <div className="mt-5 inline-flex items-center gap-2 rounded-full bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-600">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-rose-500" />AI Anti-Scam đang làm việc
+            <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-indigo-500" />AI Anti-Scam đang làm việc
             </div>
             <h1 className="mt-4 text-2xl font-extrabold text-slate-900">Timi đang bảo vệ giao dịch của bạn</h1>
             <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-left" aria-live="polite">
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white shadow-sm"><Sparkles className="h-4 w-4 text-rose-500" /></div>
+                <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-blue-50 shadow-sm"><Sparkles className="h-4 w-4 text-indigo-500" /></div>
                 <p className="text-sm leading-relaxed text-slate-700">{ANALYSIS_MESSAGES[messageIndex]}</p>
               </div>
             </div>
             <div className="mt-5 space-y-3 text-left">
               {ANALYSIS_STEPS.map(({ icon: Icon, label }, index) => (
                 <div key={label} className="flex items-center gap-3 text-sm text-slate-600">
-                  <span className={`grid h-8 w-8 place-items-center rounded-full ${index === activeStep ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-400"}`}>
+                  <span className={`grid h-8 w-8 place-items-center rounded-full ${index === activeStep ? "bg-indigo-100 text-indigo-600" : "bg-slate-100 text-slate-400"}`}>
                     <Icon className={`h-4 w-4 ${index === activeStep ? "animate-pulse" : ""}`} />
                   </span>
                   <span>{label}</span>
-                  {index === activeStep && <span className="ml-auto h-1.5 w-14 overflow-hidden rounded-full bg-rose-100"><span className="block h-full w-2/3 animate-pulse rounded-full bg-rose-400" /></span>}
+                  {index === activeStep && <span className="ml-auto h-1.5 w-14 overflow-hidden rounded-full bg-indigo-100"><span className="block h-full w-2/3 animate-pulse rounded-full bg-indigo-400" /></span>}
                 </div>
               ))}
             </div>

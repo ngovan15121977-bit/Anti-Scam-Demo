@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Navigate, Outlet } from "react-router-dom";
 
-import { authApi } from "@/api/auth";
+import { authApi } from "@/services/api/auth";
 
 /** Require a transaction PIN before entering money-related pages. */
 export default function PinRequiredRoute() {

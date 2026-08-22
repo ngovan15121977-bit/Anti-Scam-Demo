@@ -60,6 +60,16 @@ export default function PageTransition({
 
   // Trigger transition on route change
   useEffect(() => {
+    // Every route starts at the top. Run once immediately and once after
+    // route/modal cleanup so a previously locked body cannot restore the old
+    // page position over the new route.
+    const resetScroll = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+    resetScroll();
+    const resetFrame = window.requestAnimationFrame(resetScroll);
     const previousPath = previousPathRef.current;
     const isLoginCompletion = previousPath === "/login"
       && ["/dashboard", "/admin", "/confirm-location"].includes(location.pathname);
@@ -77,6 +87,7 @@ export default function PageTransition({
     }
 
     startTransition(isLoginCompletion);
+    return () => window.cancelAnimationFrame(resetFrame);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname, location.search]);
 

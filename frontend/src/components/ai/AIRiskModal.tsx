@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
-import type { AssessResponse } from "@/api/transactions";
+import type { AssessResponse } from "@/services/api/transactions";
 import TimiChibi from "@/components/ai/TimiChibi";
 
 export type RiskAssessment = AssessResponse;
@@ -78,8 +78,8 @@ export default function AIRiskModal({
   const riskPercentage = Math.round(riskData.risk_score * 100);
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
-      <div className={`w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-3xl bg-white shadow-2xl overscroll-contain transition-opacity ${pinRequested ? "pointer-events-none opacity-30" : ""}`}>
+    <div className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm sm:items-center">
+      <div className={`my-4 w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl transition-opacity ${pinRequested ? "pointer-events-none opacity-30" : ""}`}>
         <div className={`p-4 text-center ${isHighRisk ? "bg-red-50" : "bg-amber-50"}`}>
           <div className="mb-2 flex justify-center">
             {isHighRisk ? (
@@ -124,7 +124,7 @@ export default function AIRiskModal({
             <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
               Lý do cảnh báo
             </p>
-            <p className="max-h-32 overflow-y-auto whitespace-pre-line text-sm leading-relaxed text-slate-700">
+            <p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">
               {warning?.transparency_reason ?? riskData.explanation}
             </p>
             <p className="mt-2 text-xs leading-relaxed text-slate-500">

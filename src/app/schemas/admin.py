@@ -111,3 +111,26 @@ class UserRoleUpdate(BaseModel):
 
 class UserStatusUpdate(BaseModel):
     is_active: bool
+
+
+class ContentItemCreate(BaseModel):
+    page_key: Literal["home", "dashboard", "privacy", "mission", "terms", "services", "help"]
+    content_type: Literal["article", "review", "image"]
+    title: str | None = Field(default=None, max_length=255)
+    body: str | None = Field(default=None, max_length=20_000)
+    image_url: str | None = Field(default=None, max_length=1000)
+    placement: Literal["top", "middle", "bottom"] = "middle"
+    is_published: bool = True
+    sort_order: int = Field(default=0, ge=0, le=10_000)
+
+
+class ContentItemUpdate(ContentItemCreate):
+    pass
+
+
+class ContentItemOut(ContentItemCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
