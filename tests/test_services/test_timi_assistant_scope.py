@@ -66,3 +66,48 @@ def test_timi_assistant_uses_groq_chat_completions(monkeypatch) -> None:
     assert captured["max_completion_tokens"] == 640
     assert captured["base_url"] == "https://example.test/openai/v1"
     assert captured["messages"][0] == {"role": "system", "content": timi_assistant._SYSTEM_INSTRUCTIONS}
+
+
+def test_timi_assistant_uses_backup_key_only_after_rate_limit(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class RateLimitError(RuntimeError):
+        status_code = 429
+
+    class FakeCompletions:
+        def __init__(self, api_key: str) -> None:
+            self.api_key = api_key
+
+        def create(self, **_kwargs):
+            calls.append(self.api_key)
+            if self.api_key == "primary-key":
+                raise RateLimitError("rate limit")
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="Đã dùng key dự phòng."))]
+            )
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key: str, **_kwargs) -> None:
+            self.chat = SimpleNamespace(completions=FakeCompletions(api_key))
+
+    monkeypatch.setattr(
+        timi_assistant,
+        "get_settings",
+        lambda: SimpleNamespace(
+            groq_api_key="",
+            groq_model_name="test-model",
+            groq_base_url="https://example.test/openai/v1",
+            chat_agent_api_key="primary-key",
+            chat_agent_api_keys="backup-key",
+            chat_agent_base_url="",
+            chat_agent_model="",
+            assistant_chat_max_completion_tokens=640,
+        ),
+    )
+    monkeypatch.setattr(timi_assistant, "OpenAI", FakeOpenAI)
+
+    answer, out_of_scope = timi_assistant.answer_timi_question("Tôi không hiểu cách chuyển tiền", [])
+
+    assert calls == ["primary-key", "backup-key"]
+    assert answer == "Đã dùng key dự phòng."
+    assert not out_of_scope

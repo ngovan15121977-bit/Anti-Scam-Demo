@@ -10,8 +10,10 @@ class AssistantChatTurn(BaseModel):
 
 
 class AssistantTransferDraft(BaseModel):
-    """Untrusted draft data that can only prefill the transfer review screen."""
+    """Untrusted transfer prefill; account, bank, and amount are sufficient."""
 
+    # Retained only for backwards-compatible API payloads. The Task Navigator
+    # does not ask for or require this; TransferPage resolves the verified name.
     recipient_name: str | None = Field(default=None, max_length=120)
     recipient_account: str | None = Field(default=None, max_length=24)
     bank_code: str | None = Field(default=None, max_length=20)

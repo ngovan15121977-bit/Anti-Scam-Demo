@@ -21,6 +21,7 @@ class AgentCapability(StrEnum):
     SCAM_RISK_DECISION = "scam_risk_decision"
     TRANSFER_DRAFTING = "transfer_drafting"
     GUARDIAN_PREFERENCE = "guardian_preference"
+    CONTEXTUAL_NAVIGATION = "contextual_navigation"
 
 
 @dataclass(frozen=True, slots=True)
