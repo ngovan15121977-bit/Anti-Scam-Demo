@@ -16,6 +16,18 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Keep the HMR client pointed at the same local origin when Vite is
+    // restarted or accessed through localhost in the browser.
+    hmr: {
+      protocol: "ws",
+      host: "localhost",
+      clientPort: 5173,
+    },
+    // Google Identity Services opens a popup and communicates with it via
+    // postMessage; this policy allows that flow during local development.
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+    },
     proxy: {
       "/api": {
         target: "http://localhost:8000",
