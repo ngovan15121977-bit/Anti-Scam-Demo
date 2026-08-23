@@ -1,4 +1,13 @@
-# ---- Stage 1: Build ----
+# ---- Stage 1: Build frontend ----
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+# ---- Stage 2: Build backend dependencies ----
 FROM python:3.11-slim AS builder
 
 WORKDIR /app
@@ -24,6 +33,8 @@ ENV FACE_MODEL_PRELOAD=true \
 
 # Copy installed packages from builder
 COPY --from=builder /usr/local /usr/local
+# Serve the SPA from the same Render Web Service as the API.
+COPY --from=frontend-builder /frontend/dist ./frontend/dist
 # ENV PATH=/root/.local/bin:$PATH
 
 # Security: run as non-root user

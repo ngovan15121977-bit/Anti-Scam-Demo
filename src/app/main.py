@@ -1,8 +1,9 @@
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from src.app.routers.api import (
     newsletter,
@@ -54,6 +55,41 @@ app.include_router(guardian.router, prefix="/api/v1")
 app.include_router(admin_emails.notifications_router, prefix="/api/v1")
 app.include_router(password_reset.router, prefix="/api/v1")
 app.include_router(legacy_compat.router, prefix="/api/v1")
+
+frontend_directory = settings.project_root / "frontend" / "dist"
+frontend_index = frontend_directory / "index.html"
+
+
+def frontend_response(path: str = ""):
+    """Return a built asset or the SPA shell for a client-side route."""
+    if not frontend_index.is_file():
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    requested_file = (frontend_directory / path).resolve()
+    if (
+        requested_file.is_file()
+        and frontend_directory.resolve() in requested_file.parents
+    ):
+        return FileResponse(requested_file)
+    return FileResponse(frontend_index)
+
+
+@app.get("/", include_in_schema=False)
+async def frontend_root():
+    if not frontend_index.is_file():
+        return {"message": "FintechGuard API is running", "docs": "/docs"}
+    return frontend_response()
+
+
+@app.get("/{path:path}", include_in_schema=False)
+async def frontend_fallback(path: str):
+    # Preserve useful 404s for unknown backend endpoints instead of returning
+    # index.html to an API client.
+    if path.startswith(("api/", "media/")):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return frontend_response(path)
+
+
 @app.on_event("startup")
 def preload_face_ai() -> None:
     """Warm Face ID when the deployment explicitly ships/preloads the models."""
@@ -64,8 +100,3 @@ def preload_face_ai() -> None:
         warm_passive_liveness_model()
     except Exception:
         logging.getLogger(__name__).warning("Face AI warm-up failed; it will retry on first verification.")
-
-
-@app.get("/")
-async def root() -> dict[str, str]:
-    return {"message": "FintechGuard API is running", "docs": "/docs"}
