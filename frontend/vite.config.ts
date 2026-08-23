@@ -35,9 +35,10 @@ function emitSpaRouteEntries() {
       if (!fs.existsSync(indexPath)) return;
 
       for (const route of spaRoutes) {
-        const routeDirectory = path.resolve(__dirname, "dist", route);
-        fs.mkdirSync(routeDirectory, { recursive: true });
-        fs.copyFileSync(indexPath, path.join(routeDirectory, "index.html"));
+        // Emit an extensionless entry. Some static hosts do not perform
+        // directory index resolution for a request like /login, while they
+        // can still serve an exact file at that path.
+        fs.copyFileSync(indexPath, path.resolve(__dirname, "dist", route));
       }
     },
   };
