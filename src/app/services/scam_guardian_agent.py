@@ -1,10 +1,10 @@
 """Agent-owned risk decisions for realtime Scam Guardian sessions.
 
-The deterministic rule engine remains available for offline evaluation, but
-the production call path uses this module.  The model owns the score,
-threshold interpretation, signal selection, and recommended action.  This
-module only performs transport and schema validation; it never executes a
-transaction or changes a blacklist.
+The production call path uses this module. The model owns ambiguous risk
+classification; a narrow direct-evidence safety floor can only promote an
+explicit credential/remote-access/coercion signal. This module never executes
+a transaction or changes a blacklist. The evaluator can disable that floor to
+measure raw model quality separately.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from src.app.services.scam_guardian import (
 )
 
 logger = logging.getLogger(__name__)
-GUARDIAN_AGENT_PROMPT_VERSION = "v0.5-signal-complete"
+GUARDIAN_AGENT_PROMPT_VERSION = "v0.6-calibrated-evidence-rubric"
 # gpt-oss reasoning models consume part of this budget before emitting the
 # short JSON decision.  400 tokens caused Groq to reject valid requests with
 # ``json_validate_failed`` before a decision was returned.
@@ -108,20 +108,21 @@ Quy tắc signals (bắt buộc liệt kê hết từng tín hiệu trực tiế
   `credential_social_engineering` khi OTP/PIN/mật khẩu/thông tin bảo mật được
   xin để xác minh/mở khóa/hỗ trợ; không thêm nó chỉ vì AnyDesk kèm OTP.
 
-Ví dụ ràng buộc: "cuộc gọi từ cơ quan điều tra" + "đừng nói với ai" là
-PAUSE với `authority_claim`, `secrecy_request`; "gửi mã xác minh" không có
-giả mạo hay chiếm quyền là PAUSE với `otp_request`; "có hạn chót, xử lý nhanh
-hôm nay" là MONITOR với `urgency`; "khởi tố trong 20 phút" + "giữ bí mật" là
-STOP với `legal_threat`, `urgency`, `secrecy_request`; xin "thông tin bảo
-mật" để xác minh là PAUSE với `credential_social_engineering`.
+Ưu tiên quyết định để tránh nhầm mức: một yêu cầu mã xác thực đơn lẻ luôn là
+PAUSE; chỉ nâng thành STOP khi có thêm giả mạo, chiếm quyền, credential hoặc
+ép chuyển tiền. Cụm "tài khoản có vấn đề/bị ảnh hưởng" không phải
+`account_lock_threat`; nếu chỉ có tự nhận ngân hàng và thúc giục thì là PAUSE.
+Mẫu "nhân viên ngân hàng" + "xử lý ngay trong N phút" + "tài khoản bị ảnh
+hưởng" chỉ là PAUSE với `bank_impersonation`, `urgency`; không phải STOP.
+Tổ hợp "khởi tố + giữ bí mật + hạn gấp" là STOP dù không có chuyển tiền.
+"Có vấn đề, nên kiểm tra sớm" hoặc "hạn chót, xử lý nhanh" không có đe dọa
+hay yêu cầu nhạy cảm là MONITOR.
 
 Signals là bắt buộc và phải đầy đủ: liệt kê MỌI tín hiệu có bằng chứng trực
 tiếp, không chỉ một tín hiệu đại diện. Ví dụ: tự nhận ngân hàng + "khóa trong
 30 phút" + "ngay" phải có `bank_impersonation`, `account_lock_threat`,
 `urgency`; giả công an + đe dọa khởi tố + bắt giữ bí mật + cấm xác minh/chuyển
-tiền phải có từng signal tương ứng. "Có vấn đề, kiểm tra sớm hôm nay" hoặc
-"hạn cuối, xử lý nhanh" là MONITOR dù không có signal mạnh khác. Khi transcript
-an toàn, trả `signals: []`.
+tiền phải có từng signal tương ứng. Khi transcript an toàn, trả `signals: []`.
 
 Trước khi trả lời, tự kiểm tra action, level và score có đúng cùng một hàng ở
 trên; signals phải hỗ trợ trực tiếp cho kết luận. Không gọi tool, không truy
@@ -587,8 +588,16 @@ def immediate_direct_evidence_result(
 def analyze_with_guardian_agent(
     state: GuardianConversationState,
     latest_text: str,
+    *,
+    apply_direct_guardrail: bool = True,
 ) -> GuardianRiskResult:
-    """Ask Groq/OpenAI-compatible model for the authoritative risk decision."""
+    """Ask the model for a risk decision, optionally applying the safety floor.
+
+    Production callers keep ``apply_direct_guardrail=True``. The evaluation
+    runner can disable it to measure the model's own classification rather
+    than accidentally reporting the deterministic safety policy as model
+    accuracy.
+    """
 
     settings = get_settings()
     provider = guardian_provider_config(settings)
@@ -617,7 +626,7 @@ def analyze_with_guardian_agent(
         # Groq defaults GPT-OSS to medium reasoning. This short, deterministic
         # classification task needs low effort: it avoids request timeouts and
         # leaves enough of the completion budget for the JSON contract.
-        request["reasoning_effort"] = "low"
+        request["reasoning_effort"] = settings.guardian_agent_reasoning_effort
         # The installed OpenAI SDK exposes ``reasoning_effort`` directly but
         # not Groq's ``reasoning_format`` extension. Send only the extension
         # through extra_body so SDK argument validation does not reject it.
@@ -648,7 +657,11 @@ def analyze_with_guardian_agent(
             for signal in decision.signals
         ),
     )
-    return _direct_evidence_guardrail(state, agent_result)
+    return (
+        _direct_evidence_guardrail(state, agent_result)
+        if apply_direct_guardrail
+        else agent_result
+    )
 
 
 def _guardian_completion_with_key_failover(

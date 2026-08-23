@@ -5,9 +5,11 @@ Phase 0 - Baseline Evaluation Script for Guardian Agent
 Located at: eval/scripts/run_baseline_eval.py (inside the project)
 
 Usage (from repository root):
-  export GROQ_API_KEY=your_key
-  # optional:
-  export GUARDIAN_PROMPT_VERSION=0.2
+  # Configure GUARDIAN_AGENT_API_KEY (or GROQ_API_KEY fallback) in .env.
+  python eval/scripts/run_baseline_eval.py
+
+  # Measure raw model quality without the deterministic production guardrail:
+  $env:GUARDIAN_EVAL_MODE = "model"
   python eval/scripts/run_baseline_eval.py
 
 This script evaluates the current Guardian agent against the dataset
@@ -33,10 +35,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 try:
-    from src.app.services.scam_guardian import GuardianConversationState
+    from src.app.services.agent_provider_config import guardian_provider_config
+    from src.app.services.scam_guardian import GuardianConversationState, GuardianRiskResult
     from src.app.services.scam_guardian_agent import (
         analyze_with_guardian_agent,
         GuardianAgentUnavailableError,
+        _direct_evidence_guardrail,
+        analyze_with_guardian_agent,
     )
 except ImportError as e:
     print(f"[ERROR] Cannot import Guardian modules: {e}")
@@ -47,9 +52,30 @@ except ImportError as e:
 DATASET_PATH = REPO_ROOT / "eval" / "dataset" / "guardian_cases_v0.json"
 RESULTS_DIR = REPO_ROOT / "eval" / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+CASE_DELAY_SECONDS = float(os.getenv("GUARDIAN_EVAL_CASE_DELAY_SECONDS", "3"))
+MAX_CASE_ATTEMPTS = max(1, int(os.getenv("GUARDIAN_EVAL_MAX_ATTEMPTS", "3")))
+MAX_RETRY_WAIT_SECONDS = 30.0
+EVAL_MODES = {"hybrid", "model", "policy"}
+EVAL_MODE = os.getenv("GUARDIAN_EVAL_MODE", "hybrid").strip().lower()
+EVAL_CASE_IDS = {
+    value.strip()
+    for value in os.getenv("GUARDIAN_EVAL_CASE_IDS", "").split(",")
+    if value.strip()
+}
 
-# Align with scam_guardian_agent.py default
-PROMPT_VERSION = os.getenv("GUARDIAN_PROMPT_VERSION", "0.3")
+
+def policy_only_result(state: GuardianConversationState) -> GuardianRiskResult:
+    """Run only the auditable safety policy for comparison with model mode."""
+
+    baseline = GuardianRiskResult(
+        risk_score=0,
+        risk_level="safe",
+        scenario=None,
+        recommended_action="CONTINUE",
+        explanation="Chưa phát hiện tín hiệu rủi ro trực tiếp.",
+        signals=(),
+    )
+    return _direct_evidence_guardrail(state, baseline)
 
 
 def load_dataset() -> list[dict[str, Any]]:
@@ -84,14 +110,37 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     result = None
     schema_ok = True
 
-    try:
-        result = analyze_with_guardian_agent(state, latest)
-    except GuardianAgentUnavailableError as exc:
-        error = str(exc)
-        schema_ok = False
-    except Exception as exc:
-        error = f"Unexpected: {type(exc).__name__}: {exc}"
-        schema_ok = False
+    for attempts in range(1, MAX_CASE_ATTEMPTS + 1):
+        try:
+            if EVAL_MODE == "policy":
+                result = policy_only_result(state)
+            else:
+                result = analyze_with_guardian_agent(
+                    state,
+                    latest,
+                    apply_direct_guardrail=EVAL_MODE == "hybrid",
+                )
+            error = None
+            error_metadata = None
+            break
+        except GuardianAgentUnavailableError as exc:
+            error = str(exc)
+            error_metadata = _error_metadata(exc)
+            if attempts == MAX_CASE_ATTEMPTS or not _should_retry(exc):
+                break
+            provider_wait = exc.retry_after_seconds or (2.0 * attempts)
+            time.sleep(min(MAX_RETRY_WAIT_SECONDS, max(2.0, provider_wait)))
+        except Exception as exc:
+            error = f"Unexpected: {type(exc).__name__}: {exc}"
+            error_metadata = {
+                "error_type": type(exc).__name__,
+                "status_code": None,
+                "retry_after_seconds": 0,
+                "provider_message": str(exc)[:500],
+            }
+            break
+
+    schema_ok = result is not None
 
     latency_ms = round((time.perf_counter() - start) * 1000, 1)
 
@@ -284,13 +333,28 @@ def main() -> None:
     print("=" * 60)
     print("Phase 0 – Guardian Agent Baseline Evaluation")
     print("=" * 60)
-    print(f"Prompt version (GUARDIAN_PROMPT_VERSION): v{PROMPT_VERSION}")
 
-    if not os.getenv("GROQ_API_KEY"):
-        print("[WARN] GROQ_API_KEY not set. Agent calls will fail.")
-        print("       Set it in environment or .env before running for real numbers.")
+    if EVAL_MODE not in EVAL_MODES:
+        print(f"[ERROR] GUARDIAN_EVAL_MODE must be one of: {', '.join(sorted(EVAL_MODES))}")
+        sys.exit(2)
+
+    print(f"Evaluation mode: {EVAL_MODE} (policy, model, or production hybrid)")
+    provider = guardian_provider_config()
+    if EVAL_MODE == "policy":
+        print("Provider not used in policy-only mode")
+    elif not provider.api_key:
+        print("[WARN] Guardian API key is not configured. Agent calls will fail.")
+        print("       Set GUARDIAN_AGENT_API_KEY or GROQ_API_KEY in .env before running.")
+    else:
+        print(f"Provider configured: model={provider.model}")
 
     dataset = load_dataset()
+    if EVAL_CASE_IDS:
+        dataset = [case for case in dataset if case.get("id") in EVAL_CASE_IDS]
+        if not dataset:
+            print("[ERROR] GUARDIAN_EVAL_CASE_IDS did not match any dataset case")
+            sys.exit(2)
+        print(f"Filtered to {len(dataset)} requested case(s)")
     print(f"Loaded {len(dataset)} cases from {DATASET_PATH}")
 
     results = []
@@ -311,14 +375,9 @@ def main() -> None:
     report = {
         "phase": "0",
         "timestamp_utc": timestamp,
-        "prompt_version": f"v{PROMPT_VERSION}",
-        "dataset": DATASET_PATH.name,
-        "env": {
-            "GUARDIAN_PROMPT_VERSION": PROMPT_VERSION,
-            "GUARDIAN_AGENT_MODEL": os.getenv("GUARDIAN_AGENT_MODEL")
-            or os.getenv("GROQ_MODEL")
-            or "from_settings",
-        },
+        "prompt_version": GUARDIAN_AGENT_PROMPT_VERSION,
+        "evaluation_mode": EVAL_MODE,
+        "dataset": str(DATASET_PATH.name),
         "metrics": metrics,
         "results": results,
     }
