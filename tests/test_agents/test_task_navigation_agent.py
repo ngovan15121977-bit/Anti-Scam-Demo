@@ -66,6 +66,7 @@ def test_task_agent_can_enable_only_the_explicit_guardian_preference() -> None:
         ("Tạo QR nhận tiền", "/qr?mode=create"),
         ("Xem lịch sử giao dịch", "/history"),
         ("Mở hồ sơ của tôi", "/me"),
+        ("Mở cho tôi phần thay ảnh", "/me"),
         ("Mở trang chuyển tiền", "/transfer"),
         ("Tôi muốn đến Trang chuyển tiền", "/transfer"),
         ("Tôi muốn chuyển sang trang chuyển tiền", "/transfer"),
@@ -82,6 +83,41 @@ def test_task_agent_navigates_only_to_supported_user_routes(
     assert result.action is not None
     assert result.action.type == "navigate_app"
     assert result.action.route == expected_route
+
+
+def test_task_agent_gives_a_specific_next_step_for_avatar_change() -> None:
+    result = route_task("Mở cho tôi phần thay ảnh", AssistantTaskState())
+
+    assert result.handled
+    assert result.action is not None
+    assert result.action.route == "/me"
+    assert result.answer == (
+        "Đã mở Hồ sơ. Bấm biểu tượng máy ảnh trên ảnh đại diện để chọn và thay ảnh mới."
+    )
+
+
+@pytest.mark.parametrize(
+    ("message", "expected_next_step"),
+    [
+        ("Tôi muốn đổi mật khẩu", "Nhập mật khẩu hiện tại"),
+        ("Cập nhật mã PIN giao dịch", "Nhập PIN hiện tại"),
+        ("Tôi muốn cài đặt Face ID", "làm theo hướng dẫn"),
+        ("Mở quét mã QR", "đưa mã QR vào giữa khung quét"),
+        ("Tạo QR nhận tiền", "chia sẻ mã QR"),
+        ("Xem lịch sử giao dịch", "chọn giao dịch bất kỳ"),
+        ("Mở hồ sơ của tôi", "Chọn mục bạn muốn quản lý"),
+        ("Mở trang chuyển tiền", "Nhập số tài khoản"),
+        ("Về trang tổng quan", "xem số dư"),
+    ],
+)
+def test_task_agent_explains_the_next_step_for_every_navigation_route(
+    message: str, expected_next_step: str
+) -> None:
+    result = route_task(message, AssistantTaskState())
+
+    assert result.handled
+    assert result.action is not None
+    assert expected_next_step in (result.answer or "")
 
 
 def test_task_agent_does_not_accept_an_unrelated_privileged_action() -> None:
@@ -103,6 +139,84 @@ def test_task_agent_does_not_enable_guardian_for_a_how_to_question() -> None:
 
     assert not result.handled
     assert result.action is None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Ngày mai Huân sẽ chuyển tiền cho Lý đạt kiểu gì?",
+        "Ngày mai Huân sẽ chuyển tiền cho Lý đạt như nào",
+        "Ngay mai Huan se chuyen tien cho Ly dat nhu nao",
+        "Cách chuyển tiền cho người khác như thế nào?",
+        "Chuyển tiền cho Lý như thế nào?",
+        "Chuyển khoản cho Lý bằng cách nào?",
+        "Tôi muốn chuyển tiền cho Lý thì làm thế nào?",
+        "Tôi cần chuyển tiền cho Lý, cần làm gì?",
+        "Tôi muốn gửi tiền cho Lý thì bắt đầu từ đâu?",
+        "Chuyển tiền cho Lý ra sao?",
+        "Chuyển khoản cho Lý kiểu gì?",
+        "Có chuyển tiền cho Lý được không?",
+        "Làm sao chuyển khoản an toàn?",
+    ],
+)
+def test_task_agent_leaves_transfer_how_to_questions_for_chat_support(message: str) -> None:
+    result = route_task(message, AssistantTaskState())
+
+    assert not result.handled
+    assert result.action is None
+    assert result.task_state.task == "none"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Tôi muốn chuyển tiền cho Lý",
+        "Tôi cần chuyển khoản cho Lý",
+        "Hãy chuyển tiền cho Lý",
+        "Chuyển tiền ngay cho Lý",
+        "Tôi muốn gửi tiền cho Lý",
+        "Tạo giao dịch chuyển tiền",
+    ],
+)
+def test_task_agent_keeps_explicit_transfer_commands_on_the_draft_flow(message: str) -> None:
+    result = route_task(message, AssistantTaskState())
+
+    assert result.handled
+    assert result.action is None
+    assert result.task_state.task == "transfer"
+    assert "số tài khoản" in (result.answer or "").lower()
+
+
+def test_transfer_guidance_question_clears_an_unfinished_transfer_draft() -> None:
+    started = route_task("Tôi muốn chuyển tiền", AssistantTaskState())
+    assert started.task_state.task == "transfer"
+
+    question = route_task(
+        "Ngày mai Huân sẽ chuyển tiền cho Lý đạt như nào", started.task_state
+    )
+
+    assert not question.handled
+    assert question.action is None
+    assert question.task_state.task == "none"
+
+
+def test_transfer_guidance_question_never_uses_contextual_navigation(monkeypatch) -> None:
+    monkeypatch.setattr(
+        specialists,
+        "understand_navigation_request",
+        lambda _message: pytest.fail("Transfer guidance must continue to Chat Support"),
+    )
+
+    result = TaskNavigationAgent().execute(
+        TaskNavigationTask(
+            message="Ngày mai Huân sẽ chuyển tiền cho Lý đạt như nào",
+            task_state=AssistantTaskState(),
+        )
+    )
+
+    assert not result.handled
+    assert result.action is None
+    assert result.task_state.task == "none"
 
 
 def test_task_agent_recognizes_send_money_wording_and_validates_timi_account_length() -> None:
@@ -141,7 +255,10 @@ def test_task_agent_uses_contextual_route_only_after_rules_do_not_handle(monkeyp
     assert calls == ["Mình muốn qua phần gửi tiền"]
     assert result.action is not None
     assert result.action.route == "/transfer"
-    assert result.answer == "Đã mở trang Chuyển tiền. Bạn có thể nhập thông tin giao dịch tại đó."
+    assert result.answer == (
+        "Đã mở trang Chuyển tiền. Nhập số tài khoản, ngân hàng và số tiền; "
+        "kiểm tra lại trước khi xác nhận."
+    )
 
 
 def test_task_agent_keeps_known_route_token_free(monkeypatch) -> None:

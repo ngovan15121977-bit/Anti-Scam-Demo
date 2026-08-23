@@ -104,7 +104,7 @@ class TaskNavigationAgent:
         # wording is unfamiliar, the Groq classifier may return one route from
         # its strict allowlist. The backend owns both the displayed text and
         # the browser action, so the model never emits a free-form command.
-        if not decision.handled:
+        if not decision.handled and decision.allow_contextual_navigation:
             contextual = understand_navigation_request(payload.message)
             if contextual and contextual.route:
                 decision = (
