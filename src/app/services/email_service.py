@@ -11,10 +11,13 @@ Env (.env):
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import smtplib
 import ssl
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, parseaddr
@@ -64,6 +67,53 @@ def _from_address() -> str:
     return f"Timi <{user}>" if user else "Timi <noreply@localhost>"
 
 
+def _resend_api_key() -> str:
+    return (os.getenv("RESEND_API_KEY") or "").strip()
+
+
+def _send_via_resend(
+    *,
+    to: str,
+    subject: str,
+    html: str,
+    text: Optional[str],
+) -> bool:
+    """Send through Resend's HTTPS API, which works on Render Free."""
+    from_address = (os.getenv("EMAIL_FROM") or "onboarding@resend.dev").strip()
+    payload: dict[str, object] = {
+        "from": from_address,
+        "to": [to],
+        "subject": subject,
+        "html": html,
+    }
+    if text:
+        payload["text"] = text
+
+    request = Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {_resend_api_key()}",
+            "Content-Type": "application/json",
+            "User-Agent": "timi-antiscam/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            response_body = json.loads(response.read().decode("utf-8"))
+        logger.info("Resend OK to %s subject=%s id=%s", to, subject, response_body.get("id"))
+        return True
+    except HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        logger.error("Resend failed to %s status=%s body=%s", to, error.code, body)
+    except (URLError, TimeoutError, OSError) as error:
+        logger.error("Resend network error to %s: %s", to, error)
+    except (ValueError, json.JSONDecodeError) as error:
+        logger.error("Resend returned invalid response to %s: %s", to, error)
+    return False
+
+
 def _parse_from(from_header: str) -> tuple[str, str]:
     name, addr = parseaddr(from_header)
     if not addr:
@@ -82,6 +132,11 @@ def send_email(
     if not _enabled():
         logger.warning("EMAIL_ENABLED=false — NOT sending to %s", to)
         return False
+
+    # Render Free blocks outbound SMTP ports. Prefer HTTPS when configured;
+    # the SMTP path below remains available for local or paid deployments.
+    if _resend_api_key():
+        return _send_via_resend(to=to, subject=subject, html=html, text=text)
 
     user = _user()
     password = _password()
