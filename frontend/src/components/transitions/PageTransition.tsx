@@ -70,6 +70,10 @@ export default function PageTransition({
     };
     resetScroll();
     const resetFrame = window.requestAnimationFrame(resetScroll);
+    // The route effect and the child-tracking effect run independently. On a
+    // browser Back/reload, make the current route's tree the transition
+    // payload immediately instead of briefly retaining the previous page.
+    pendingChildren.current = children;
     const previousPath = previousPathRef.current;
     const isLoginCompletion = previousPath === "/login"
       && ["/dashboard", "/admin", "/confirm-location"].includes(location.pathname);
@@ -81,13 +85,17 @@ export default function PageTransition({
     if (timeSinceLast < minTransitionInterval && phase === "done") {
       const delay = minTransitionInterval - timeSinceLast;
       const timer = window.setTimeout(() => {
-        startTransition(isLoginCompletion);
-      }, delay);
+          const cleanup = startTransition(isLoginCompletion);
+          return cleanup;
+        }, delay);
       return () => window.clearTimeout(timer);
     }
 
-    startTransition(isLoginCompletion);
-    return () => window.cancelAnimationFrame(resetFrame);
+    const cleanup = startTransition(isLoginCompletion);
+    return () => {
+      cleanup?.();
+      window.cancelAnimationFrame(resetFrame);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname, location.search]);
 
