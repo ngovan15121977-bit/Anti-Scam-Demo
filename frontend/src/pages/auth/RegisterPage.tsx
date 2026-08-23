@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { Shield, Mail, Lock, User, Eye, EyeOff, Phone, ArrowLeft, ArrowRight, Sparkles, Fingerprint, Globe, Zap, CheckCircle2, Check } from "lucide-react";
 import { authApi } from "@/services/api/auth";
+import TimiLogo from "@/components/brand/TimiLogo";
 
 const floatingIcons = [
   { Icon: Shield, top: "8%", left: "10%", delay: "0s", size: 28 },
@@ -262,8 +263,8 @@ export default function RegisterPage() {
           </Link>
           {/* Logo */}
           <div className="flex items-center gap-3 mb-8 justify-center lg:justify-start">
-            <div className="w-11 h-11 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
-              <Shield className="w-6 h-6 text-white" />
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center">
+              <TimiLogo className="h-full w-full rounded-2xl" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Timi</h1>

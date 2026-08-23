@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
-import { ArrowLeft, Shield } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import axiosInstance from "@/services/api/axios";
+import TimiLogo from "@/components/brand/TimiLogo";
 
 interface LegalPageProps {
   type: "terms" | "privacy";
@@ -47,8 +48,8 @@ export default function LegalPage({ type }: LegalPageProps) {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-6">
           <Link to="/" className="flex items-center gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500">
-              <Shield className="h-5 w-5 text-white" />
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl">
+              <TimiLogo className="h-full w-full rounded-xl" />
             </span>
             <span className="text-xl font-bold text-slate-900">Timi</span>
           </Link>

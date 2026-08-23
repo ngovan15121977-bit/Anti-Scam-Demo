@@ -12,6 +12,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { authApi } from "@/services/api/auth";
+import TimiLogo from "@/components/brand/TimiLogo";
 
 type Step = "email" | "otp" | "done";
 
@@ -97,8 +98,8 @@ export default function ForgotPasswordPage() {
 
       <div className="relative z-10 w-full max-w-md">
         <div className="mb-8 flex items-center justify-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 shadow-lg shadow-blue-200">
-            <Shield className="h-6 w-6 text-white" />
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl">
+            <TimiLogo className="h-full w-full rounded-2xl" />
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">

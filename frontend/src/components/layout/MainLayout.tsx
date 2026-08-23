@@ -8,12 +8,12 @@ import {
   LogOut,
   QrCode,
   ShieldCheck,
-  Shield,
 } from "lucide-react";
 import MiniTimiAssistant from "@/components/ai/MiniTimiAssistant";
 import ScamGuardianAlert from "@/components/guardian/ScamGuardianAlert";
 import { ScamGuardianProvider } from "@/components/guardian/ScamGuardianProvider";
 import PinSetupEnforcer from "@/components/auth/PinSetupEnforcer";
+import TimiLogo from "@/components/brand/TimiLogo";
 
 export default function MainLayout() {
   const navigate = useNavigate();
@@ -53,8 +53,8 @@ export default function MainLayout() {
               onClick={() => navigate("/dashboard")}
               className="flex items-center gap-2.5 group shrink-0"
             >
-              <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-xl flex items-center justify-center shadow-md shadow-violet-200 group-hover:shadow-lg transition-shadow">
-                <Shield className="w-4.5 h-4.5 text-white" strokeWidth={2.5} />
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center">
+                <TimiLogo className="h-full w-full rounded-xl" />
               </div>
               <span className="text-xl font-bold tracking-tight">
                 <span className="bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent">

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
-import { Shield } from "lucide-react";
+import TimiLogo from "@/components/brand/TimiLogo";
 
 interface PageTransitionProps {
   children: ReactNode;
@@ -184,10 +184,7 @@ export default function PageTransition({
               }}
             >
               <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center shadow-2xl shadow-violet-950/40">
-                <Shield
-                  className="w-10 h-10 text-violet-600"
-                  strokeWidth={2.25}
-                />
+                <TimiLogo className="h-full w-full rounded-3xl" />
               </div>
               {/* Glow ring */}
               <div

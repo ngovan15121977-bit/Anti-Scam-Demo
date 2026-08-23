@@ -8,6 +8,7 @@ import { useAuthStore } from "@/stores/authStore";
 import GooglePhoneModal from "@/components/auth/GooglePhoneModal";
 import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 import { hasGoogleSignInConfig } from "@/components/auth/googleIdentityConfig";
+import TimiLogo from "@/components/brand/TimiLogo";
 
 const floatingIcons = [
   { Icon: Shield, top: "10%", left: "8%", delay: "0s", size: 28 },
@@ -189,8 +190,8 @@ export default function LoginPage() {
           </Link>
           {/* Logo */}
           <div className="login-brand flex items-center gap-3 mb-8 lg:mb-4 justify-center lg:justify-start">
-            <div className="w-11 h-11 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
-              <Shield className="w-6 h-6 text-white" />
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center">
+              <TimiLogo className="h-full w-full rounded-2xl" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Timi</h1>

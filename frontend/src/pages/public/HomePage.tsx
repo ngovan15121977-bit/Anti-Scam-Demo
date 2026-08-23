@@ -18,6 +18,7 @@ import {
   Play,
 } from "lucide-react";
 import { useState, useEffect } from "react";
+import TimiLogo from "@/components/brand/TimiLogo";
 
 /* ------------------------------------------------------------------ */
 /*  Nội dung                                                          */
@@ -120,8 +121,8 @@ export default function HomePage() {
         <div className="w-full px-6 lg:px-12 xl:px-20">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate("/")}>
-              <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-xl flex items-center justify-center">
-                <Shield className="w-5 h-5 text-white" />
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center">
+                <TimiLogo className="h-full w-full rounded-xl" />
               </div>
               <span className="font-display text-2xl font-bold bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent">Timi</span>
             </div>
@@ -496,8 +497,8 @@ export default function HomePage() {
           <div className="grid md:grid-cols-4 gap-8 mb-8">
             <div className="col-span-2">
               <div className="flex items-center gap-2 mb-4">
-                <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-xl flex items-center justify-center">
-                  <Shield className="w-5 h-5 text-white" />
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center">
+                  <TimiLogo className="h-full w-full rounded-xl" />
                 </div>
                 <span className="font-display text-2xl font-bold bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent">Timi</span>
               </div>
