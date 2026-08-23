@@ -1,9 +1,50 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import fs from "fs";
 import path from "path";
 
+// Render Static Sites can occasionally serve a deep-link before a dashboard
+// rewrite rule has propagated. Emit an index.html in every client-side route
+// directory so direct requests such as /login still load the React app.
+const spaRoutes = [
+  "terms",
+  "privacy",
+  "mission",
+  "login",
+  "register",
+  "forgot-password",
+  "confirm-location",
+  "setup-pin",
+  "setup-face",
+  "dashboard",
+  "transfer",
+  "history",
+  "me",
+  "notifications",
+  "help",
+  "qr",
+  "admin",
+];
+
+function emitSpaRouteEntries() {
+  return {
+    name: "emit-spa-route-entries",
+    apply: "build" as const,
+    closeBundle() {
+      const indexPath = path.resolve(__dirname, "dist/index.html");
+      if (!fs.existsSync(indexPath)) return;
+
+      for (const route of spaRoutes) {
+        const routeDirectory = path.resolve(__dirname, "dist", route);
+        fs.mkdirSync(routeDirectory, { recursive: true });
+        fs.copyFileSync(indexPath, path.join(routeDirectory, "index.html"));
+      }
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), emitSpaRouteEntries()],
   // Local backend and frontend share the root .env. Vite still exposes only
   // variables prefixed with VITE_ to browser code, so backend secrets remain
   // server-only while VITE_GOOGLE_CLIENT_ID is available to the login page.
