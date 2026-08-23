@@ -20,7 +20,11 @@ from pydantic import ValidationError
 
 from src.app.config import get_settings
 from src.app.schemas.guardian import GuardianAgentDecision
-from src.app.services.agent_provider_config import guardian_provider_config
+from src.app.services.agent_provider_config import (
+    AgentProviderConfig,
+    guardian_provider_config,
+    is_rate_limit_error,
+)
 from src.app.services.scam_guardian import (
     GuardianConversationState,
     GuardianRiskResult,
@@ -376,7 +380,11 @@ def _direct_evidence_guardrail(
     monitored_text = " ".join(
         text
         for speaker, text in state.segments
-        if speaker.strip().lower() in {"caller", "speaker_a", "speaker_b"}
+        # Server-side STT cannot reliably diarise a phone call and labels its
+        # transcript ``unknown``. Explicit credential/remote-access evidence
+        # must still protect the user in that mode; ambiguous speech remains
+        # owned by the model rather than this narrow policy.
+        if speaker.strip().lower() in {"caller", "speaker_a", "speaker_b", "unknown"}
     )
     if not monitored_text:
         return agent_result
@@ -554,6 +562,28 @@ def _direct_evidence_guardrail(
     )
 
 
+def immediate_direct_evidence_result(
+    state: GuardianConversationState,
+) -> GuardianRiskResult | None:
+    """Return an immediate direct-evidence decision without an LLM request.
+
+    This protects explicit OTP/PIN, remote-access, screen-sharing, or coercive
+    wording even while the provider is rate-limited or the normal model cadence
+    intentionally skips short transcript fragments.
+    """
+
+    baseline = GuardianRiskResult(
+        risk_score=0,
+        risk_level="safe",
+        scenario=None,
+        recommended_action="CONTINUE",
+        explanation="Chưa có tín hiệu rủi ro trực tiếp.",
+        signals=(),
+    )
+    result = _direct_evidence_guardrail(state, baseline)
+    return result if result.recommended_action != "CONTINUE" else None
+
+
 def analyze_with_guardian_agent(
     state: GuardianConversationState,
     latest_text: str,
@@ -567,14 +597,6 @@ def analyze_with_guardian_agent(
     if not provider.api_key:
         raise GuardianAgentUnavailableError("Thiếu API key cho Guardian risk agent")
 
-    client = OpenAI(
-        api_key=provider.api_key,
-        base_url=provider.base_url,
-        # The realtime stream must tolerate a transient 429/5xx or short
-        # network flap without turning one chunk into a scam alert.
-        max_retries=2,
-        timeout=20.0,
-    )
     request: dict[str, Any] = {
         "model": provider.model,
         "messages": [
@@ -602,28 +624,12 @@ def analyze_with_guardian_agent(
         request["extra_body"] = {"reasoning_format": "hidden"}
 
     try:
-        response = client.chat.completions.create(**request)
+        response = _guardian_completion_with_key_failover(provider, request)
     except Exception as exc:
-        if not _is_json_validation_failure(exc):
-            raise GuardianAgentUnavailableError(
-                "Không thể gọi Guardian risk agent",
-                retry_after_seconds=_retry_after_seconds(exc),
-            ) from exc
-
-        # Groq's structured-output validator can run out of completion budget
-        # for reasoning models and return HTTP 400 before emitting any text.
-        # The prompt still requests JSON and _parse_json below still enforces
-        # the exact Pydantic contract, so this does not relax a decision.
-        logger.info("Guardian JSON mode rejected by provider; retrying local JSON validation")
-        fallback_request = dict(request)
-        fallback_request.pop("response_format")
-        try:
-            response = client.chat.completions.create(**fallback_request)
-        except Exception as fallback_exc:
-            raise GuardianAgentUnavailableError(
-                "Không thể gọi Guardian risk agent",
-                retry_after_seconds=_retry_after_seconds(fallback_exc),
-            ) from fallback_exc
+        raise GuardianAgentUnavailableError(
+            "Không thể gọi Guardian risk agent",
+            retry_after_seconds=_retry_after_seconds(exc),
+        ) from exc
 
     decision = _parse_json(_response_text(response))
     agent_result = GuardianRiskResult(
@@ -643,6 +649,50 @@ def analyze_with_guardian_agent(
         ),
     )
     return _direct_evidence_guardrail(state, agent_result)
+
+
+def _guardian_completion_with_key_failover(
+    provider: AgentProviderConfig,
+    request: dict[str, Any],
+) -> Any:
+    """Call Guardian and advance to the next configured key after HTTP 429 only."""
+
+    for index, api_key in enumerate(provider.api_keys):
+        client = OpenAI(
+            api_key=api_key,
+            base_url=provider.base_url,
+            # Do not wait through SDK retries for a quota that a backup key can
+            # serve immediately. Other transport failures remain fail-closed.
+            max_retries=0,
+            timeout=20.0,
+        )
+        try:
+            return _guardian_completion_with_json_fallback(client, request)
+        except Exception as exc:
+            if not is_rate_limit_error(exc) or index == len(provider.api_keys) - 1:
+                raise
+            # Never include a key, response body, or prompt content in logs.
+            logger.warning("Guardian Agent is rate limited; trying a configured backup key")
+
+    raise RuntimeError("Guardian Agent did not return a response")
+
+
+def _guardian_completion_with_json_fallback(client: OpenAI, request: dict[str, Any]) -> Any:
+    """Keep the existing local JSON fallback for provider validator failures."""
+
+    try:
+        return client.chat.completions.create(**request)
+    except Exception as exc:
+        if not _is_json_validation_failure(exc):
+            raise
+
+    # Groq's structured-output validator can run out of completion budget for
+    # reasoning models and return HTTP 400 before emitting any text. The prompt
+    # still requests JSON and _parse_json below still enforces the contract.
+    logger.info("Guardian JSON mode rejected by provider; retrying local JSON validation")
+    fallback_request = dict(request)
+    fallback_request.pop("response_format")
+    return client.chat.completions.create(**fallback_request)
 
 
 def _is_json_validation_failure(exc: Exception) -> bool:

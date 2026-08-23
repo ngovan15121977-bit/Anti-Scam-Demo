@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from typing import TYPE_CHECKING
@@ -9,10 +10,13 @@ from typing import TYPE_CHECKING
 from openai import OpenAI
 
 from src.app.config import get_settings
-from src.app.services.agent_provider_config import chat_provider_config
+from src.app.services.agent_provider_config import chat_provider_config, is_rate_limit_error
 
 if TYPE_CHECKING:
     from src.app.schemas.assistant import AssistantChatTurn
+
+
+logger = logging.getLogger(__name__)
 
 
 OUT_OF_SCOPE_ANSWER = (
@@ -108,13 +112,26 @@ def answer_timi_question(message: str, history: list[AssistantChatTurn]) -> tupl
     conversation.append({"role": "user", "content": message.strip()})
     # Groq exposes the Chat Completions API through an OpenAI-compatible base URL.
     # The key remains server-side; neither the browser nor the chat response sees it.
-    response = OpenAI(
-        api_key=provider.api_key,
-        base_url=provider.base_url,
-    ).chat.completions.create(
-        model=provider.model,
-        messages=[{"role": "system", "content": _SYSTEM_INSTRUCTIONS}, *conversation],
-        max_completion_tokens=settings.assistant_chat_max_completion_tokens,
-    )
+    response = None
+    for index, api_key in enumerate(provider.api_keys):
+        try:
+            response = OpenAI(
+                api_key=api_key,
+                base_url=provider.base_url,
+            ).chat.completions.create(
+                model=provider.model,
+                messages=[{"role": "system", "content": _SYSTEM_INSTRUCTIONS}, *conversation],
+                max_completion_tokens=settings.assistant_chat_max_completion_tokens,
+            )
+            break
+        except Exception as exc:
+            if not is_rate_limit_error(exc) or index == len(provider.api_keys) - 1:
+                raise
+            # Do not log an API key. The next key is used only on an explicit
+            # quota response, never for a normal model or validation failure.
+            logger.warning("Chat Agent is rate limited; trying a configured backup key")
+
+    if response is None:  # Defensive: a non-empty key pool always returns or raises above.
+        raise RuntimeError("Chat Agent did not return a response")
     answer = (response.choices[0].message.content or "").strip()
     return (answer if answer else OUT_OF_SCOPE_ANSWER), False

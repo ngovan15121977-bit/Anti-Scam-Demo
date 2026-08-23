@@ -329,14 +329,15 @@ export function ScamGuardianProvider({ children }: { children: React.ReactNode }
         // If server STT cannot decode a browser codec, continue protection
         // with browser transcript text instead of silently losing the call.
         speechFallbackRef.current();
-      } else if (
-        payload.type === "agent_status"
-        && (payload.status === "degraded" || payload.status === "blocked")
-      ) {
-        // Continuing to capture a call cannot protect the user while the only
-        // risk agent is unavailable. Persist the switch as off and tear down
-        // every microphone/recorder resource instead of silently retrying.
+      } else if (payload.type === "agent_status" && payload.status === "blocked") {
+        // A blocked state means the backend has reached its consecutive-failure
+        // threshold. Persist the switch as off and release all microphone
+        // resources rather than silently pretending that protection is active.
         disableForUnavailableAgent(payload.message);
+      } else if (payload.type === "agent_status" && payload.status === "degraded") {
+        // Keep listening after one temporary provider failure: local direct
+        // evidence checks remain active and the backend retries after backoff.
+        setError(`${payload.message ?? "Guardian Risk Agent tạm thời chậm phản hồi"}. Vẫn tiếp tục bảo vệ bằng tín hiệu trực tiếp.`);
       } else if (payload.type === "error") {
         setError(payload.message ?? "Guardian không thể xử lý sự kiện.");
       }

@@ -2,17 +2,20 @@
 
 import pytest
 
+from src.app.agents import specialists
+from src.app.agents.specialists import TaskNavigationAgent, TaskNavigationTask
 from src.app.agents.task_navigation import route_task
 from src.app.schemas.assistant import AssistantTaskState
+from src.app.services.contextual_navigation_agent import ContextualNavigationDecision
 
 
 def test_transfer_task_collects_missing_fields_then_only_navigates_to_review() -> None:
     state = AssistantTaskState()
 
-    first = route_task("Tôi muốn chuyển tiền cho Nguyễn Văn A", state)
+    first = route_task("Tôi muốn chuyển tiền", state)
     assert first.handled
     assert first.task_state.task == "transfer"
-    assert first.task_state.transfer.recipient_name
+    assert first.task_state.transfer.recipient_name is None
     assert "số tài khoản" in (first.answer or "").lower()
 
     second = route_task("STK: 1234567890", first.task_state)
@@ -29,6 +32,7 @@ def test_transfer_task_collects_missing_fields_then_only_navigates_to_review() -
     assert complete.action is not None
     assert complete.action.type == "navigate_transfer_review"
     assert complete.action.transfer is not None
+    assert complete.action.transfer.recipient_name is None
     assert complete.action.transfer.recipient_account == "1234567890"
     assert complete.action.transfer.bank_code == "VCB"
     assert complete.action.transfer.amount == 500_000
@@ -63,7 +67,10 @@ def test_task_agent_can_enable_only_the_explicit_guardian_preference() -> None:
         ("Xem lịch sử giao dịch", "/history"),
         ("Mở hồ sơ của tôi", "/me"),
         ("Mở trang chuyển tiền", "/transfer"),
+        ("Tôi muốn đến Trang chuyển tiền", "/transfer"),
+        ("Tôi muốn chuyển sang trang chuyển tiền", "/transfer"),
         ("Về trang tổng quan", "/dashboard"),
+        ("Tôi muốn về trang chủ", "/dashboard"),
     ],
 )
 def test_task_agent_navigates_only_to_supported_user_routes(
@@ -107,22 +114,46 @@ def test_task_agent_recognizes_send_money_wording_and_validates_timi_account_len
     assert result.handled
     assert result.action is None
     assert result.task_state.task == "transfer"
-    assert result.task_state.transfer.recipient_name == "Huân"
+    assert result.task_state.transfer.recipient_name is None
     assert result.task_state.transfer.bank_code == "TIMI"
     assert result.task_state.transfer.amount == 5_000
     assert result.task_state.transfer.recipient_account is None
     assert "10 chữ số" in (result.answer or "")
 
 
-def test_task_agent_allows_explicit_recipient_name_correction() -> None:
-    state = AssistantTaskState(
-        task="transfer",
-        transfer={"recipient_name": "Quân", "amount": 500_000},
+def test_task_agent_uses_contextual_route_only_after_rules_do_not_handle(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_understanding(message: str) -> ContextualNavigationDecision:
+        calls.append(message)
+        return ContextualNavigationDecision(
+            route="/transfer",
+        )
+
+    monkeypatch.setattr(specialists, "understand_navigation_request", fake_understanding)
+    result = TaskNavigationAgent().execute(
+        TaskNavigationTask(
+            message="Mình muốn qua phần gửi tiền",
+            task_state=AssistantTaskState(),
+        )
     )
 
-    corrected = route_task("Tên là Huân", state)
+    assert calls == ["Mình muốn qua phần gửi tiền"]
+    assert result.action is not None
+    assert result.action.route == "/transfer"
+    assert result.answer == "Đã mở trang Chuyển tiền. Bạn có thể nhập thông tin giao dịch tại đó."
 
-    assert corrected.handled
-    assert corrected.task_state.transfer.recipient_name == "Huân"
-    assert "Huân" in (corrected.answer or "")
-    assert "Quân" not in (corrected.answer or "")
+
+def test_task_agent_keeps_known_route_token_free(monkeypatch) -> None:
+    monkeypatch.setattr(
+        specialists,
+        "understand_navigation_request",
+        lambda _message: pytest.fail("Known route must not call Groq"),
+    )
+
+    result = TaskNavigationAgent().execute(
+        TaskNavigationTask(message="Về trang chủ", task_state=AssistantTaskState())
+    )
+
+    assert result.action is not None
+    assert result.action.route == "/dashboard"

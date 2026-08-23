@@ -67,8 +67,18 @@ class Settings(BaseSettings):
     # Each specialist can use an independent provider account, quota, base URL
     # and model. Empty values preserve compatibility by falling back to GROQ_*.
     chat_agent_api_key: str = ""
+    # Ordered comma-separated backup keys. Used only after a provider HTTP 429.
+    chat_agent_api_keys: str = ""
     chat_agent_base_url: str = ""
     chat_agent_model: str = ""
+    # Context-aware fallback for natural-language page-navigation requests.
+    # It is constrained to the browser route allowlist in task_navigation.py.
+    task_navigator_agent_enabled: bool = True
+    task_navigator_agent_api_key: str = ""
+    task_navigator_agent_api_keys: str = ""
+    task_navigator_agent_base_url: str = ""
+    task_navigator_agent_model: str = ""
+    task_navigator_agent_max_completion_tokens: int = Field(default=120, ge=32, le=256)
     # Chat data is isolated by the authenticated user id.  The cache version
     # lets an operator invalidate old answers after a prompt/model update.
     assistant_chat_history_limit: int = Field(default=40, ge=1, le=100)
@@ -82,6 +92,8 @@ class Settings(BaseSettings):
     # JSON contract and executes only the returned safety action.
     guardian_agent_enabled: bool = True
     guardian_agent_api_key: str = ""
+    # Ordered comma-separated backup keys. Used only after a provider HTTP 429.
+    guardian_agent_api_keys: str = ""
     guardian_agent_base_url: str = ""
     guardian_agent_model: str = "llama-3.1-8b-instant"
     # Avoid spending a provider request on every short STT fragment.
@@ -89,6 +101,8 @@ class Settings(BaseSettings):
     # Realtime Guardian fallback STT. Uses Groq Whisper when configured.
     guardian_stt_enabled: bool = True
     guardian_stt_api_key: str = ""
+    # Ordered comma-separated backup keys. Used only after a provider HTTP 429.
+    guardian_stt_api_keys: str = ""
     guardian_stt_base_url: str = ""
     # Prefer the accuracy-oriented Whisper model for short Vietnamese call
     # segments; override with whisper-large-v3-turbo when latency/cost wins.

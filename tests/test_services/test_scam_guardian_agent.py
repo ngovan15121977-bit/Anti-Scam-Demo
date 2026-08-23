@@ -64,6 +64,18 @@ def test_direct_evidence_guardrail_stabilizes_otp_request(monkeypatch) -> None:
     assert result.signals[0].signal_type == "otp_request"
 
 
+def test_immediate_policy_catches_unknown_server_stt_without_a_model_call() -> None:
+    state = GuardianConversationState()
+    state.append("unknown", "Hãy đọc mã OTP để xác minh tài khoản.")
+
+    result = scam_guardian_agent.immediate_direct_evidence_result(state)
+
+    assert result is not None
+    assert result.recommended_action == "STOP"
+    assert result.risk_level == "critical"
+    assert result.signals[0].signal_type == "otp_request"
+
+
 def test_invalid_agent_json_fails_closed(monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "guardian_agent_enabled", True)
@@ -136,3 +148,47 @@ def test_rate_limit_message_produces_provider_backoff() -> None:
     )
     error.status_code = 429  # type: ignore[attr-defined]
     assert scam_guardian_agent._retry_after_seconds(error) == pytest.approx(292.464)
+
+
+def test_guardian_uses_a_backup_key_after_rate_limit(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "guardian_agent_enabled", True)
+    monkeypatch.setattr(settings, "guardian_agent_api_key", "primary-key")
+    monkeypatch.setattr(settings, "guardian_agent_api_keys", "backup-key")
+
+    calls: list[str] = []
+
+    class RateLimitError(RuntimeError):
+        status_code = 429
+
+    class FakeCompletions:
+        def __init__(self, api_key: str) -> None:
+            self.api_key = api_key
+
+        def create(self, **_kwargs):
+            calls.append(self.api_key)
+            if self.api_key == "primary-key":
+                raise RateLimitError("rate limit")
+            return _fake_response(
+                {
+                    "risk_score": 0,
+                    "risk_level": "safe",
+                    "scenario": None,
+                    "recommended_action": "CONTINUE",
+                    "explanation": "Không có dấu hiệu rủi ro.",
+                    "signals": [],
+                }
+            )
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key: str, **_kwargs) -> None:
+            self.chat = SimpleNamespace(completions=FakeCompletions(api_key))
+
+    monkeypatch.setattr(scam_guardian_agent, "OpenAI", FakeOpenAI)
+
+    result = scam_guardian_agent.analyze_with_guardian_agent(
+        GuardianConversationState(), "Cuộc gọi thông thường"
+    )
+
+    assert calls == ["primary-key", "backup-key"]
+    assert result.recommended_action == "CONTINUE"

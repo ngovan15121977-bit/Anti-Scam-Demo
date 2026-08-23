@@ -91,7 +91,12 @@ _NAVIGATION_INTENTS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ),
     (
         "/transfer",
-        ("mo trang chuyen tien", "vao trang chuyen tien", "mo chuyen tien"),
+        (
+            "trang chuyen tien",
+            "mo chuyen tien",
+            "vao chuyen tien",
+            "den chuyen tien",
+        ),
         "Đã mở trang Chuyển tiền. Bạn có thể nhập thông tin giao dịch tại đó.",
     ),
     (
@@ -214,50 +219,6 @@ def _extract_amount(message: str, *, allow_bare: bool) -> int | None:
     return amount if 1 <= amount <= 999_999_999 else None
 
 
-def _extract_recipient(message: str) -> str | None:
-    # Vietnamese precomposed characters remain one visible character after
-    # normalisation/diacritic removal, so the matched range can safely recover
-    # the original spelling for the user-facing draft.
-    normalized = _normalize(message)
-    match = re.search(
-        r"(?:cho|den|nguoi\s*(?:nhan|ten)(?:\s*la)?|ten\s*(?:la|nguoi\s*nhan(?:\s*la)?))\s+"
-        r"([^,;.\n]+)",
-        normalized,
-    )
-    if not match:
-        return None
-    candidate = message[match.start(1):match.end(1)]
-    candidate = re.split(
-        r"\s+(?:stk|số\s*tk|số\s*tài\s*khoản|tài\s*khoản|ngân\s*hàng|bank|với\s*số\s*tiền|số\s*tiền)\b",
-        candidate,
-        maxsplit=1,
-        flags=re.IGNORECASE,
-    )[0].strip(" :-")
-    candidate = re.sub(r"^(?:người\s*)?(?:nhận|tên)\s+", "", candidate, flags=re.IGNORECASE)
-    normalized_candidate = _normalize(candidate)
-    if normalized_candidate in {"ai", "nguoi khac", "nguoi do", "ban"} or not any(
-        character.isalpha() for character in candidate
-    ):
-        return None
-    return " ".join(part.capitalize() for part in candidate.split())[:120]
-
-
-def _plain_name(message: str) -> str | None:
-    candidate = message.strip(" .,:;-")
-    normalized = _normalize(candidate)
-    if (
-        len(candidate) < 2
-        or len(candidate) > 120
-        or any(term in normalized for term in ("chuyen", "ngan hang", "stk", "tai khoan"))
-        or _canonical_bank_code(candidate)
-        or _extract_amount(candidate, allow_bare=False)
-        or _extract_account(candidate, allow_bare=False)
-        or not any(character.isalpha() for character in candidate)
-    ):
-        return None
-    return " ".join(part.capitalize() for part in candidate.split())
-
-
 def _is_transfer_start(message: str) -> bool:
     normalized = _normalize(message)
     return any(phrase in normalized for phrase in _TRANSFER_START_PHRASES)
@@ -354,9 +315,50 @@ def _navigation_request(message: str) -> tuple[str, str] | None:
     ):
         return None
     for route, phrases, answer in _NAVIGATION_INTENTS:
-        if any(phrase in normalized for phrase in phrases):
+        if any(_contains_whole_phrase(normalized, phrase) for phrase in phrases):
             return route, answer
     return None
+
+
+def navigation_action_for_route(
+    route: str,
+    state: AssistantTaskState,
+    *,
+    history_message: str | None = None,
+) -> TaskNavigationDecision | None:
+    """Turn one validated allowlist route into a server-owned UI action.
+
+    This is deliberately the only bridge from an LLM navigation intent to the
+    browser. A model cannot supply its own URL, response wording, or action.
+    """
+
+    for allowed_route, _phrases, answer in _NAVIGATION_INTENTS:
+        if route == allowed_route:
+            return TaskNavigationDecision(
+                handled=True,
+                answer=answer,
+                task_state=state,
+                action=AssistantUiAction(type="navigate_app", route=allowed_route),
+                history_message=_redact_history_message(history_message or ""),
+            )
+    return None
+
+
+def _contains_whole_phrase(text: str, phrase: str) -> bool:
+    """Match route intents on word boundaries, never on a word prefix.
+
+    Vietnamese text is normalized before matching.  A raw substring check made
+    ``trang chu`` (home) match ``trang chuyen tien`` (transfer) because
+    ``chuyen`` begins with ``chu`` after removing accents.  This helper keeps
+    the phrase readable while rejecting that unsafe partial match.
+    """
+
+    return bool(
+        re.search(
+            rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])",
+            text,
+        )
+    )
 
 
 def _redact_history_message(message: str) -> str:
@@ -373,10 +375,8 @@ def _empty_state() -> AssistantTaskState:
 
 def _next_question(draft: AssistantTransferDraft, newly_recorded: str | None) -> str:
     prefix = f"Đã ghi nhận {newly_recorded}. " if newly_recorded else ""
-    if not draft.recipient_name:
-        return f"{prefix}Bạn muốn chuyển cho ai? Hãy cho mình họ tên người nhận."
     if not draft.recipient_account:
-        return f"{prefix}Vui lòng nhập số tài khoản của {draft.recipient_name} (6–19 chữ số)."
+        return f"{prefix}Vui lòng nhập số tài khoản người nhận (6–19 chữ số)."
     if not draft.bank_code:
         return f"{prefix}Số tài khoản này thuộc ngân hàng nào?"
     if not draft.amount:
@@ -393,17 +393,6 @@ def _route_transfer(message: str, state: AssistantTaskState) -> TaskNavigationDe
         allow_bare=not draft.recipient_account and amount is None,
     )
     bank_code = _canonical_bank_code(message)
-    recipient_name = _extract_recipient(message)
-
-    recipient_name = recipient_name or (
-        _plain_name(message) if not draft.recipient_name else None
-    )
-    # An explicit person phrase is a correction, not merely missing data. This
-    # is especially important for voice recognition, where a name can be
-    # transcribed incorrectly on the first utterance.
-    if recipient_name:
-        draft.recipient_name = recipient_name
-        newly_recorded = f"người nhận {recipient_name}"
     if not draft.recipient_account and account:
         draft.recipient_account = account
         newly_recorded = "số tài khoản"
@@ -420,12 +409,12 @@ def _route_transfer(message: str, state: AssistantTaskState) -> TaskNavigationDe
         draft.recipient_account = None
         return TaskNavigationDecision(
             handled=True,
-            answer="Tài khoản Timi Bank cần đúng 10 chữ số. Vui lòng nhập lại số tài khoản của Huân.",
+            answer="Tài khoản Timi Bank cần đúng 10 chữ số. Vui lòng nhập lại số tài khoản.",
             task_state=AssistantTaskState(task="transfer", transfer=draft),
             history_message=_redact_history_message(message),
         )
 
-    if all((draft.recipient_name, draft.recipient_account, draft.bank_code, draft.amount)):
+    if all((draft.recipient_account, draft.bank_code, draft.amount)):
         return TaskNavigationDecision(
             handled=True,
             answer=(
@@ -482,14 +471,10 @@ def route_task(message: str, state: AssistantTaskState) -> TaskNavigationDecisio
 
     navigation = _navigation_request(message)
     if navigation:
-        route, answer = navigation
-        return TaskNavigationDecision(
-            handled=True,
-            answer=answer,
-            task_state=state,
-            action=AssistantUiAction(type="navigate_app", route=route),
-            history_message=message,
-        )
+        route, _answer = navigation
+        decision = navigation_action_for_route(route, state, history_message=message)
+        if decision is not None:
+            return decision
 
     if state.task == "transfer" and _is_transfer_cancel(message):
         return TaskNavigationDecision(

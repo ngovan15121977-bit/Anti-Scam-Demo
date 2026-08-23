@@ -44,6 +44,7 @@ from src.app.schemas.guardian import (
     GuardianSessionOut,
     GuardianTranscriptMessage,
 )
+from src.app.services.agent_provider_config import guardian_stt_provider_config
 from src.app.services.scam_guardian import (
     GuardianConversationState,
     GuardianRiskResult,
@@ -52,6 +53,7 @@ from src.app.services.scam_guardian_agent import (
     GuardianAgentUnavailableError,
     degraded_guardian_result,
     fail_closed_guardian_result,
+    immediate_direct_evidence_result,
 )
 from src.app.services.scam_guardian_stt import (
     is_probable_ad_hallucination,
@@ -264,9 +266,9 @@ def _risk_payload(result: GuardianRiskResult) -> dict[str, Any]:
 async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
     """Receive audio/transcript events and stream risk updates immediately.
 
-    When GROQ_API_KEY is configured, short self-contained audio segments are
-    transcribed by Groq Whisper. Raw audio remains in memory only and is never
-    written to disk or persisted in the database.
+    When a Guardian STT provider key is configured, short self-contained audio
+    segments are transcribed server-side. Raw audio remains in memory only and
+    is never written to disk or persisted in the database.
     """
     await websocket.accept()
     db = SessionLocal()
@@ -301,7 +303,8 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
             await websocket.close(code=4401, reason="User is not active")
             return
 
-        server_stt_enabled = settings.guardian_stt_enabled and bool(settings.groq_api_key)
+        stt_provider = guardian_stt_provider_config(settings)
+        server_stt_enabled = settings.guardian_stt_enabled and bool(stt_provider.api_key)
         await websocket.send_json(
             {
                 "type": "ready",
@@ -350,7 +353,13 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
                 segment_id = segment.id
 
             now = time.monotonic()
-            if (
+            # Direct high-risk evidence must not wait for the regular LLM
+            # cadence. It also continues to protect calls during a temporary
+            # provider outage, without pretending to infer ambiguous context.
+            result = immediate_direct_evidence_result(state)
+            if result is not None:
+                last_agent_analysis_at = now
+            elif (
                 last_agent_analysis_at is not None
                 and now - last_agent_analysis_at < settings.guardian_agent_min_interval_seconds
             ) or now < agent_retry_after_until:
@@ -365,48 +374,49 @@ async def guardian_stream(websocket: WebSocket, session_id: uuid.UUID) -> None:
                     }
                 )
                 return
-            last_agent_analysis_at = now
+            if result is None:
+                last_agent_analysis_at = now
 
-            try:
-                # LLM inference is blocking; keep the WebSocket event loop
-                # responsive while the agent evaluates the conversation.
-                result = await asyncio.to_thread(
-                    get_multi_agent_supervisor().dispatch,
-                    AgentId.CALL_GUARDIAN,
-                    GuardianRiskTask(state=state, latest_text=transcript.text),
-                )
-                agent_failure_streak = 0
-                agent_retry_after_until = 0.0
-            except GuardianAgentUnavailableError as exc:
-                # Fail closed without pretending that a backend threshold made
-                # the decision. The synthetic action only protects the user
-                # until the agent is available again.
-                logger.warning(
-                    "Guardian agent unavailable: %s (provider=%s, retry_after=%ss)",
-                    exc,
-                    type(exc.__cause__).__name__ if exc.__cause__ else "unknown",
-                    exc.retry_after_seconds,
-                )
-                agent_failure_streak += 1
-                if exc.retry_after_seconds:
-                    agent_retry_after_until = time.monotonic() + exc.retry_after_seconds
-                # Do not turn a single transient provider failure into a
-                # critical scam alert. Three consecutive failures enter the
-                # explicit fail-closed STOP state; both states still pause
-                #/block transactions through the backend guard below.
-                result = (
-                    fail_closed_guardian_result(str(exc))
-                    if agent_failure_streak >= 3
-                    else degraded_guardian_result(str(exc))
-                )
-                await websocket.send_json(
-                    {
-                        "type": "agent_status",
-                        "status": "blocked" if agent_failure_streak >= 3 else "degraded",
-                        "consecutive_failures": agent_failure_streak,
-                        "message": str(exc),
-                    }
-                )
+                try:
+                    # LLM inference is blocking; keep the WebSocket event loop
+                    # responsive while the agent evaluates the conversation.
+                    result = await asyncio.to_thread(
+                        get_multi_agent_supervisor().dispatch,
+                        AgentId.CALL_GUARDIAN,
+                        GuardianRiskTask(state=state, latest_text=transcript.text),
+                    )
+                    agent_failure_streak = 0
+                    agent_retry_after_until = 0.0
+                except GuardianAgentUnavailableError as exc:
+                    # Fail closed without pretending that a backend threshold made
+                    # the decision. The synthetic action only protects the user
+                    # until the agent is available again.
+                    logger.warning(
+                        "Guardian agent unavailable: %s (provider=%s, retry_after=%ss)",
+                        exc,
+                        type(exc.__cause__).__name__ if exc.__cause__ else "unknown",
+                        exc.retry_after_seconds,
+                    )
+                    agent_failure_streak += 1
+                    if exc.retry_after_seconds:
+                        agent_retry_after_until = time.monotonic() + exc.retry_after_seconds
+                    # Do not turn a single transient provider failure into a
+                    # critical scam alert. Three consecutive failures enter the
+                    # explicit fail-closed STOP state; both states still pause
+                    #/block transactions through the backend guard below.
+                    result = (
+                        fail_closed_guardian_result(str(exc))
+                        if agent_failure_streak >= 3
+                        else degraded_guardian_result(str(exc))
+                    )
+                    await websocket.send_json(
+                        {
+                            "type": "agent_status",
+                            "status": "blocked" if agent_failure_streak >= 3 else "degraded",
+                            "consecutive_failures": agent_failure_streak,
+                            "message": str(exc),
+                        }
+                    )
             result = _persist_risk_result(db, session, result, segment_id)
             await websocket.send_json(
                 {

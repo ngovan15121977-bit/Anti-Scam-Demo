@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from functools import lru_cache
@@ -10,7 +11,9 @@ from io import BytesIO
 from openai import OpenAI
 
 from src.app.config import get_settings
-from src.app.services.agent_provider_config import guardian_stt_provider_config
+from src.app.services.agent_provider_config import guardian_stt_provider_config, is_rate_limit_error
+
+logger = logging.getLogger(__name__)
 
 
 def _file_name(mime_type: str) -> str:
@@ -114,10 +117,9 @@ def is_probable_ad_hallucination(text: str) -> bool:
     )
 
 
-@lru_cache(maxsize=1)
-def _client() -> OpenAI:
-    provider = guardian_stt_provider_config()
-    return OpenAI(api_key=provider.api_key, base_url=provider.base_url)
+@lru_cache(maxsize=8)
+def _client(api_key: str, base_url: str) -> OpenAI:
+    return OpenAI(api_key=api_key, base_url=base_url, max_retries=0, timeout=20.0)
 
 
 def transcribe_guardian_audio(audio_bytes: bytes, mime_type: str) -> str:
@@ -133,15 +135,28 @@ def transcribe_guardian_audio(audio_bytes: bytes, mime_type: str) -> str:
     if len(audio_bytes) < 1_000:
         return ""
 
-    audio_file = BytesIO(audio_bytes)
-    audio_file.name = _file_name(mime_type)
-    result = _client().audio.transcriptions.create(
-        file=audio_file,
-        model=provider.model,
-        language="vi",
-        response_format="verbose_json",
-        temperature=0,
-    )
+    result = None
+    for index, api_key in enumerate(provider.api_keys):
+        # Re-create the stream for every retry: providers may have consumed it
+        # before reporting an HTTP 429. Audio remains in memory only.
+        audio_file = BytesIO(audio_bytes)
+        audio_file.name = _file_name(mime_type)
+        try:
+            result = _client(api_key, provider.base_url).audio.transcriptions.create(
+                file=audio_file,
+                model=provider.model,
+                language="vi",
+                response_format="verbose_json",
+                temperature=0,
+            )
+            break
+        except Exception as exc:
+            if not is_rate_limit_error(exc) or index == len(provider.api_keys) - 1:
+                raise
+            logger.warning("Guardian STT is rate limited; trying a configured backup key")
+
+    if result is None:  # Defensive: a non-empty key pool always returns or raises above.
+        raise RuntimeError("Guardian STT did not return a transcription")
     if _looks_like_silence_hallucination(result):
         return ""
     text = (getattr(result, "text", "") or "").strip()

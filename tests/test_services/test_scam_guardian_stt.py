@@ -23,7 +23,7 @@ def test_transcribe_uses_groq_whisper_without_persisting_audio(monkeypatch):
     monkeypatch.setattr(
         scam_guardian_stt,
         "_client",
-        lambda: SimpleNamespace(audio=SimpleNamespace(transcriptions=Transcriptions())),
+        lambda *_args: SimpleNamespace(audio=SimpleNamespace(transcriptions=Transcriptions())),
     )
 
     result = scam_guardian_stt.transcribe_guardian_audio(b"x" * 1_000, "audio/webm;codecs=opus")
@@ -58,7 +58,7 @@ def test_silence_hallucination_is_filtered(monkeypatch):
     monkeypatch.setattr(
         scam_guardian_stt,
         "_client",
-        lambda: SimpleNamespace(audio=SimpleNamespace(transcriptions=Transcriptions())),
+        lambda *_args: SimpleNamespace(audio=SimpleNamespace(transcriptions=Transcriptions())),
     )
 
     assert scam_guardian_stt.transcribe_guardian_audio(b"x" * 1_000, "audio/webm") == ""
@@ -78,7 +78,7 @@ def test_youtube_outro_hallucination_is_filtered_without_metadata(monkeypatch):
     monkeypatch.setattr(
         scam_guardian_stt,
         "_client",
-        lambda: SimpleNamespace(audio=SimpleNamespace(transcriptions=Transcriptions())),
+        lambda *_args: SimpleNamespace(audio=SimpleNamespace(transcriptions=Transcriptions())),
     )
 
     assert scam_guardian_stt.transcribe_guardian_audio(b"x" * 1_000, "audio/webm") == ""
@@ -97,3 +97,33 @@ def test_social_media_call_to_action_is_filtered():
     assert scam_guardian_stt.is_probable_ad_hallucination(
         "Các bạn có thể nhớ like và share video này để ủng hộ kênh của mình nhé"
     )
+
+
+def test_transcription_uses_backup_key_after_rate_limit(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "guardian_stt_enabled", True)
+    monkeypatch.setattr(settings, "guardian_stt_api_key", "primary-key")
+    monkeypatch.setattr(settings, "guardian_stt_api_keys", "backup-key")
+
+    calls: list[str] = []
+
+    class RateLimitError(RuntimeError):
+        status_code = 429
+
+    class Transcriptions:
+        def __init__(self, api_key: str) -> None:
+            self.api_key = api_key
+
+        def create(self, **_kwargs):
+            calls.append(self.api_key)
+            if self.api_key == "primary-key":
+                raise RateLimitError("rate limit")
+            return SimpleNamespace(text="Nội dung cuộc gọi")
+
+    def fake_client(api_key: str, _base_url: str):
+        return SimpleNamespace(audio=SimpleNamespace(transcriptions=Transcriptions(api_key)))
+
+    monkeypatch.setattr(scam_guardian_stt, "_client", fake_client)
+
+    assert scam_guardian_stt.transcribe_guardian_audio(b"x" * 1_000, "audio/webm") == "Nội dung cuộc gọi"
+    assert calls == ["primary-key", "backup-key"]

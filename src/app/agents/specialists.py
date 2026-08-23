@@ -10,7 +10,8 @@ from src.app.agents.contracts import (
     AgentDescriptor,
     AgentId,
 )
-from src.app.agents.task_navigation import route_task
+from src.app.agents.task_navigation import navigation_action_for_route, route_task
+from src.app.services.contextual_navigation_agent import understand_navigation_request
 from src.app.services.scam_guardian_agent import analyze_with_guardian_agent
 from src.app.services.scam_guardian_stt import transcribe_guardian_audio
 from src.app.services.timi_assistant import answer_timi_question
@@ -90,6 +91,7 @@ class TaskNavigationAgent:
         capabilities=(
             AgentCapability.TRANSFER_DRAFTING,
             AgentCapability.GUARDIAN_PREFERENCE,
+            AgentCapability.CONTEXTUAL_NAVIGATION,
         ),
         api_path="/api/v1/assistant/chat",
     )
@@ -98,6 +100,21 @@ class TaskNavigationAgent:
         if not isinstance(payload, TaskNavigationTask):
             raise TypeError("Task Navigation Agent nhận sai loại tác vụ")
         decision = route_task(payload.message, payload.task_state)
+        # Rules serve the known high-confidence commands for zero latency. If
+        # wording is unfamiliar, the Groq classifier may return one route from
+        # its strict allowlist. The backend owns both the displayed text and
+        # the browser action, so the model never emits a free-form command.
+        if not decision.handled:
+            contextual = understand_navigation_request(payload.message)
+            if contextual and contextual.route:
+                decision = (
+                    navigation_action_for_route(
+                        contextual.route,
+                        payload.task_state,
+                        history_message=payload.message,
+                    )
+                    or decision
+                )
         return TaskNavigationResult(
             handled=decision.handled,
             answer=decision.answer,
