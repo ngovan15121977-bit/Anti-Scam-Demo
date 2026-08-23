@@ -147,6 +147,7 @@ export default function MiniTimiAssistant() {
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const speechTranscriptRef = useRef("");
   const submitSpeechOnEndRef = useRef(false);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const name = firstName(user?.full_name);
   const tips = useMemo(() => tipsForPath(location.pathname, name), [location.pathname, name]);
   const tip = tips[tipIndex % tips.length];
@@ -279,6 +280,17 @@ export default function MiniTimiAssistant() {
     setChatMessages([WELCOME_MESSAGE, ...storedMessages]);
     hydratedHistoryUserRef.current = userId;
   }, [historyQuery.data, user?.id]);
+
+  useEffect(() => {
+    if (!chatOpen) return undefined;
+    // The panel is conditionally rendered. Waiting for the next frame means
+    // its scroll height includes both restored history and the newest message.
+    const frame = window.requestAnimationFrame(() => {
+      const messages = messagesScrollRef.current;
+      if (messages) messages.scrollTop = messages.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [chatOpen, chatMessages.length, chatMutation.isPending]);
 
   useEffect(() => {
     if (!isOpen || tips.length <= 1) return undefined;
@@ -465,7 +477,10 @@ export default function MiniTimiAssistant() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50/50 p-4">
+          <div
+            ref={messagesScrollRef}
+            className="flex-1 space-y-4 overflow-y-auto bg-slate-50/50 p-4"
+          >
             {chatMessages.map((chatMessage) => (
               <div key={chatMessage.id} className={`flex ${chatMessage.role === "user" ? "justify-end" : "justify-start"}`}>
                 {chatMessage.role === "assistant" && (

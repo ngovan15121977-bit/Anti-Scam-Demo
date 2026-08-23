@@ -34,6 +34,25 @@ _TRANSFER_CANCEL_PHRASES = (
     "dung chuyen khoan",
     "khong chuyen nua",
 )
+_TRANSFER_GUIDANCE_PHRASES = (
+    "cach chuyen tien",
+    "cach chuyen khoan",
+    "chuyen tien nhu the nao",
+    "chuyen khoan nhu the nao",
+    "nhu nao",
+    "nhu the nao",
+    "the nao",
+    "bang cach nao",
+    "lam the nao",
+    "lam sao chuyen",
+    "lam sao",
+    "huong dan chuyen",
+    "kieu gi",
+    "ra sao",
+    "can lam gi",
+    "bat dau tu dau",
+    "duoc khong",
+)
 _GUARDIAN_TERMS = (
     "nghe va bao ve cuoc goi",
     "bao ve cuoc goi",
@@ -44,37 +63,37 @@ _NAVIGATION_INTENTS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     (
         "/me?open=password",
         ("doi mat khau", "thay mat khau", "cap nhat mat khau"),
-        "Đã mở phần đổi mật khẩu. Bạn hãy tự nhập mật khẩu hiện tại và mật khẩu mới tại đó.",
+        "Đã mở phần đổi mật khẩu. Nhập mật khẩu hiện tại, mật khẩu mới và xác nhận để lưu thay đổi.",
     ),
     (
         "/me?open=pin",
         ("doi pin", "thay pin", "cap nhat pin", "ma pin giao dich"),
-        "Đã mở phần cập nhật mã PIN giao dịch.",
+        "Đã mở phần cập nhật mã PIN giao dịch. Nhập PIN hiện tại, PIN mới và xác nhận để hoàn tất.",
     ),
     (
         "/setup-pin",
         ("tao pin", "cai dat pin", "dang ky pin"),
-        "Đã mở phần tạo mã PIN giao dịch.",
+        "Đã mở phần tạo mã PIN giao dịch. Chọn một PIN dễ nhớ với bạn nhưng khó đoán, rồi xác nhận lại mã.",
     ),
     (
         "/setup-face",
         ("face id", "faceid", "khuon mat", "nhan dien khuon mat"),
-        "Đã mở phần cài đặt Face ID.",
+        "Đã mở phần cài đặt Face ID. Chọn thiết lập Face ID và làm theo hướng dẫn hiển thị trên camera.",
     ),
     (
         "/qr?mode=scan",
         ("quet qr", "quet ma qr", "thanh toan qr", "mo qr"),
-        "Đã mở tính năng quét mã QR an toàn.",
+        "Đã mở quét mã QR an toàn. Cấp quyền camera nếu được hỏi, rồi đưa mã QR vào giữa khung quét.",
     ),
     (
         "/qr?mode=create",
         ("tao qr", "ma qr cua toi", "nhan tien bang qr", "tao ma qr"),
-        "Đã mở phần tạo mã QR nhận tiền.",
+        "Đã mở phần tạo mã QR nhận tiền. Nhập số tiền hoặc nội dung nếu cần, sau đó chia sẻ mã QR cho người gửi.",
     ),
     (
         "/history",
         ("lich su giao dich", "xem lich su", "giao dich gan day", "lich su chuyen tien"),
-        "Đã mở lịch sử giao dịch của bạn.",
+        "Đã mở lịch sử giao dịch. Bạn có thể chọn giao dịch bất kỳ để xem đầy đủ thông tin và trạng thái.",
     ),
     (
         "/me",
@@ -85,9 +104,13 @@ _NAVIGATION_INTENTS: tuple[tuple[str, tuple[str, ...], str], ...] = (
             "quan ly tai khoan",
             "cai dat tai khoan",
             "doi anh dai dien",
+            "thay anh dai dien",
+            "thay anh",
+            "cap nhat anh dai dien",
+            "anh dai dien",
             "dang xuat",
         ),
-        "Đã mở trang Hồ sơ và cài đặt tài khoản.",
+        "Đã mở trang Hồ sơ và cài đặt tài khoản. Chọn mục bạn muốn quản lý để tiếp tục.",
     ),
     (
         "/transfer",
@@ -97,12 +120,19 @@ _NAVIGATION_INTENTS: tuple[tuple[str, tuple[str, ...], str], ...] = (
             "vao chuyen tien",
             "den chuyen tien",
         ),
-        "Đã mở trang Chuyển tiền. Bạn có thể nhập thông tin giao dịch tại đó.",
+        "Đã mở trang Chuyển tiền. Nhập số tài khoản, ngân hàng và số tiền; kiểm tra lại trước khi xác nhận.",
     ),
     (
         "/dashboard",
         ("trang chu", "tong quan", "ve trang chu", "mo trang tong quan"),
-        "Đã mở trang Tổng quan.",
+        "Đã mở trang Tổng quan. Từ đây bạn có thể xem số dư, hoạt động gần đây hoặc chọn chức năng cần dùng.",
+    ),
+)
+_NAVIGATION_RESPONSE_OVERRIDES: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    (
+        "/me",
+        ("doi anh dai dien", "thay anh dai dien", "thay anh", "cap nhat anh dai dien", "anh dai dien"),
+        "Đã mở Hồ sơ. Bấm biểu tượng máy ảnh trên ảnh đại diện để chọn và thay ảnh mới.",
     ),
 )
 _KNOWN_BANKS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -165,6 +195,9 @@ class TaskNavigationDecision:
     task_state: AssistantTaskState
     action: AssistantUiAction | None = None
     history_message: str | None = None
+    # Some messages intentionally fall through to Chat Support.  Those must
+    # not be reinterpreted by the contextual page-navigation model.
+    allow_contextual_navigation: bool = True
 
 
 def _normalize(value: str) -> str:
@@ -222,6 +255,13 @@ def _extract_amount(message: str, *, allow_bare: bool) -> int | None:
 def _is_transfer_start(message: str) -> bool:
     normalized = _normalize(message)
     return any(phrase in normalized for phrase in _TRANSFER_START_PHRASES)
+
+
+def _is_transfer_guidance_question(message: str) -> bool:
+    """Keep informational transfer questions on the Chat Support path."""
+
+    normalized = _normalize(message)
+    return any(phrase in normalized for phrase in _TRANSFER_GUIDANCE_PHRASES)
 
 
 def _is_transfer_cancel(message: str) -> bool:
@@ -316,6 +356,11 @@ def _navigation_request(message: str) -> tuple[str, str] | None:
         return None
     for route, phrases, answer in _NAVIGATION_INTENTS:
         if any(_contains_whole_phrase(normalized, phrase) for phrase in phrases):
+            for override_route, override_phrases, override_answer in _NAVIGATION_RESPONSE_OVERRIDES:
+                if override_route == route and any(
+                    _contains_whole_phrase(normalized, phrase) for phrase in override_phrases
+                ):
+                    return route, override_answer
             return route, answer
     return None
 
@@ -325,6 +370,7 @@ def navigation_action_for_route(
     state: AssistantTaskState,
     *,
     history_message: str | None = None,
+    response_text: str | None = None,
 ) -> TaskNavigationDecision | None:
     """Turn one validated allowlist route into a server-owned UI action.
 
@@ -336,7 +382,7 @@ def navigation_action_for_route(
         if route == allowed_route:
             return TaskNavigationDecision(
                 handled=True,
-                answer=answer,
+                answer=response_text or answer,
                 task_state=state,
                 action=AssistantUiAction(type="navigate_app", route=allowed_route),
                 history_message=_redact_history_message(history_message or ""),
@@ -471,8 +517,13 @@ def route_task(message: str, state: AssistantTaskState) -> TaskNavigationDecisio
 
     navigation = _navigation_request(message)
     if navigation:
-        route, _answer = navigation
-        decision = navigation_action_for_route(route, state, history_message=message)
+        route, answer = navigation
+        decision = navigation_action_for_route(
+            route,
+            state,
+            history_message=message,
+            response_text=answer,
+        )
         if decision is not None:
             return decision
 
@@ -484,8 +535,23 @@ def route_task(message: str, state: AssistantTaskState) -> TaskNavigationDecisio
             history_message=message,
         )
 
-    if state.task == "transfer" or _is_transfer_start(message):
-        return _route_transfer(message, state if state.task == "transfer" else _empty_state())
+    # A question about how to transfer is not transaction data.  Clear an
+    # unfinished draft as well: otherwise a stale draft can make a later
+    # message look like consent to continue a transaction the user did not
+    # intend to create.
+    if _is_transfer_guidance_question(message):
+        return TaskNavigationDecision(
+            handled=False,
+            answer=None,
+            task_state=_empty_state(),
+            allow_contextual_navigation=False,
+        )
+
+    if state.task == "transfer":
+        return _route_transfer(message, state)
+
+    if _is_transfer_start(message) and not _is_transfer_guidance_question(message):
+        return _route_transfer(message, _empty_state())
 
     return TaskNavigationDecision(
         handled=False,

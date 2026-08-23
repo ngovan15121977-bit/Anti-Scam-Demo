@@ -108,7 +108,7 @@ def chat_with_timi(
             answer=cached.answer,
             out_of_scope=cached.out_of_scope,
             cache_hit=True,
-            task_state=payload.task_state,
+            task_state=navigation.task_state,
         )
 
     history = recent_context(
@@ -150,7 +150,7 @@ def chat_with_timi(
     return AssistantChatResponse(
         answer=result.answer,
         out_of_scope=result.out_of_scope,
-        task_state=payload.task_state,
+        task_state=navigation.task_state,
     )
 
 
