@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     guardian_agent_api_keys: str = ""
     guardian_agent_base_url: str = ""
     guardian_agent_model: str = "llama-3.1-8b-instant"
+    # GPT-OSS can spend more internal reasoning for difficult, ambiguous calls.
+    # Keep low for realtime latency; use medium when accuracy is the priority.
+    guardian_agent_reasoning_effort: Literal["low", "medium", "high"] = "low"
     # Avoid spending a provider request on every short STT fragment.
     guardian_agent_min_interval_seconds: float = Field(default=6.0, ge=0.0, le=60.0)
     # Realtime Guardian fallback STT. Uses Groq Whisper when configured.

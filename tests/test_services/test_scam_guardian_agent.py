@@ -64,6 +64,42 @@ def test_direct_evidence_guardrail_stabilizes_otp_request(monkeypatch) -> None:
     assert result.signals[0].signal_type == "otp_request"
 
 
+def test_model_only_mode_preserves_model_decision_for_evaluation(monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "guardian_agent_enabled", True)
+    monkeypatch.setattr(settings, "groq_api_key", "test-key")
+
+    class FakeOpenAI:
+        def __init__(self, **_kwargs):
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **_kwargs: _fake_response(
+                        {
+                            "risk_score": 52,
+                            "risk_level": "high",
+                            "scenario": "credential_request",
+                            "recommended_action": "PAUSE",
+                            "explanation": "Cần tự xác minh trước khi tiếp tục.",
+                            "signals": [],
+                        }
+                    )
+                )
+            )
+
+    monkeypatch.setattr(scam_guardian_agent, "OpenAI", FakeOpenAI)
+    state = GuardianConversationState()
+    state.append("unknown", "Hãy đọc mã OTP để xác minh.")
+
+    result = scam_guardian_agent.analyze_with_guardian_agent(
+        state,
+        "Hãy đọc mã OTP để xác minh.",
+        apply_direct_guardrail=False,
+    )
+
+    assert result.risk_score == 52
+    assert result.recommended_action == "PAUSE"
+
+
 def test_immediate_policy_catches_unknown_server_stt_without_a_model_call() -> None:
     state = GuardianConversationState()
     state.append("unknown", "Hãy đọc mã OTP để xác minh tài khoản.")
