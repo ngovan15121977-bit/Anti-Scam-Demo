@@ -1,7 +1,7 @@
 """Phase 1 – Observability endpoint for Guardian decisions.
 
 Mount in main.py:
-  from src.app.api import guardian_stats
+  from src.api import guardian_stats
   app.include_router(guardian_stats.router, prefix="/api/v1")
 
 In-memory ring buffer for demo; replace with DB aggregation in production.

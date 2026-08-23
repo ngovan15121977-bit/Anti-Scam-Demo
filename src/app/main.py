@@ -17,6 +17,7 @@ from src.app.routers.api import (
     support,
     transactions,
     url_safety,
+    legacy_compat,
 )
 from src.app.routers.api.admin import emails as admin_emails, routes as admin
 from src.app.config import get_settings
@@ -52,6 +53,7 @@ app.include_router(content.router, prefix="/api/v1")
 app.include_router(guardian.router, prefix="/api/v1")
 app.include_router(admin_emails.notifications_router, prefix="/api/v1")
 app.include_router(password_reset.router, prefix="/api/v1")
+app.include_router(legacy_compat.router, prefix="/api/v1")
 @app.on_event("startup")
 def preload_face_ai() -> None:
     """Warm Face ID when the deployment explicitly ships/preloads the models."""

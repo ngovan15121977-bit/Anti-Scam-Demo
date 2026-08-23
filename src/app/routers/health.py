@@ -29,7 +29,7 @@ async def test_db_connection(db: Session = Depends(get_db)):
         try:
             count_result = db.execute(text("SELECT COUNT(*) FROM blacklist")).fetchone()
             blacklist_count = count_result[0] if count_result else 0
-        except:
+        except Exception:
             pass  # Bảng chưa tạo hoặc chưa có dữ liệu
         
         return {

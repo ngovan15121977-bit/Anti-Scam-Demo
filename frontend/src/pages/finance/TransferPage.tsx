@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -137,7 +136,8 @@ export default function TransferPage() {
     staleTime: 0,
   });
 
-  // Chỉ lấy người nhận đã chuyển thành công, mức rủi ro an toàn/thấp/trung bình.
+  // Lấy mọi người nhận đã chuyển thành công (user và admin như nhau).
+  // API chỉ loại tài khoản blacklist; không lọc theo role của người nhận.
   const recentContactsQuery = useQuery({
     queryKey: ["recent-contacts", user?.id],
     queryFn: () => transactionsApi.getRecentContacts(10),
@@ -171,7 +171,6 @@ export default function TransferPage() {
   const [step, setStep] = useState<
     "form" | "review" | "analyzing" | "ai-check" | "pin" | "face" | "success"
   >("form");
-  const [faceVerificationStarted, setFaceVerificationStarted] = useState(false);
   const [pin, setPin] = useState("");
   const [isPinVisible, setIsPinVisible] = useState(false);
   const pinVisibilityTimer = useRef<number | null>(null);
@@ -192,7 +191,11 @@ export default function TransferPage() {
   const [bankActiveIndex, setBankActiveIndex] = useState(0);
   const [selectedRecentId, setSelectedRecentId] = useState<string | null>(null);
   const [assistantReviewRequested, setAssistantReviewRequested] = useState(false);
-  useBodyScrollLock(step === "face" && !faceVerificationStarted);
+  useBodyScrollLock(
+    step === "face"
+      || (step === "ai-check" && riskData !== null),
+    "transfer-modal",
+  );
   const selectedBank = banks.find((bank) => bank.code === form.bank_code);
   const normalizedBankSearch = bankSearch.trim().toLocaleLowerCase("vi-VN");
   const filteredBanks = banks.filter((bank) =>
@@ -323,7 +326,6 @@ export default function TransferPage() {
       }
       setAssistantActivity({ status: "complete", message: "Timi đã kiểm tra xong. Bạn có thể tiếp tục xác thực giao dịch nhé!" });
       if (data.requires_face_verification) {
-        setFaceVerificationStarted(false);
         setStep("face");
       } else {
         setStep("pin");
@@ -488,7 +490,6 @@ export default function TransferPage() {
   const handleProceed = (transactionPin: string) => {
     if (!txId) return;
     if (requiresFaceVerification) {
-      setFaceVerificationStarted(false);
       setStep("face");
       return;
     }
@@ -539,7 +540,16 @@ export default function TransferPage() {
     form.amount &&
     form.bank_code,
   );
-  const requiresFaceVerification = Boolean(riskData?.requires_face_verification);
+  const amountRequiresFaceVerification = Number(form.amount || 0) >= 10_000_000;
+  const blacklistRequiresFaceVerification = Boolean(
+    riskData?.risk_level === "high"
+      && riskData.signals.some((signal) => signal.signal_type === "blacklist_exact_match"),
+  );
+  const requiresFaceVerification = Boolean(
+    riskData?.requires_face_verification
+      || amountRequiresFaceVerification
+      || blacklistRequiresFaceVerification,
+  );
 
   useEffect(() => {
     // The Task Navigation Agent is allowed to prefill only.  Wait until the
@@ -1187,7 +1197,7 @@ export default function TransferPage() {
                 Chọn người nhận để điền nhanh thông tin chuyển tiền.
               </p>
             </div>
-            <div className="mt-5 max-h-[min(65vh,34rem)] space-y-2 overflow-y-auto pr-1">
+            <div className="mt-5 space-y-2 pr-1">
               {recentContacts.map((contact) => {
                 const initials = contact.full_name
                   .split(" ")
@@ -1423,41 +1433,6 @@ export default function TransferPage() {
   }
 
   if (step === "face") {
-    if (!faceVerificationStarted) {
-      return createPortal(
-        <div className="fixed inset-0 z-[9998] flex min-h-screen items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-3xl border border-violet-100 bg-white p-8 text-center shadow-2xl shadow-violet-950/20">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-100 text-violet-600">
-              <ScanLine className="h-8 w-8" />
-            </div>
-            <h2 className="mt-5 text-2xl font-bold text-slate-900">
-              Cần xác thực khuôn mặt
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-500">
-              Giao dịch này cần xác thực khuôn mặt để tiếp tục. Bạn có muốn bắt đầu xác thực ngay không?
-            </p>
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={() => setFaceVerificationStarted(true)}
-                className="flex-1 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3.5 font-bold text-white shadow-lg shadow-violet-200 transition hover:shadow-xl"
-              >
-                Xác thực khuôn mặt
-              </button>
-              <button
-                type="button"
-                onClick={handleCancel}
-                disabled={decisionMutation.isPending}
-                className="flex-1 rounded-xl bg-slate-100 px-4 py-3.5 font-semibold text-slate-700 transition hover:bg-slate-200 disabled:opacity-50"
-              >
-                Quay về
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      );
-    }
     return (
       <FaceVerificationModal
         onVerified={handleFaceVerified}

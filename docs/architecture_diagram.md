@@ -66,7 +66,7 @@ Khác với template gốc (agent tự quyết định có gọi tool hay không
 | Face ID | OpenCV Zoo — SFace + YuNet (ONNX, chạy local) | Đăng ký/xác thực khuôn mặt, không gọi API nhận diện khuôn mặt bên ngoài |
 | Database | PostgreSQL (Neon) | Lưu trữ toàn bộ dữ liệu: user, transaction, risk assessment, signal, blacklist, audit log |
 | Vector Store | pgvector (extension của Neon PostgreSQL) | Semantic search cho kịch bản lừa đảo (scam pattern) và blacklist, phục vụ đối chiếu ngữ cảnh (RAG) |
-| Admin Dashboard | FastAPI (`src/app/api/admin.py`) + Frontend | Quản lý user, blacklist, kịch bản lừa đảo, scam report, thống kê, audit log |
-| Scam Forecast | `src/app/services/scam_forecast.py` | Dự báo xu hướng lừa đảo, đẩy thông báo cảnh báo sớm |
+| Admin Dashboard | FastAPI (`src/app/routers/api/admin/routes.py`) + Frontend | Quản lý user, blacklist, kịch bản lừa đảo, scam report, thống kê, audit log |
+| Scam Forecast | Chưa triển khai trong MVP hiện tại | Có trong roadmap, chưa phải module runtime |
 
 Xem đầy đủ sequence diagram cho luồng chuyển tiền, luồng Scam Call Guardian, ranh giới an toàn (safety boundaries) và bảng tra cứu mã nguồn chi tiết tại [`ARCHITECTURE.md`](../ARCHITECTURE.md).

@@ -18,4 +18,5 @@ class UserOut(BaseModel):
     is_active: bool
     balance: int
     timi_bank_enabled: bool
+    is_google_account: bool
     created_at: datetime

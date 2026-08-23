@@ -58,6 +58,11 @@ class User(Base, TimestampMixin):
         Boolean, default=False, server_default="false", nullable=False
     )
 
+    @property
+    def is_google_account(self) -> bool:
+        """Whether this account is backed by Google OAuth."""
+        return bool(self.google_subject)
+
     transactions: Mapped[list["Transaction"]] = relationship(
         back_populates="user", foreign_keys="Transaction.user_id"
     )

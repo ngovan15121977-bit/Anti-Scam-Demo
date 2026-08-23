@@ -32,12 +32,12 @@ export default function GooglePhoneModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/35 p-4 backdrop-blur-sm sm:items-center">
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="google-phone-title"
-        className="w-full max-w-md rounded-3xl border border-white/70 bg-white/95 p-7 shadow-2xl shadow-slate-900/20 sm:p-8"
+        className="my-4 w-full max-w-md rounded-3xl border border-white/70 bg-white/95 p-7 shadow-2xl shadow-slate-900/20 sm:p-8"
       >
         <div className="flex items-start justify-between gap-4">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">

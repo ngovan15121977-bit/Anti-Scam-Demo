@@ -164,24 +164,24 @@ Hệ thống thu thập nhiều tín hiệu độc lập cho mỗi lần đánh 
 
 | Thành phần | Vị trí | Nhiệm vụ |
 |---|---|---|
-| Giao diện chuyển tiền | `frontend/src/pages/TransferPage.tsx` | Combobox chọn ngân hàng, tra cứu rồi khoá tên người nhận, hiển thị cảnh báo, luồng HITL, xác thực PIN/Face ID |
-| API tra cứu người nhận | `src/app/api/recipients.py`, `src/app/services/recipient_lookup.py` | Tra cứu chính xác account + bank qua Timi users, `recipient_directory`, `blacklist`, `trusted_recipients`; phát hành token xác minh ngắn hạn |
+| Giao diện chuyển tiền | `frontend/src/pages/finance/TransferPage.tsx` | Combobox chọn ngân hàng, tra cứu rồi khoá tên người nhận, hiển thị cảnh báo, luồng HITL, xác thực PIN/Face ID |
+| API tra cứu người nhận | `src/app/routers/api/recipients.py`, `src/app/services/recipient_lookup.py` | Tra cứu chính xác account + bank qua Timi users, `recipient_directory`, `blacklist`, `trusted_recipients`; phát hành token xác minh ngắn hạn |
 | Transaction graph | `src/agents/transaction_graph.py` | Guard, thu thập bằng chứng, chấm điểm, giải thích bằng OpenAI (khi `LLM_EXPLANATION_ENABLED=true`) |
 | HITL graph | `src/agents/intervention_graph.py` | Điều phối xác minh hai bước |
-| API giao dịch | `src/app/api/transactions.py` | Assess, decision, report, audit; áp dụng chính sách PIN/Face ID qua `transaction_authentication.py` |
+| API giao dịch | `src/app/routers/api/transactions.py` | Assess, decision, report, audit; áp dụng chính sách PIN/Face ID qua `transaction_authentication.py` |
 | Chính sách xác thực giao dịch | `src/app/services/transaction_authentication.py` | Bắt buộc Face ID khi >= 10.000.000 VND hoặc risk cao + khớp blacklist; còn lại dùng PIN |
 | Risk engine | `src/app/services/risk_rules.py`, `risk_engine.py`, `blacklist_policy.py` | Chấm điểm xác định (deterministic), bất thường hành vi/số tiền, tốc độ giao dịch, từ khóa, telemetry, chính sách "thăng hạng" vào blacklist |
 | Ranh giới telemetry | `src/app/services/transaction_telemetry.py` | HMAC hoá device/network; đăng nhập chỉ lưu vị trí đã làm tròn, bắt buộc phải có |
-| URL safety | `src/app/api/url_safety.py`, `src/app/services/url_blacklist.py` | Chỉ kiểm tra hostname với blacklist cho URL quét từ QR, không lộ toàn bộ danh sách đen cho client |
+| URL safety | `src/app/routers/api/url_safety.py`, `src/app/services/url_blacklist.py` | Chỉ kiểm tra hostname với blacklist cho URL quét từ QR, không lộ toàn bộ danh sách đen cho client |
 | Face ID | `src/app/services/face_verification.py`, `models/face/` | Đăng ký/xác thực bằng model ONNX SFace + YuNet chạy local, không gọi API nhận diện khuôn mặt bên ngoài |
-| Scam Call Guardian | `src/app/api/guardian.py`, `src/app/services/scam_guardian*.py` | Phiên WebSocket thời gian thực, STT + Guardian Risk Agent trên Groq, thực thi fail-closed STOP |
-| Timi Assistant | `src/app/api/assistant.py`, `src/app/services/timi_assistant.py` | Chat giới hạn phạm vi, chạy trên Groq (client SDK OpenAI nhưng trỏ `groq_base_url`) |
-| Scam Forecast | `src/app/api/scam_forecast.py`, `src/app/services/scam_forecast.py` | Dự báo xu hướng lừa đảo và đẩy thông báo, do admin kích hoạt |
+| Scam Call Guardian | `src/app/routers/api/guardian.py`, `src/app/services/scam_guardian*.py` | Phiên WebSocket thời gian thực, STT + Guardian Risk Agent trên Groq, thực thi fail-closed STOP |
+| Timi Assistant | `src/app/routers/api/assistant.py`, `src/app/services/timi_assistant.py` | Chat giới hạn phạm vi, chạy trên Groq (client SDK OpenAI nhưng trỏ `groq_base_url`) |
+| Scam Forecast | Chưa triển khai trong MVP hiện tại | Có trong roadmap, không được mô tả như module đang chạy |
 | Vector store | `src/app/services/vector_store.py` | Semantic search bằng pgvector trên kịch bản lừa đảo/blacklist |
-| Admin Dashboard | `src/app/api/admin.py` | Quản lý role/trạng thái user, CRUD blacklist và kịch bản lừa đảo, duyệt scam report, xem thống kê, audit log và danh sách giao dịch |
+| Admin Dashboard | `src/app/routers/api/admin/routes.py` | Quản lý role/trạng thái user, CRUD blacklist và kịch bản lừa đảo, duyệt scam report, xem thống kê, audit log và danh sách giao dịch |
 | Lưu trữ dữ liệu | `src/app/models/` | Transaction, assessment, signal, warning, feedback, context, audit/intervention log, blacklist, `recipient_directory`, trusted recipient |
 
-> **Lưu ý:** `src/app/api/guardian_stats.py` tồn tại trong mã nguồn nhưng **không được mount** trong `src/app/main.py` — coi đây là code chưa kích hoạt/thử nghiệm, không phải endpoint đang chạy thật.
+> **Lưu ý:** `src/api/guardian_stats.py` là code legacy và **không được mount** trong `src/app/main.py` — coi đây là code chưa kích hoạt/thử nghiệm, không phải endpoint đang chạy thật.
 
 ## 5. Ranh giới an toàn (Safety boundaries)
 

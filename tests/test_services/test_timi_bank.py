@@ -16,7 +16,6 @@ from src.app.services.timi_bank import (
     is_timi_bank,
 )
 
-
 LOCATION_CONTEXT = {
     "device_id": "test-browser-device-0001",
     "geo_latitude": 10.7769,
@@ -43,7 +42,7 @@ def test_registration_phone_must_have_exactly_ten_digits() -> None:
     payload = RegisterRequest(
         email="ten-digits@example.com",
         full_name="Ten Digits",
-        password="password-123",
+        password="Password-123!",
         phone="0912345678",
     )
     assert payload.phone == "0912345678"
@@ -52,7 +51,7 @@ def test_registration_phone_must_have_exactly_ten_digits() -> None:
         RegisterRequest(
             email="nine-digits@example.com",
             full_name="Nine Digits",
-            password="password-123",
+            password="Password-123!",
             phone="912345678",
         )
 
@@ -60,7 +59,7 @@ def test_registration_phone_must_have_exactly_ten_digits() -> None:
 def test_location_is_required_on_the_post_login_setup_screen() -> None:
     credentials = LoginRequest(
         email="location-flow@example.com",
-        password="password-123",
+        password="Password-123!",
     )
     assert credentials.email == "location-flow@example.com"
 

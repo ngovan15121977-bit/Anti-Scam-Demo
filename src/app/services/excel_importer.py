@@ -52,7 +52,7 @@ class ExcelImporter:
             try:
                 s = str(int(float(x)))
                 return s
-            except:
+            except (TypeError, ValueError, OverflowError):
                 s = str(x).strip().replace('.0', '')
                 return s if s != 'nan' else ''
 
@@ -65,7 +65,7 @@ class ExcelImporter:
             s = str(val).replace(',', '').strip()
             try:
                 return float(s)
-            except:
+            except (TypeError, ValueError, OverflowError):
                 return None
 
         df['so_tien'] = df['So tien'].apply(clean_amount)
@@ -77,7 +77,7 @@ class ExcelImporter:
             s = str(val).replace(' luot xem', '').replace(',', '').strip()
             try:
                 return int(float(s))
-            except:
+            except (TypeError, ValueError, OverflowError):
                 return None
 
         df['luot_xem'] = df['Luot xem'].apply(clean_views)

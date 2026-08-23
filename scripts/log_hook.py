@@ -7,11 +7,8 @@ import json
 import os
 import sys
 import subprocess
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
-
-VN_TZ = timezone(timedelta(hours=7))
-
 
 def git(cmd):
     try:
@@ -53,7 +50,9 @@ def detect_tool(data: dict) -> str:
 def normalize(data: dict, tool: str) -> dict | None:
     """Normalize tool-specific payload to common log entry."""
     event = data.get("hook_event_name") or data.get("event", "")
-    ts = datetime.now(VN_TZ).isoformat()
+    # AI log timestamps are part of the cross-tool contract; keep them in UTC
+    # so CI, evaluation reports, and contributors in different timezones agree.
+    ts = datetime.now(UTC).isoformat()
 
     # Resolve repo from git origin. When cwd is not a git working tree (or
     # origin isn't set), skip the event entirely — these entries can't be
@@ -116,7 +115,7 @@ def normalize(data: dict, tool: str) -> dict | None:
             answer = ""
             try:
                 answer = resp["candidates"][0]["content"]["parts"][0]["text"][:500]
-            except Exception:
+            except (IndexError, KeyError, TypeError):
                 pass
             base.update({"prompt": prompt, "response_summary": answer})
 

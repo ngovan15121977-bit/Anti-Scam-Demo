@@ -392,7 +392,7 @@ export function ProfileNotificationBell() {
       {/* Modal chi tiết — giữa màn hình */}
       {selected && createPortal(
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6"
+          className="fixed inset-0 z-[60] flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain p-4 sm:p-6"
           role="dialog"
           aria-modal="true"
           aria-labelledby="notif-detail-title"
@@ -402,7 +402,7 @@ export function ProfileNotificationBell() {
             onClick={() => setSelected(null)}
           />
 
-          <div className="relative z-10 flex max-h-[min(90vh,36rem)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-violet-100 bg-white shadow-2xl shadow-violet-300/30">
+          <div className="relative z-10 my-4 w-full max-w-lg rounded-3xl border border-violet-100 bg-white shadow-2xl shadow-violet-300/30">
             <div className="shrink-0 border-b border-slate-100 bg-gradient-to-r from-violet-50 via-white to-fuchsia-50 px-5 py-4 sm:px-6">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
@@ -438,7 +438,7 @@ export function ProfileNotificationBell() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
+            <div className="px-5 py-5 sm:px-6">
               <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-slate-700">
                 {selected.body}
               </p>
@@ -464,7 +464,11 @@ export function ProfileNotificationBell() {
 export default function ProfilePage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout, updateUser } = useAuthStore();
+  const { user, logout, updateUser, fetchMe } = useAuthStore();
+  // Treat older persisted sessions as Google-only until /me refreshes the
+  // account identity. This prevents the password action from flashing back
+  // into view for an existing Google session.
+  const isGoogleAccount = user?.is_google_account !== false;
   const {
     voiceMonitoringEnabled,
     setVoiceMonitoringEnabled,
@@ -505,10 +509,14 @@ export default function ProfilePage() {
   const overview = overviewQuery.data;
 
   useEffect(() => {
+    void fetchMe();
+  }, [fetchMe]);
+
+  useEffect(() => {
     const open = new URLSearchParams(location.search).get("open");
-    if (open === "password") setShowPasswordModal(true);
+    if (open === "password" && !isGoogleAccount) setShowPasswordModal(true);
     if (open === "pin") setShowPinModal(true);
-  }, [location.search]);
+  }, [isGoogleAccount, location.search]);
 
   const handleAvatarChange = async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -558,6 +566,7 @@ export default function ProfilePage() {
   const menuItems = [
     {
       icon: Shield,
+      isPasswordItem: true,
       label: "Bảo mật tài khoản",
       desc: "Đổi mật khẩu, xác thực 2 lớp",
       action: () => setShowPasswordModal(true),
@@ -567,6 +576,7 @@ export default function ProfilePage() {
     },
     {
       icon: Bell,
+      isPasswordItem: false,
       label: "Thông báo",
       desc: "Quản lý cài đặt thông báo",
       action: () => navigate("/notifications"),
@@ -576,6 +586,7 @@ export default function ProfilePage() {
     },
     {
       icon: Mail,
+      isPasswordItem: false,
       label: "Đổi Gmail",
       desc: "Xác minh Gmail cũ và Gmail mới",
       action: () => setShowEmailModal(true),
@@ -585,6 +596,7 @@ export default function ProfilePage() {
     },
     {
       icon: Lock,
+      isPasswordItem: false,
       label: "Thay đổi mã PIN",
       desc: "Cập nhật mã PIN giao dịch",
       action: () => setShowPinModal(true),
@@ -594,6 +606,7 @@ export default function ProfilePage() {
     },
     {
       icon: HelpCircle,
+      isPasswordItem: false,
       label: "Trợ giúp",
       desc: "Câu hỏi thường gặp, liên hệ",
       action: () => navigate("/help"),
@@ -601,7 +614,7 @@ export default function ProfilePage() {
       bg: "bg-slate-100",
       iconColor: "text-slate-600",
     },
-  ];
+  ].filter((item) => !isGoogleAccount || !item.isPasswordItem);
 
   const handleLogout = () => {
     logout();
@@ -1151,7 +1164,7 @@ export default function ProfilePage() {
         />
       </div>
 
-      {showPasswordModal && (
+      {showPasswordModal && !isGoogleAccount && (
         <PasswordChangeModal onClose={() => setShowPasswordModal(false)} />
       )}
 
@@ -1169,8 +1182,8 @@ export default function ProfilePage() {
       )}
 
       {showPinModal && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
-          <div className="relative w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl border border-violet-100">
+        <div className="fixed inset-0 z-50 flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/50 p-4 backdrop-blur-sm sm:items-center">
+          <div className="relative my-4 w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl border border-violet-100">
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">
@@ -1285,11 +1298,11 @@ export default function ProfilePage() {
 
       {isAvatarPreviewOpen && user?.avatar_url && !avatarFailed && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/75 p-4 backdrop-blur-sm sm:items-center"
           onClick={() => setIsAvatarPreviewOpen(false)}
         >
           <div
-            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl border border-violet-100"
+            className="my-4 w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl border border-violet-100"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-5 flex items-center justify-between">
@@ -1335,8 +1348,8 @@ export default function ProfilePage() {
       )}
 
       {profileNotice && createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm" role="alertdialog" aria-modal="true">
-          <div className="w-full max-w-sm rounded-3xl border border-emerald-100 bg-white p-7 text-center shadow-2xl shadow-emerald-950/15">
+        <div className="fixed inset-0 z-[100] flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/45 p-4 backdrop-blur-sm sm:items-center" role="alertdialog" aria-modal="true">
+          <div className="my-4 w-full max-w-sm rounded-3xl border border-emerald-100 bg-white p-7 text-center shadow-2xl shadow-emerald-950/15">
             <CheckCircle2 className="mx-auto h-14 w-14 text-emerald-500" />
             <p className="mt-4 text-lg font-bold text-slate-900">{profileNotice}</p>
             <button type="button" onClick={() => setProfileNotice("")} className="mt-6 w-full rounded-xl bg-emerald-600 px-4 py-3 font-bold text-white hover:bg-emerald-700" aria-label="Đóng thông báo">Đã hiểu</button>
@@ -1406,8 +1419,8 @@ function EmailChangeModal({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-      <div className="w-full max-w-md rounded-3xl border border-violet-100 bg-white p-7 shadow-2xl">
+    <div className="fixed inset-0 z-[100] flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/50 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true">
+      <div className="my-4 w-full max-w-md rounded-3xl border border-violet-100 bg-white p-7 shadow-2xl">
         <div className="mb-6 flex items-center justify-between gap-4">
           <div><h2 className="text-xl font-bold text-slate-900">Đổi Gmail</h2><p className="mt-1 text-sm text-slate-500">Cần xác minh cả Gmail cũ và Gmail mới.</p></div>
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-cyan-50"><Mail className="h-6 w-6 text-cyan-600" /></div>
@@ -1447,8 +1460,8 @@ function PasswordChangeModal({ onClose }: { onClose: () => void }) {
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in backdrop-blur-sm">
-      <div className="bg-white rounded-t-3xl sm:rounded-3xl p-7 w-full max-w-md animate-in slide-in-from-bottom-10 border border-violet-100 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-black/50 p-4 animate-in fade-in backdrop-blur-sm sm:items-center">
+      <div className="my-4 bg-white rounded-t-3xl sm:rounded-3xl p-7 w-full max-w-md animate-in slide-in-from-bottom-10 border border-violet-100 shadow-2xl">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-slate-900">Đổi mật khẩu</h2>
           <button

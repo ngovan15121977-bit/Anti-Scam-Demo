@@ -11,6 +11,7 @@ export interface User {
   is_active: boolean;
   balance: number;
   timi_bank_enabled: boolean;
+  is_google_account: boolean;
   created_at: string;
 }
 

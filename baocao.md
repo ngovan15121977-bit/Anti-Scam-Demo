@@ -52,7 +52,7 @@ Các bảng liên quan đã hoàn thiện đầy đủ cột và ràng buộc:
 
 ### 2.1 API `POST /api/v1/recipients/resolve`
 
-File: `src/app/api/recipients.py`. Endpoint yêu cầu JWT hợp lệ (`get_current_user`).
+File: `src/app/routers/api/recipients.py`. Endpoint yêu cầu JWT hợp lệ (`get_current_user`).
 
 **Request** (`RecipientLookupRequest`, `src/app/schemas/recipient.py`):
 
@@ -118,7 +118,7 @@ Trình tự một giao dịch, ánh xạ theo bảng dữ liệu thực tế:
 
 ## 4. Giao Diện Chuyển Tiền
 
-File chính: `frontend/src/pages/TransferPage.tsx`.
+File chính: `frontend/src/pages/finance/TransferPage.tsx`.
 
 ### 4.1 Bỏ nhập tay tên người nhận
 

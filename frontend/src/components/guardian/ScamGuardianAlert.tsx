@@ -11,8 +11,8 @@ export default function ScamGuardianAlert() {
   if (!criticalAlert) return null;
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-red-950/75 p-4" role="alertdialog" aria-modal="true">
-      <div className="w-full max-w-lg rounded-3xl border-4 border-red-500 bg-white p-7 shadow-2xl">
+    <div className="fixed inset-0 z-[90] flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-red-950/75 p-4 sm:items-center" role="alertdialog" aria-modal="true">
+      <div className="my-4 w-full max-w-lg rounded-3xl border-4 border-red-500 bg-white p-7 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3 text-red-600">
             <AlertOctagon size={30} />

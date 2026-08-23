@@ -154,6 +154,9 @@ Chi tiết triển khai: `docs/PHASE1_IMPLEMENTATION.md`, `src/app/services/scam
 | `eval/scripts/` | `run_baseline_eval.py`, `run_phase1_eval.py` |
 | `docs/PHASE0_REPORT.md` | Báo cáo baseline |
 | `docs/PHASE1_IMPLEMENTATION.md` | Checklist & Definition of Done Phase 1 |
+| `docs/QUALITY_GATE.md` | Common-weakness audit, reproducible checks, and security follow-up |
+| `docs/MISSING_DELIVERABLES.md` | File-level audit and remaining deliverable status |
+| `presentation/VIDEO_DEMO_SCRIPT.md` | Recording script and acceptance checklist for the video deliverable |
 
 Chạy lại eval:
 
@@ -189,7 +192,7 @@ FastAPI (src/app)
 |---|---|
 | src/main.py | Entrypoint Uvicorn, export app |
 | src/app/main.py | FastAPI app canonical và router đang mount |
-| src/app/api/ | API auth, transaction, admin, URL safety, assistant |
+| src/app/routers/api/ | API auth, transaction, admin, URL safety, assistant |
 | src/app/services/ | Risk rules, Timi ledger, Face ID, blacklist, audit, Guardian hybrid |
 | src/app/models/ | SQLAlchemy models |
 | src/app/schemas/ | Pydantic request/response schemas |

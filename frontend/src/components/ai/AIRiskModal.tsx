@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
 import type { AssessResponse } from "@/services/api/transactions";
 import TimiChibi from "@/components/ai/TimiChibi";
@@ -77,8 +78,8 @@ export default function AIRiskModal({
   const canProceed = pinRequested && /^\d{4,6}$/.test(pin) && !isLoading;
   const riskPercentage = Math.round(riskData.risk_score * 100);
 
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm sm:items-center">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex h-dvh max-h-dvh min-h-0 touch-pan-y items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/60 p-4 backdrop-blur-sm sm:items-center">
       <div className={`my-4 w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl transition-opacity ${pinRequested ? "pointer-events-none opacity-30" : ""}`}>
         <div className={`p-4 text-center ${isHighRisk ? "bg-red-50" : "bg-amber-50"}`}>
           <div className="mb-2 flex justify-center">
@@ -181,14 +182,15 @@ export default function AIRiskModal({
       </div>
 
       {pinRequested && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/35 p-4">
-          <div className="w-full max-w-sm rounded-3xl border border-rose-200 bg-rose-50 p-6 shadow-2xl">
+        <div className="fixed inset-0 z-[10000] flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/35 p-4 sm:items-center">
+          <div className="my-4 w-full max-w-sm rounded-3xl border border-rose-200 bg-rose-50 p-6 shadow-2xl">
             <div className="mb-4 text-center"><div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-rose-100"><ShieldCheck className="h-7 w-7 text-rose-600" /></div><h3 className="text-xl font-bold text-rose-950">Mã PIN giao dịch</h3><p className="mt-1 text-sm text-rose-700">Nhập PIN để hoàn tất giao dịch.</p></div>
             <input autoFocus value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" type="password" autoComplete="off" placeholder="PIN 4–6 chữ số" className="w-full rounded-xl border border-rose-200 bg-white p-4 text-center text-xl tracking-[0.5em] text-rose-950 outline-none placeholder:text-rose-300 focus:border-rose-400 focus:ring-2 focus:ring-rose-300" />
             <div className="mt-4 flex gap-3"><button onClick={() => { setPinRequested(false); setPin(""); }} disabled={isLoading} className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50">Quay lại</button><button onClick={() => handleProceed(pin)} disabled={!canProceed} className="flex-1 rounded-xl bg-rose-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50">Hoàn tất</button></div>
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

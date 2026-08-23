@@ -790,7 +790,7 @@ function UsersTab({ searchQuery, setSearchQuery }: { searchQuery: string; setSea
         </div>
       </FalconCard>
       {confirmUser && createPortal(
-        <div className="fixed inset-0 z-[10000] flex min-h-screen items-center justify-center overflow-y-auto bg-slate-950/60 p-4">
+        <div className="fixed inset-0 z-[10000] flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/60 p-4 sm:items-center">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
             <div className="flex items-start gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-red-100 text-red-600">
@@ -1481,7 +1481,7 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
       )}
 
       {showAddModal && createPortal(
-        <div className="fixed inset-0 z-[10000] flex min-h-screen items-center justify-center overflow-y-auto bg-black/50 p-4">
+        <div className="fixed inset-0 z-[10000] flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-black/50 p-4 sm:items-center">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
             <h3 className="text-lg font-bold text-slate-800 mb-4">Thêm vào Blacklist</h3>
             <div className="space-y-3">
@@ -1515,7 +1515,7 @@ function BlacklistTab({ searchQuery, setSearchQuery }: { searchQuery: string; se
         document.body,
       )}
       {deleteTarget && showDeleteConfirm && createPortal(
-        <div className="fixed inset-0 z-[10000] flex min-h-screen items-center justify-center overflow-y-auto bg-black/50 p-4">
+        <div className="fixed inset-0 z-[10000] flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-black/50 p-4 sm:items-center">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
             <h3 className="text-lg font-bold text-slate-900">Xác nhận xóa blacklist</h3>
             <p className="mt-3 text-sm leading-6 text-slate-600">
@@ -1915,11 +1915,11 @@ function EmailTab() {
 
       {previewOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          className="fixed inset-0 z-50 flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-black/50 p-4 sm:items-center"
           onClick={() => setPreviewOpen(false)}
         >
           <div
-            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+            className="my-4 w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
@@ -1941,7 +1941,7 @@ function EmailTab() {
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
               Body
             </p>
-            <div className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-4 text-sm text-slate-700">
+            <div className="whitespace-pre-wrap rounded-lg bg-slate-50 p-4 text-sm text-slate-700">
               {broadcast.body || "(Chưa có nội dung)"}
             </div>
             <p className="mt-3 text-xs text-slate-400">

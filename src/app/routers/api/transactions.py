@@ -22,6 +22,7 @@ from src.app.config import get_settings
 from src.app.core.deps import get_current_user
 from src.app.core.security import decode_face_verification_token, decode_recipient_lookup_token, verify_password
 from src.app.db.session import get_db
+from src.app.models.blacklist import Blacklist
 from src.app.models.recipient_directory import RecipientDirectory
 from src.app.models.risk_assessment import (
     RiskLevel,
@@ -895,40 +896,55 @@ def recent_contacts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[dict[str, object]]:
-    """Return safe recent transfer recipients for the transfer form."""
+    """Return completed outgoing recipients for the transfer form.
+
+    A recipient remains selectable after a completed transfer even when the
+    original assessment was high risk: selecting it starts a fresh lookup and
+    risk assessment for the new transfer. User and admin recipients follow the
+    same rule; role is not a visibility filter.
+    """
     page_size = min(max(limit, 1), 10)
     recipient = aliased(User)
-    latest_assessment = lateral(
-        select(TransactionRiskAssessment.risk_level.label("risk_level"))
-        .where(TransactionRiskAssessment.transaction_id == Transaction.id)
-        .order_by(desc(TransactionRiskAssessment.created_at))
-        .limit(1)
-    ).alias("latest_recipient_assessment")
 
     rows = db.execute(
-        select(Transaction, recipient, latest_assessment.c.risk_level)
+        select(Transaction, recipient)
         .outerjoin(recipient, Transaction.timi_recipient_user_id == recipient.id)
-        .outerjoin(latest_assessment, true())
         .where(
             Transaction.user_id == current_user.id,
             Transaction.transaction_status == TransactionStatus.COMPLETED,
-            Transaction.timi_recipient_user_id.is_not(None),
-            Transaction.timi_recipient_user_id != current_user.id,
-            latest_assessment.c.risk_level.in_(
-                [RiskLevel.SAFE, RiskLevel.LOW, RiskLevel.MEDIUM]
-            ),
         )
         .order_by(desc(Transaction.created_at), desc(Transaction.id))
         .limit(50)
     ).all()
 
+    account_numbers = {
+        transaction.payee_account.replace(" ", "").strip()
+        for transaction, _recipient_user in rows
+    }
+    blacklist_entries = db.scalars(
+        select(Blacklist).where(
+            Blacklist.entity_type == "account",
+            Blacklist.entity_value.in_(account_numbers),
+            Blacklist.is_active.is_(True),
+        )
+    ).all() if account_numbers else []
+    blacklisted_accounts = {
+        (
+            entry.entity_value.replace(" ", "").strip(),
+            normalize_bank_name(entry.bank),
+        )
+        for entry in blacklist_entries
+    }
+
     contacts: list[dict[str, object]] = []
     seen: set[tuple[str, str]] = set()
     own_phone = (current_user.phone or "").replace(" ", "").strip()
     own_name = current_user.full_name.strip().casefold()
-    for transaction, recipient_user, _risk_level in rows:
+    for transaction, recipient_user in rows:
         account = transaction.payee_account.replace(" ", "").strip()
         bank_code = transaction.bank_code or ""
+        if (account, normalize_bank_name(bank_code)) in blacklisted_accounts:
+            continue
         recipient_name = (
             recipient_user.full_name if recipient_user else transaction.payee_name
         ).strip()

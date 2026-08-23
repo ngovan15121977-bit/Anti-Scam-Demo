@@ -515,7 +515,7 @@ export default function FaceVerificationModal({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex min-h-screen items-center justify-center overflow-y-auto bg-slate-950/55 p-3 sm:p-5 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[9999] flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/55 p-3 sm:items-center sm:p-5 backdrop-blur-sm">
       <div className="my-auto w-full max-w-[440px] overflow-hidden rounded-[28px] border border-white/75 bg-white p-5 shadow-2xl shadow-slate-950/30 sm:p-6">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-600 shadow-lg shadow-violet-200">
           <ScanFace className="h-7 w-7 text-white" />

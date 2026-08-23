@@ -59,8 +59,8 @@ export default function PinSetupEnforcer() {
 
   const setupPinFirst = needsPin;
   return createPortal(
-    <div className="fixed inset-0 z-[9998] flex min-h-screen items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-3xl border border-violet-100 bg-white p-7 text-center shadow-2xl shadow-violet-950/20">
+    <div className="fixed inset-0 z-[9998] flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/45 p-4 backdrop-blur-sm sm:items-center">
+      <div className="my-4 w-full max-w-md rounded-3xl border border-violet-100 bg-white p-7 text-center shadow-2xl shadow-violet-950/20">
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-100 text-violet-600">
           <ShieldAlert className="h-8 w-8" />
         </div>

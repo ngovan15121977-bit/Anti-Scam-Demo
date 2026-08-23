@@ -30,7 +30,7 @@ export default function Modal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex min-h-screen items-start justify-center overflow-y-auto bg-slate-950/45 p-4 pt-8 backdrop-blur-sm sm:pt-10"
+      className="fixed inset-0 z-[100] flex min-h-screen items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/45 p-4 pt-8 backdrop-blur-sm sm:pt-10"
       role="dialog"
       aria-modal="true"
       aria-label={ariaLabel}

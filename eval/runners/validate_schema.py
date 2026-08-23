@@ -49,10 +49,10 @@ def main() -> int:
     for rel in suites:
         p = GOLDEN / rel
         if not p.exists():
-            print(f"SKIP {rel} (not found)")
+            all_err.append(f"{rel}: missing required suite")
             continue
         if p.stat().st_size == 0:
-            print(f"SKIP {rel} (empty)")
+            all_err.append(f"{rel}: empty required suite")
             continue
         err = validate_file(p)
         if err:
@@ -65,7 +65,7 @@ def main() -> int:
         for e in all_err:
             print(" ", e)
         return 1
-    print("All non-empty suites OK")
+    print("All required suites OK")
     return 0
 
 

@@ -95,6 +95,9 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
         return generic
 
     # Rate limit đơn giản: 1 request / 60s
+    if user.google_subject:
+        return generic
+
     existing = _otp_store.get(email)
     if existing:
         created = existing.get("created_at")
@@ -178,6 +181,13 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
 
     # Cập nhật mật khẩu — chỉnh field đúng model của bạn
     # Ví dụ: user.hashed_password = hash_password(new_password)
+    if user.google_subject:
+        _otp_store.pop(email, None)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Google-only accounts do not use a local password.",
+        )
+
     if hasattr(user, "hashed_password"):
         user.hashed_password = hash_password(new_password)
     elif hasattr(user, "password_hash"):

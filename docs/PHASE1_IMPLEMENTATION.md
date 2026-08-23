@@ -49,7 +49,7 @@
 | `tests/test_guardian_normalize.py` | Unit normalize + hybrid + rules | ⏳ Xác nhận pass |
 | `eval/scripts/run_phase1_eval.py` | Eval agent / hybrid / rule + F1 | ⏳ |
 | `eval/dataset/guardian_cases_v1_extra.json` | Case bổ sung | ⏳ / có file |
-| `src/app/api/guardian_stats.py` | `/api/v1/guardian/stats/*` | ⏳ |
+| `src/api/guardian_stats.py` | `/api/v1/guardian/stats/*` | ⏳ |
 | Wire `GUARDIAN_HYBRID=true` trên WebSocket path | Production hybrid | ⏳ bật có kiểm soát |
 
 ---
@@ -75,7 +75,7 @@
 - [x] Module `scam_guardian_hybrid.py` (merge policy: confidence < 0.55 → floor PAUSE khi rule thấy risk; max severity khi bất đồng)
 - [ ] Wire production WebSocket gọi `analyze_hybrid` khi `GUARDIAN_HYBRID=true`
 - [ ] `record_guardian_event(...)` trên mỗi decision
-- [ ] `pytest tests/test_guardian_normalize.py -q` → pass
+- [x] `pytest tests/test_guardian_normalize.py -q` → pass
 
 ---
 
