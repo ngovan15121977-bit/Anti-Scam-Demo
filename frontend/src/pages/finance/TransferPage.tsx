@@ -16,18 +16,18 @@ import {
   Star,
   QrCode,
   Search,
-  Plus,
   Home,
   CreditCard as CardIcon,
   HandCoins,
   ScanLine,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { transactionsApi } from "@/services/api/transactions";
+import { transactionsApi, type RecentContact } from "@/services/api/transactions";
 import { authApi } from "@/services/api/auth";
 import AIRiskModal, { type RiskAssessment } from "@/components/ai/AIRiskModal";
 import TransactionAnalysisScreen from "@/components/ai/TransactionAnalysisScreen";
 import FaceVerificationModal, { type FaceMatchResult } from "@/components/auth/FaceVerificationModal";
+import Modal from "@/components/ui/Modal";
 import { collectRiskClientContext } from "@/utils/riskTelemetry";
 import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 import { useAuthStore } from "@/stores/authStore";
@@ -93,16 +93,6 @@ const banks = [
   { code: "WOORI", name: "Woori Bank Vietnam" },
 ];
 
-/** Recent contact from DB (avatar + name + account info) */
-interface RecentContact {
-  id: string;
-  full_name: string;
-  account_number: string;
-  bank_code: string;
-  avatar_url?: string | null;
-  last_transferred_at?: string;
-}
-
 const amountInputFormatter = new Intl.NumberFormat("vi-VN", {
   maximumFractionDigits: 0,
 });
@@ -110,6 +100,13 @@ const amountInputFormatter = new Intl.NumberFormat("vi-VN", {
 function normalizeAmountInput(value: string): string {
   const digits = value.replace(/\D/g, "");
   return digits.replace(/^0+(?=\d)/, "");
+}
+
+function formatProtectionCount(value: number): string {
+  if (value < 1_000) return String(value);
+  const thousands = Math.floor(value / 1_000);
+  const hundredPart = Math.floor((value % 1_000) / 100);
+  return hundredPart > 0 ? `${thousands}k${hundredPart}` : `${thousands}k`;
 }
 
 export default function TransferPage() {
@@ -124,53 +121,44 @@ export default function TransferPage() {
     queryFn: () => transactionsApi.getHistorySummary(),
     staleTime: 30_000,
   });
+  const securitySummaryQuery = useQuery({
+    queryKey: ["transaction-security-summary"],
+    queryFn: () => transactionsApi.getSecuritySummary(),
+    staleTime: 30_000,
+  });
+  const displayedBlockedTransactions =
+    (securitySummaryQuery.data?.blocked_transactions ?? 0) * 100;
+  const displayedBlockedTransactionsLabel = formatProtectionCount(
+    displayedBlockedTransactions,
+  );
   const pinStatus = useQuery({
     queryKey: ["transaction-pin-status"],
     queryFn: authApi.transactionPinStatus,
     staleTime: 0,
   });
 
-  // Recent contacts from DB (name + avatar_url + account)
+  // Chỉ lấy người nhận đã chuyển thành công, mức rủi ro an toàn/thấp/trung bình.
   const recentContactsQuery = useQuery({
-    queryKey: ["recent-contacts"],
-    queryFn: async (): Promise<RecentContact[]> => {
-      // Primary: dedicated endpoint (recommended)
-      if (typeof (transactionsApi as any).getRecentContacts === "function") {
-        return (transactionsApi as any).getRecentContacts();
-      }
-      // Fallback: derive unique recipients from recent outgoing history
-      if (typeof (transactionsApi as any).getHistory === "function") {
-        const history = await (transactionsApi as any).getHistory({
-          limit: 30,
-          direction: "outgoing",
-        });
-        const items = Array.isArray(history) ? history : history?.items ?? history?.data ?? [];
-        const seen = new Set<string>();
-        const result: RecentContact[] = [];
-        for (const tx of items) {
-          const account = String(tx.payee_account ?? tx.recipient_account ?? "").replace(/\s/g, "");
-          const bank = String(tx.bank_code ?? tx.recipient_bank_code ?? "");
-          const name = String(tx.payee_name ?? tx.recipient_name ?? tx.account_name ?? "").trim();
-          if (!account || !bank || !name) continue;
-          const key = `${bank}:${account}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          result.push({
-            id: tx.id ?? key,
-            full_name: name,
-            account_number: account,
-            bank_code: bank,
-            avatar_url: tx.recipient_avatar_url ?? tx.avatar_url ?? null,
-            last_transferred_at: tx.created_at ?? tx.transferred_at,
-          });
-          if (result.length >= 8) break;
-        }
-        return result;
-      }
-      return [];
+    queryKey: ["recent-contacts", user?.id],
+    queryFn: () => transactionsApi.getRecentContacts(10),
+    select: (contacts) => {
+      const ownPhone = user?.phone?.replace(/\D/g, "");
+      const ownName = user?.full_name.trim().toLocaleLowerCase("vi-VN");
+      return contacts.filter((contact) => {
+        const account = contact.account_number.replace(/\D/g, "");
+        const name = contact.full_name.trim().toLocaleLowerCase("vi-VN");
+        return (
+          contact.id !== user?.id &&
+          (!ownPhone || account !== ownPhone) &&
+          (!ownName || name !== ownName)
+        );
+      });
     },
     staleTime: 60_000,
   });
+  const [isRecentContactsOpen, setRecentContactsOpen] = useState(false);
+  const recentContacts = recentContactsQuery.data ?? [];
+  const visibleRecentContacts = recentContacts.slice(0, 4);
 
   const dailyTransferLimit = 100_000_000;
   const completedToday = dailySummaryQuery.data?.completed_outgoing_today ?? 0;
@@ -419,6 +407,7 @@ export default function TransferPage() {
   };
 
   const handleSelectRecentContact = (contact: RecentContact) => {
+    setRecentContactsOpen(false);
     setSelectedRecentId(contact.id);
     setForm((current) => ({
       ...current,
@@ -431,19 +420,6 @@ export default function TransferPage() {
     }));
     setBankSearch(banks.find((b) => b.code === contact.bank_code)?.name ?? contact.bank_code);
     setBankPickerOpen(false);
-  };
-
-  const handleAddNewContact = () => {
-    setSelectedRecentId(null);
-    setForm((current) => ({
-      ...current,
-      recipient_account: "",
-      recipient_name: "",
-      recipient_lookup_token: "",
-      bank_code: "",
-    }));
-    setBankSearch("");
-    setRecipientLookupState({ status: "idle" });
   };
 
   const handleBankChange = (bank_code: string) => {
@@ -613,7 +589,7 @@ export default function TransferPage() {
   /* ===================== FORM STEP – UI khớp ảnh 1:1 ===================== */
   if (step === "form") {
     return (
-      <div className="min-h-screen bg-[#f5f3ff] w-full relative overflow-x-hidden">
+      <div className="min-h-screen bg-[#f5f3ff] w-full relative">
         {/* Soft background blobs matching the image mood */}
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
           <div className="absolute -top-32 -left-32 w-[480px] h-[480px] bg-violet-200/40 rounded-full blur-3xl" />
@@ -643,15 +619,6 @@ export default function TransferPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="hidden md:flex items-center gap-2 bg-white rounded-full px-4 py-2.5 shadow-sm border border-violet-100 w-64">
-                <Search className="w-4 h-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Tìm giao dịch..."
-                  className="bg-transparent text-sm text-slate-700 outline-none w-full placeholder:text-slate-400"
-                  readOnly
-                />
-              </div>
               <ProfileNotificationBell />
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-white font-semibold text-sm shadow-md">
                 {user?.full_name?.charAt(0)?.toUpperCase() || "U"}
@@ -730,9 +697,10 @@ export default function TransferPage() {
 
           {/* ===== MAIN 3-COLUMN GRID ===== */}
           <div className="px-4 sm:px-6 lg:px-8 pb-10">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6">
+            <div className="lg:sticky lg:top-[10rem] lg:z-20 lg:self-start">
+              <div className="grid grid-cols-1 items-start lg:grid-cols-12 gap-5 lg:gap-6">
               {/* ---------- LEFT: Select Recipient ---------- */}
-              <div className="lg:col-span-4 space-y-4">
+              <div id="transfer-recipient" className="lg:col-span-4 space-y-4">
                 <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-violet-100/80">
                   <h2 className="text-base font-bold text-slate-900 mb-4">
                     Chọn người nhận
@@ -761,36 +729,22 @@ export default function TransferPage() {
                     Quét mã QR
                   </button>
 
-                  {/* ===== Recent Contacts (from DB) ===== */}
+                  {/* ===== Người nhận gần đây ===== */}
                   <div className="mb-5">
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-sm font-semibold text-slate-800">
-                        Recent Contacts
+                        Người nhận gần đây
                       </span>
                       <button
                         type="button"
-                        onClick={() => navigate("/contacts")}
+                        onClick={() => setRecentContactsOpen(true)}
                         className="text-xs font-semibold text-violet-600 hover:text-violet-700 transition-colors"
                       >
-                        View All
+                        Xem tất cả
                       </button>
                     </div>
 
-                    <div className="flex items-start gap-4 overflow-x-auto pb-1 scrollbar-hide">
-                      {/* Add New */}
-                      <button
-                        type="button"
-                        onClick={handleAddNewContact}
-                        className="flex-shrink-0 flex flex-col items-center gap-1.5 group"
-                      >
-                        <div className="w-14 h-14 rounded-full border-2 border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-slate-400 group-hover:border-violet-400 group-hover:text-violet-500 group-hover:bg-violet-50 transition-all">
-                          <Plus className="w-5 h-5" strokeWidth={2.5} />
-                        </div>
-                        <span className="text-xs text-slate-500 font-medium">
-                          Add New
-                        </span>
-                      </button>
-
+                    <div className="flex items-start gap-4 overflow-x-clip pb-1">
                       {/* Loading skeleton */}
                       {recentContactsQuery.isLoading &&
                         Array.from({ length: 4 }).map((_, i) => (
@@ -805,7 +759,7 @@ export default function TransferPage() {
 
                       {/* Real contacts from DB */}
                       {!recentContactsQuery.isLoading &&
-                        (recentContactsQuery.data ?? []).map((contact) => {
+                        visibleRecentContacts.map((contact) => {
                           const isSelected = selectedRecentId === contact.id;
                           const initials = contact.full_name
                             .split(" ")
@@ -1058,49 +1012,6 @@ export default function TransferPage() {
                     />
                   </div>
 
-                  {/* Transfer type – visual only (Standard free) to match image */}
-                  <div className="mb-6">
-                    <p className="text-sm font-medium text-slate-700 mb-3">
-                      Loại chuyển khoản
-                    </p>
-                    <div className="space-y-2.5">
-                      <label className="flex items-center gap-3 p-3.5 rounded-xl border-2 border-violet-500 bg-violet-50/50 cursor-default">
-                        <div className="w-5 h-5 rounded-full border-2 border-violet-600 flex items-center justify-center">
-                          <div className="w-2.5 h-2.5 rounded-full bg-violet-600" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold text-slate-900 text-sm">
-                              Tiêu chuẩn
-                            </span>
-                            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                              Miễn phí
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            1–2 ngày làm việc
-                          </p>
-                        </div>
-                      </label>
-                      <div className="flex items-center gap-3 p-3.5 rounded-xl border border-slate-200 opacity-60">
-                        <div className="w-5 h-5 rounded-full border-2 border-slate-300" />
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold text-slate-700 text-sm">
-                              Instant
-                            </span>
-                            <span className="text-xs font-medium text-slate-500">
-                              Phí 1.500đ
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            Trong vòng 5 phút
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Continue button */}
                   <button
                     onClick={handleSubmit}
@@ -1114,6 +1025,30 @@ export default function TransferPage() {
                   <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-slate-500">
                     <Lock className="w-3.5 h-3.5 text-violet-500" />
                     Giao dịch của bạn được bảo vệ bởi Timi Security
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-violet-100/80 bg-white/85 p-5 shadow-sm">
+                  <div className="mb-3 flex items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Mẹo chuyển tiền an toàn
+                    </h3>
+                  </div>
+                  <div className="space-y-2.5 text-xs leading-relaxed text-slate-500">
+                    <p className="flex gap-2">
+                      <span className="font-bold text-violet-500">1.</span>
+                      Kiểm tra đúng tên người nhận trước khi tiếp tục.
+                    </p>
+                    <p className="flex gap-2">
+                      <span className="font-bold text-violet-500">2.</span>
+                      Không chia sẻ mã PIN hoặc mã OTP cho bất kỳ ai.
+                    </p>
+                    <p className="flex gap-2">
+                      <span className="font-bold text-violet-500">3.</span>
+                      Ghi nội dung rõ ràng để dễ đối chiếu giao dịch.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1133,8 +1068,12 @@ export default function TransferPage() {
                       <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                         Giao dịch của bạn được bảo vệ bằng công nghệ AI tiên tiến.
                       </p>
+                      <p className="mt-2 text-xs font-semibold text-emerald-600">
+                        Đã chặn {displayedBlockedTransactionsLabel} giao dịch rủi ro cao
+                      </p>
                       <button
                         type="button"
+                        onClick={() => navigate("/history")}
                         className="mt-2 text-xs font-semibold text-violet-600 hover:text-violet-700"
                       >
                         Tìm hiểu thêm
@@ -1171,19 +1110,19 @@ export default function TransferPage() {
                         icon: Home,
                         label: "Chuyển đến ngân hàng",
                         sub: "Chuyển khoản liên ngân hàng",
-                        action: () => {},
+                        action: () => document.getElementById("transfer-recipient")?.scrollIntoView({ behavior: "smooth", block: "start" }),
                       },
                       {
                         icon: CardIcon,
                         label: "Chuyển đến thẻ",
                         sub: "Thẻ ghi nợ / tín dụng",
-                        action: () => {},
+                        action: () => navigate("/me"),
                       },
                       {
                         icon: HandCoins,
                         label: "Yêu cầu tiền",
                         sub: "Yêu cầu từ danh bạ",
-                        action: () => {},
+                        action: () => navigate("/qr?mode=create"),
                       },
                       {
                         icon: ScanLine,
@@ -1222,24 +1161,91 @@ export default function TransferPage() {
                   <Star className="w-5 h-5 text-white/50 mb-2" />
                   <p className="text-sm font-bold mb-1">Timi bảo vệ bạn</p>
                   <p className="text-xs text-violet-100 leading-relaxed">
-                    Đã chặn hơn 1.2K giao dịch lừa đảo trong tháng này
+                    Đã chặn {displayedBlockedTransactionsLabel} giao dịch rủi ro cao
                   </p>
                 </div>
               </div>
             </div>
+            </div>
           </div>
+
+          <Modal
+            open={isRecentContactsOpen}
+            onClose={() => setRecentContactsOpen(false)}
+            ariaLabel="Tất cả người nhận gần đây"
+            className="max-w-xl"
+            showCloseButton
+          >
+            <div className="pr-8">
+              <p className="text-xs font-semibold uppercase tracking-wider text-violet-600">
+                Danh sách người nhận
+              </p>
+              <h2 className="mt-1 text-xl font-bold text-slate-900">
+                Tất cả người nhận gần đây
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Chọn người nhận để điền nhanh thông tin chuyển tiền.
+              </p>
+            </div>
+            <div className="mt-5 max-h-[min(65vh,34rem)] space-y-2 overflow-y-auto pr-1">
+              {recentContacts.map((contact) => {
+                const initials = contact.full_name
+                  .split(" ")
+                  .map((word) => word[0])
+                  .join("")
+                  .slice(0, 2)
+                  .toUpperCase();
+                return (
+                  <button
+                    key={contact.id}
+                    type="button"
+                    onClick={() => handleSelectRecentContact(contact)}
+                    className="flex w-full items-center gap-3 rounded-2xl p-3 text-left transition-colors hover:bg-violet-50"
+                  >
+                    <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-sm font-bold text-white">
+                      {contact.avatar_url ? (
+                        <img
+                          src={contact.avatar_url}
+                          alt={contact.full_name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center">
+                          {initials}
+                        </span>
+                      )}
+                    </div>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-slate-800">
+                        {contact.full_name}
+                      </span>
+                      <span className="mt-0.5 block truncate text-xs text-slate-500">
+                        {contact.account_number} · {banks.find((bank) => bank.code === contact.bank_code)?.name ?? contact.bank_code}
+                      </span>
+                    </span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+                  </button>
+                );
+              })}
+              {!recentContactsQuery.isLoading && recentContacts.length === 0 && (
+                <p className="py-8 text-center text-sm text-slate-400">
+                  Chưa có người nhận gần đây.
+                </p>
+              )}
+            </div>
+          </Modal>
 
           {/* Footer */}
           <footer className="relative z-10 px-4 sm:px-6 lg:px-8 pb-8 pt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
             <p>© 2024 Timi. All rights reserved.</p>
             <div className="flex items-center gap-4">
-              <button className="hover:text-slate-600 transition-colors">
+              <button onClick={() => navigate("/privacy")} className="hover:text-slate-600 transition-colors">
                 Privacy Policy
               </button>
-              <button className="hover:text-slate-600 transition-colors">
+              <button onClick={() => navigate("/terms")} className="hover:text-slate-600 transition-colors">
                 Terms of Service
               </button>
-              <button className="hover:text-slate-600 transition-colors">
+              <button onClick={() => navigate("/help")} className="hover:text-slate-600 transition-colors">
                 Help Center
               </button>
             </div>
@@ -1332,8 +1338,8 @@ export default function TransferPage() {
                   </div>
                 ))}
               </div>
+              </div>
             </div>
-          </div>
 
           <div className="px-4 sm:px-6 pb-10">
             <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-violet-100/80 space-y-1">

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { transactionsApi, type Transaction as ApiTransaction } from "@/services/api/transactions";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Search,
@@ -14,16 +14,15 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  TrendingUp,
-  TrendingDown,
   Download,
   Loader2,
-  Settings,
   ChevronLeft,
   ChevronRight,
+  X,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { ProfileNotificationBell } from "@/pages/account/ProfilePage";
+import Modal from "@/components/ui/Modal";
 
 interface Transaction {
   id: string;
@@ -80,7 +79,97 @@ const statusConfig = {
   },
 };
 
+function CashFlowChart({
+  data,
+  range,
+}: {
+  data: { key: string; label: string; in: number; out: number }[];
+  range: "7" | "30";
+}) {
+  const maxValue = Math.max(1, ...data.map((point) => Math.max(point.in, point.out)));
+  const makePoints = (key: "in" | "out") =>
+    data.map((point, index) => {
+      const x = (index / Math.max(1, data.length - 1)) * 580 + 10;
+      const y = 150 - (point[key] / maxValue) * 130;
+      return `${x},${y}`;
+    }).join(" ");
+
+  return (
+    <div className="relative h-56 w-full">
+      <svg viewBox="0 0 600 170" className="h-full w-full" preserveAspectRatio="none">
+        {[0, 40, 80, 120, 160].map((y) => (
+          <line key={y} x1="0" y1={y} x2="600" y2={y} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="4 4" />
+        ))}
+        <line x1="0" y1="150" x2="600" y2="150" stroke="#334155" strokeWidth="1.5" />
+        <polyline fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" points={makePoints("in")} />
+        <polyline fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" points={makePoints("out")} />
+      </svg>
+      <div className="mt-3 flex justify-between px-1">
+        {data.filter((_, index) => range === "7" ? true : index % 5 === 0 || index === data.length - 1).map((point) => (
+          <span key={point.key} className="text-xs font-medium text-slate-400">{point.label}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TransactionCompositionChart({
+  data,
+}: {
+  data: { in: number; out: number }[];
+}) {
+  const incoming = data.reduce((sum, point) => sum + point.in, 0);
+  const outgoing = data.reduce((sum, point) => sum + point.out, 0);
+  const total = incoming + outgoing;
+  const incomingPercent = total ? (incoming / total) * 100 : 0;
+  const outgoingPercent = total ? (outgoing / total) * 100 : 0;
+  const circumference = 2 * Math.PI * 48;
+
+  return (
+    <div className="flex min-h-56 flex-col items-center justify-center gap-6">
+      <div className="relative h-44 w-44 shrink-0">
+        <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
+          <circle cx="60" cy="60" r="48" fill="none" stroke="#f1f5f9" strokeWidth="14" />
+          {total > 0 && (
+            <>
+              <circle cx="60" cy="60" r="48" fill="none" stroke="#16a34a" strokeWidth="14" strokeDasharray={`${circumference * incomingPercent / 100} ${circumference}`} />
+              <circle cx="60" cy="60" r="48" fill="none" stroke="#dc2626" strokeWidth="14" strokeDasharray={`${circumference * outgoingPercent / 100} ${circumference}`} strokeDashoffset={-circumference * incomingPercent / 100} />
+            </>
+          )}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-xs text-slate-400">Tổng</span>
+          <span className="mt-1 max-w-[7rem] text-center text-xs font-bold leading-4 text-slate-800">{formatCompactMoney(total)}</span>
+        </div>
+      </div>
+      <div className="grid w-full grid-cols-2 gap-3 text-sm">
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 text-center">
+          <span className="flex items-center gap-2 text-slate-600"><span className="h-3 w-3 rounded-full bg-emerald-600" />Tổng tiền vào</span>
+          <span className="mt-1 block font-bold text-emerald-600">{incomingPercent.toFixed(0)}%</span>
+          <span className="mt-0.5 block text-xs text-slate-500">{formatCompactMoney(incoming)}</span>
+        </div>
+        <div className="rounded-xl border border-red-100 bg-red-50/60 p-3 text-center">
+          <span className="flex items-center gap-2 text-slate-600"><span className="h-3 w-3 rounded-full bg-red-600" />Tổng tiền ra</span>
+          <span className="mt-1 block font-bold text-red-600">{outgoingPercent.toFixed(0)}%</span>
+          <span className="mt-0.5 block text-xs text-slate-500">{formatCompactMoney(outgoing)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatCompactMoney(value: number) {
+  const format = (amount: number) =>
+    new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(amount);
+  const absolute = Math.abs(value);
+  if (absolute >= 1_000_000_000) return `${format(value / 1_000_000_000)} tỷ đồng`;
+  if (absolute >= 1_000_000) return `${format(value / 1_000_000)} triệu đồng`;
+  if (absolute >= 1_000) return `${format(value / 1_000)} nghìn đồng`;
+  return `${format(value)} đồng`;
+}
+
 export default function HistoryPage() {
+  const location = useLocation();
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const [filter, setFilter] = useState<"all" | "transfer" | "receive" | "payment">(
@@ -92,11 +181,14 @@ export default function HistoryPage() {
   const [quickFilter, setQuickFilter] = useState<
     "all" | "today" | "yesterday" | "week" | "month"
   >("all");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(
+    () => new URLSearchParams(location.search).get("search") ?? "",
+  );
   const [showFilters, setShowFilters] = useState(false);
-  const [showAll, setShowAll] = useState(false);
+  const [showAll, setShowAll] = useState(true);
   const [chartRange, setChartRange] = useState<"7" | "30">("7");
   const [page, setPage] = useState(1);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const PAGE_SIZE = 8;
 
   const hasGlobalFilter =
@@ -127,16 +219,10 @@ export default function HistoryPage() {
     staleTime: 0,
   });
   useEffect(() => {
-    if (
-      !hasGlobalFilter ||
-      !historyQuery.hasNextPage ||
-      historyQuery.isFetchingNextPage ||
-      historyQuery.isError
-    )
+    if (!historyQuery.hasNextPage || historyQuery.isFetchingNextPage || historyQuery.isError)
       return;
     void historyQuery.fetchNextPage();
   }, [
-    hasGlobalFilter,
     historyQuery.hasNextPage,
     historyQuery.isFetchingNextPage,
     historyQuery.isError,
@@ -332,13 +418,7 @@ export default function HistoryPage() {
     }
   };
 
-  const totalIn = filteredTransactions
-    .filter((t) => t.type === "receive")
-    .reduce((sum, t) => sum + t.amount, 0);
-  const totalOut = filteredTransactions
-    .filter((t) => t.type === "transfer")
-    .reduce((sum, t) => sum + t.amount, 0);
-  // Simple chart data from transactions (last N days)
+  // Biểu đồ lấy dữ liệu từ toàn bộ giao dịch sau khi áp dụng các bộ lọc.
   const chartData = useMemo(() => {
     const days = chartRange === "7" ? 7 : 30;
     const todayKey = getAppDateKey(new Date());
@@ -348,7 +428,7 @@ export default function HistoryPage() {
       const [, m, d] = key.split("-");
       points.push({ key, label: `${d}/${m}`, in: 0, out: 0 });
     }
-    transactions.forEach((tx) => {
+    filteredTransactions.forEach((tx) => {
       const key = getAppDateKey(tx.created_at);
       const point = points.find((p) => p.key === key);
       if (!point) return;
@@ -356,12 +436,7 @@ export default function HistoryPage() {
       else point.out += tx.amount;
     });
     return points;
-  }, [transactions, chartRange]);
-
-  const maxChartValue = Math.max(
-    1,
-    ...chartData.map((p) => Math.max(p.in, p.out)),
-  );
+  }, [filteredTransactions, chartRange]);
 
   // Mask account for display
   const maskAccount = (account?: string) => {
@@ -392,7 +467,7 @@ export default function HistoryPage() {
               <ArrowLeft className="w-5 h-5 text-slate-600" />
             </button>
             <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
-              Transactions
+              Lịch sử giao dịch
             </h1>
           </div>
 
@@ -405,7 +480,30 @@ export default function HistoryPage() {
                 className="bg-transparent text-base text-slate-700 outline-none w-full placeholder:text-slate-400"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  const value = event.currentTarget.value.trim();
+                  navigate(
+                    value ? `/history?search=${encodeURIComponent(value)}` : "/history",
+                    { replace: true },
+                  );
+                  setSearchQuery(value);
+                }}
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    navigate("/history", { replace: true });
+                  }}
+                  aria-label="Xóa nội dung tìm kiếm"
+                  title="Xóa tìm kiếm"
+                  className="shrink-0 rounded-full p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
             <button
               onClick={() => setShowFilters(!showFilters)}
@@ -415,9 +513,6 @@ export default function HistoryPage() {
               title="Bộ lọc"
             >
               <Filter className="w-5 h-5 text-slate-600" />
-            </button>
-            <button className="p-3 bg-white rounded-full shadow-sm border border-violet-100 hover:bg-violet-50 transition-colors">
-              <Settings className="w-5 h-5 text-slate-600" />
             </button>
             <ProfileNotificationBell />
             <div className="w-11 h-11 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-white font-semibold text-base shadow-md">
@@ -519,145 +614,31 @@ export default function HistoryPage() {
 
         {/* ===== MAIN CONTENT ===== */}
         <div className="px-4 sm:px-6 lg:px-8 pb-10 space-y-6">
-          {/* Balance fluctuation chart */}
-          <div className="grid grid-cols-1 gap-5">
-            <div className="lg:col-span-12">
-              <div className="bg-white rounded-2xl p-6 shadow-sm border border-violet-100/80 h-full">
-                <div className="flex items-center justify-between mb-5">
-                  <h2 className="text-base font-bold text-slate-800">
-                    Biến động số dư
-                  </h2>
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-4 text-sm">
-                      <span className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                        Tiền vào
-                      </span>
-                      <span className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                        Tiền ra
-                      </span>
-                    </div>
-                    <select
-                      value={chartRange}
-                      onChange={(e) =>
-                        setChartRange(e.target.value as "7" | "30")
-                      }
-                      className="text-sm font-medium bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-violet-300"
-                    >
-                      <option value="7">7 ngày qua</option>
-                      <option value="30">30 ngày qua</option>
-                    </select>
-                  </div>
+          {/* ===== Flow charts ===== */}
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <div className="rounded-2xl border border-violet-100/80 bg-white p-6 shadow-sm">
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-bold text-slate-800">Dòng tiền theo thời gian</h2>
+                  <p className="mt-1 text-xs text-slate-400">So sánh tiền vào và tiền ra</p>
                 </div>
-
-                {/* Simple SVG line chart */}
-                <div className="relative h-52 w-full">
-                  <svg
-                    viewBox="0 0 600 160"
-                    className="w-full h-full"
-                    preserveAspectRatio="none"
-                  >
-                    {/* Grid lines */}
-                    {[0, 40, 80, 120, 160].map((y) => (
-                      <line
-                        key={y}
-                        x1="0"
-                        y1={y}
-                        x2="600"
-                        y2={y}
-                        stroke="#e2e8f0"
-                        strokeWidth="1"
-                        strokeDasharray={y === 80 ? "0" : "4 4"}
-                      />
-                    ))}
-                    {/* In line (green) */}
-                    {chartData.length > 1 && (
-                      <polyline
-                        fill="none"
-                        stroke="#10b981"
-                        strokeWidth="2.5"
-                        strokeLinejoin="round"
-                        strokeLinecap="round"
-                        points={chartData
-                          .map((p, i) => {
-                            const x =
-                              (i / Math.max(1, chartData.length - 1)) * 580 + 10;
-                            const y = 150 - (p.in / maxChartValue) * 130;
-                            return `${x},${y}`;
-                          })
-                          .join(" ")}
-                      />
-                    )}
-                    {/* Out line (red) */}
-                    {chartData.length > 1 && (
-                      <polyline
-                        fill="none"
-                        stroke="#f43f5e"
-                        strokeWidth="2.5"
-                        strokeLinejoin="round"
-                        strokeLinecap="round"
-                        points={chartData
-                          .map((p, i) => {
-                            const x =
-                              (i / Math.max(1, chartData.length - 1)) * 580 + 10;
-                            const y = 150 - (p.out / maxChartValue) * 130;
-                            return `${x},${y}`;
-                          })
-                          .join(" ")}
-                      />
-                    )}
-                    {/* Dots */}
-                    {chartData.map((p, i) => {
-                      const x =
-                        (i / Math.max(1, chartData.length - 1)) * 580 + 10;
-                      const yIn = 150 - (p.in / maxChartValue) * 130;
-                      const yOut = 150 - (p.out / maxChartValue) * 130;
-                      return (
-                        <g key={p.key}>
-                          <circle cx={x} cy={yIn} r="3.5" fill="#10b981" />
-                          <circle cx={x} cy={yOut} r="3.5" fill="#f43f5e" />
-                        </g>
-                      );
-                    })}
-                  </svg>
-                  {/* X labels */}
-                  <div className="flex justify-between px-1 mt-2">
-                    {chartData
-                      .filter((_, i) =>
-                        chartRange === "7"
-                          ? true
-                          : i % 5 === 0 || i === chartData.length - 1,
-                      )
-                      .map((p) => (
-                        <span
-                          key={p.key}
-                          className="text-xs text-slate-400 font-medium"
-                        >
-                          {p.label}
-                        </span>
-                      ))}
-                  </div>
-                </div>
-
-                {/* Summary under chart */}
-                <div className="mt-4 flex gap-6 text-sm">
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-500" />
-                    <span className="text-slate-500">Tổng vào:</span>
-                    <span className="font-bold text-emerald-600">
-                      {formatMoney(totalIn)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <TrendingDown className="w-4 h-4 text-rose-500" />
-                    <span className="text-slate-500">Tổng ra:</span>
-                    <span className="font-bold text-rose-600">
-                      {formatMoney(totalOut)}
-                    </span>
-                  </div>
-                </div>
+                <select value={chartRange} onChange={(event) => setChartRange(event.target.value as "7" | "30")} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-violet-300" aria-label="Khoảng thời gian biểu đồ">
+                  <option value="7">7 ngày</option>
+                  <option value="30">30 ngày</option>
+                </select>
               </div>
+              <CashFlowChart data={chartData} range={chartRange} />
+              <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 border-t border-slate-100 pt-4 text-xs">
+                <span className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-full bg-emerald-600" />Tiền vào</span>
+                <span className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-full bg-red-600" />Tiền ra</span>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-violet-100/80 bg-white p-6 shadow-sm">
+              <div className="mb-5">
+                <h2 className="text-base font-bold text-slate-800">Cơ cấu giao dịch</h2>
+                <p className="mt-1 text-xs text-slate-400">Tỷ lệ tiền vào và tiền ra trong khoảng đã chọn</p>
+              </div>
+              <TransactionCompositionChart data={chartData} />
             </div>
           </div>
 
@@ -750,7 +731,8 @@ export default function HistoryPage() {
                       return (
                         <tr
                           key={tx.id}
-                          className="border-b border-slate-50 hover:bg-violet-50/40 transition-colors"
+                          onClick={() => setSelectedTransaction(tx)}
+                          className="cursor-pointer border-b border-slate-50 transition-colors hover:bg-violet-50/40"
                         >
                           <td className="px-6 sm:px-7 py-4">
                             <div className="flex items-center gap-3.5">
@@ -822,8 +804,8 @@ export default function HistoryPage() {
                           <td className="px-6 sm:px-7 py-4 text-right">
                             <button
                               type="button"
-                              onClick={() => {
-                                // Single-row export / detail – reuse export logic for one row
+                              onClick={(event) => {
+                                event.stopPropagation();
                                 const escapeCsv = (value: string | number) =>
                                   `"${String(value).replace(/"/g, '""')}"`;
                                 const rows = [
@@ -976,17 +958,103 @@ export default function HistoryPage() {
           </div>
         </div>
 
+        <Modal
+          open={selectedTransaction !== null}
+          onClose={() => setSelectedTransaction(null)}
+          ariaLabel="Chi tiết giao dịch"
+          className="max-w-lg"
+        >
+            {selectedTransaction && (
+              <>
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                    Chi tiết giao dịch
+                  </p>
+                  <h2 className="mt-1 text-xl font-bold text-slate-900">
+                    {selectedTransaction.recipient_name || selectedTransaction.description}
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTransaction(null)}
+                  className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Đóng chi tiết giao dịch"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="mb-5 rounded-2xl bg-slate-50 p-4 text-center">
+                <p className={`text-3xl font-bold tabular-nums ${selectedTransaction.type === "receive" ? "text-emerald-600" : "text-slate-900"}`}>
+                  {selectedTransaction.type === "receive" ? "+" : "-"}
+                  {formatMoney(selectedTransaction.amount)}
+                </p>
+                {(() => {
+                  const cfg = statusConfig[selectedTransaction.status];
+                  const StatusIcon = cfg.icon;
+                  return (
+                    <span className={`mt-3 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${cfg.color}`}>
+                      <StatusIcon className="h-3.5 w-3.5" />
+                      {cfg.label}
+                    </span>
+                  );
+                })()}
+              </div>
+
+              <dl className="divide-y divide-slate-100 text-sm">
+                <div className="flex items-start justify-between gap-4 py-3">
+                  <dt className="text-slate-500">Người dùng/đối tác</dt>
+                  <dd className="max-w-[60%] text-right font-semibold text-slate-800">
+                    {selectedTransaction.recipient_name || "Không xác định"}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4 py-3">
+                  <dt className="text-slate-500">Tài khoản</dt>
+                  <dd className="max-w-[60%] text-right font-mono text-slate-800">
+                    {selectedTransaction.recipient_account || "Không có"}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4 py-3">
+                  <dt className="text-slate-500">Loại giao dịch</dt>
+                  <dd className="font-semibold text-slate-800">{getTypeLabel(selectedTransaction.type)}</dd>
+                </div>
+                <div className="flex items-start justify-between gap-4 py-3">
+                  <dt className="text-slate-500">Nội dung</dt>
+                  <dd className="max-w-[60%] text-right text-slate-800">{selectedTransaction.description}</dd>
+                </div>
+                <div className="flex items-start justify-between gap-4 py-3">
+                  <dt className="text-slate-500">Lý do/kết quả</dt>
+                  <dd className="max-w-[60%] text-right leading-6 text-slate-800">{selectedTransaction.reason}</dd>
+                </div>
+                <div className="flex items-start justify-between gap-4 py-3">
+                  <dt className="text-slate-500">Thời gian</dt>
+                  <dd className="text-right text-slate-800">{formatShortDate(selectedTransaction.created_at)}</dd>
+                </div>
+                <div className="flex items-start justify-between gap-4 py-3">
+                  <dt className="text-slate-500">Mã giao dịch</dt>
+                  <dd className="max-w-[60%] break-all text-right font-mono text-xs text-slate-800">{selectedTransaction.id}</dd>
+                </div>
+                <div className="flex items-start justify-between gap-4 py-3">
+                  <dt className="text-slate-500">Mức độ rủi ro</dt>
+                  <dd className="font-semibold capitalize text-slate-800">{selectedTransaction.risk_level}</dd>
+                </div>
+              </dl>
+              </>
+            )}
+        </Modal>
+
         {/* Footer */}
         <footer className="relative z-10 px-4 sm:px-6 lg:px-8 pb-8 pt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
           <p>© 2024 Timi. All rights reserved.</p>
           <div className="flex items-center gap-4">
-            <button className="hover:text-slate-600 transition-colors">
+            <button onClick={() => navigate("/privacy")} className="hover:text-slate-600 transition-colors">
               Privacy Policy
             </button>
-            <button className="hover:text-slate-600 transition-colors">
+            <button onClick={() => navigate("/terms")} className="hover:text-slate-600 transition-colors">
               Terms of Service
             </button>
-            <button className="hover:text-slate-600 transition-colors">
+            <button onClick={() => navigate("/help")} className="hover:text-slate-600 transition-colors">
               Help Center
             </button>
           </div>

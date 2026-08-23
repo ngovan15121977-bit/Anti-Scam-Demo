@@ -141,6 +141,7 @@ class UserCardSummary(BaseModel):
 
 class UserCardDetail(UserCardSummary):
     card_number: str
+    cvv: str
 
 
 class UserCardPinRequest(BaseModel):

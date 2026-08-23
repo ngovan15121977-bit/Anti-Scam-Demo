@@ -112,6 +112,19 @@ export interface TransactionHistorySummary {
   total_transactions: number;
 }
 
+export interface TransactionSecuritySummary {
+  blocked_transactions: number;
+}
+
+export interface RecentContact {
+  id: string;
+  full_name: string;
+  account_number: string;
+  bank_code: string;
+  avatar_url?: string | null;
+  last_transferred_at?: string;
+}
+
 export const transactionsApi = {
   lookupRecipient: async (data: {
     account_number: string;
@@ -193,6 +206,20 @@ export const transactionsApi = {
     const response = await axiosInstance.get<TransactionHistorySummary>(
       "/v1/transactions/history/summary",
     );
+    return response.data;
+  },
+
+  getSecuritySummary: async (): Promise<TransactionSecuritySummary> => {
+    const response = await axiosInstance.get<TransactionSecuritySummary>(
+      "/v1/transactions/security-summary",
+    );
+    return response.data;
+  },
+
+  getRecentContacts: async (limit = 8): Promise<RecentContact[]> => {
+    const response = await axiosInstance.get<RecentContact[]>("/v1/transactions/recent-contacts", {
+      params: { limit },
+    });
     return response.data;
   },
 };

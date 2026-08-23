@@ -89,6 +89,12 @@ def _card_cipher() -> Fernet:
     return Fernet(key)
 
 
+def _card_cvv(card: UserCard) -> str:
+    if not card.cvv_encrypted:
+        return ""
+    return _card_cipher().decrypt(card.cvv_encrypted.encode()).decode()
+
+
 def _card_summary(card: UserCard) -> dict[str, Any]:
     number = _card_cipher().decrypt(card.card_number_encrypted.encode()).decode()
     return {
@@ -965,13 +971,16 @@ def list_user_cards(db: Session = Depends(get_db), current_user: User = Depends(
 @router.post("/cards", response_model=UserCardSummary, status_code=status.HTTP_201_CREATED)
 def add_user_card(payload: UserCardCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     card_number = str(secrets.randbelow(900_000_000_000) + 100_000_000_000)
+    cvv = f"{secrets.randbelow(1000):03d}"
+    created_at = datetime.now(UTC)
     card = UserCard(
         user_id=current_user.id,
         nickname=payload.nickname.strip(),
         card_number_encrypted=_card_cipher().encrypt(card_number.encode()).decode(),
+        cvv_encrypted=_card_cipher().encrypt(cvv.encode()).decode(),
         holder_name=payload.holder_name.strip().upper(),
-        expiry_month=payload.expiry_month,
-        expiry_year=payload.expiry_year,
+        expiry_month=created_at.month,
+        expiry_year=created_at.year + 8,
         brand=payload.brand.strip(),
     )
     db.add(card)
@@ -1002,7 +1011,7 @@ def reveal_user_card(card_id: uuid.UUID, payload: UserCardPinRequest, db: Sessio
         number = _card_cipher().decrypt(card.card_number_encrypted.encode()).decode()
     except InvalidToken as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Không thể đọc thông tin thẻ") from exc
-    return {**_card_summary(card), "card_number": number}
+    return {**_card_summary(card), "card_number": number, "cvv": _card_cvv(card)}
 
 
 @router.get("/face/enrollment/status")

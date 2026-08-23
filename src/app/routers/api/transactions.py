@@ -866,6 +866,97 @@ def history_summary(
     )
 
 
+@router.get("/security-summary")
+def security_summary(
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+) -> dict[str, int]:
+    """Return aggregate protection metrics across all users."""
+    blocked_transactions = db.scalar(
+        select(func.count(func.distinct(Transaction.id)))
+        .join(
+            TransactionRiskAssessment,
+            TransactionRiskAssessment.transaction_id == Transaction.id,
+        )
+        .where(
+            TransactionRiskAssessment.risk_level == RiskLevel.HIGH,
+            Transaction.transaction_status.in_([
+                TransactionStatus.CANCELLED,
+                TransactionStatus.FAILED,
+            ]),
+        )
+    ) or 0
+    return {"blocked_transactions": int(blocked_transactions)}
+
+
+@router.get("/recent-contacts")
+def recent_contacts(
+    limit: int = 8,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[dict[str, object]]:
+    """Return safe recent transfer recipients for the transfer form."""
+    page_size = min(max(limit, 1), 10)
+    recipient = aliased(User)
+    latest_assessment = lateral(
+        select(TransactionRiskAssessment.risk_level.label("risk_level"))
+        .where(TransactionRiskAssessment.transaction_id == Transaction.id)
+        .order_by(desc(TransactionRiskAssessment.created_at))
+        .limit(1)
+    ).alias("latest_recipient_assessment")
+
+    rows = db.execute(
+        select(Transaction, recipient, latest_assessment.c.risk_level)
+        .outerjoin(recipient, Transaction.timi_recipient_user_id == recipient.id)
+        .outerjoin(latest_assessment, true())
+        .where(
+            Transaction.user_id == current_user.id,
+            Transaction.transaction_status == TransactionStatus.COMPLETED,
+            Transaction.timi_recipient_user_id.is_not(None),
+            Transaction.timi_recipient_user_id != current_user.id,
+            latest_assessment.c.risk_level.in_(
+                [RiskLevel.SAFE, RiskLevel.LOW, RiskLevel.MEDIUM]
+            ),
+        )
+        .order_by(desc(Transaction.created_at), desc(Transaction.id))
+        .limit(50)
+    ).all()
+
+    contacts: list[dict[str, object]] = []
+    seen: set[tuple[str, str]] = set()
+    own_phone = (current_user.phone or "").replace(" ", "").strip()
+    own_name = current_user.full_name.strip().casefold()
+    for transaction, recipient_user, _risk_level in rows:
+        account = transaction.payee_account.replace(" ", "").strip()
+        bank_code = transaction.bank_code or ""
+        recipient_name = (
+            recipient_user.full_name if recipient_user else transaction.payee_name
+        ).strip()
+        if (
+            (recipient_user and recipient_user.id == current_user.id)
+            or (own_phone and account == own_phone)
+            or (recipient_name and recipient_name.casefold() == own_name)
+        ):
+            continue
+        key = (account, bank_code)
+        if not account or key in seen:
+            continue
+        seen.add(key)
+        contacts.append(
+            {
+                "id": str(recipient_user.id if recipient_user else transaction.id),
+                "full_name": recipient_name,
+                "account_number": account,
+                "bank_code": bank_code,
+                "avatar_url": recipient_user.avatar_url if recipient_user else None,
+                "last_transferred_at": transaction.created_at,
+            }
+        )
+        if len(contacts) >= page_size:
+            break
+    return contacts
+
+
 @router.get("/history", response_model=TransactionHistoryPage)
 def history(
     limit: int = _HISTORY_DEFAULT_PAGE_SIZE,

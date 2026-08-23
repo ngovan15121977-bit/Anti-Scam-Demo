@@ -22,7 +22,6 @@ import {
   Loader2,
   Mic,
   MicOff,
-  Search,
   Sparkles,
   ShieldCheck,
   CheckCheck,
@@ -88,7 +87,28 @@ export function ProfileNotificationBell() {
 
   const markAll = useMutation({
     mutationFn: async () => axiosInstance.post("/v1/notifications/read-all"),
-    onSuccess: () => {
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: ["notifications"] });
+      await qc.cancelQueries({ queryKey: ["notifications-unread"] });
+
+      const previousItems = qc.getQueryData<AppNotification[]>(["notifications"]);
+      const previousUnread = qc.getQueryData<{ count: number }>([
+        "notifications-unread",
+      ]);
+
+      qc.setQueryData<AppNotification[]>(["notifications"], (current) =>
+        current?.map((notification) => ({ ...notification, is_read: true })),
+      );
+      qc.setQueryData(["notifications-unread"], { count: 0 });
+
+      return { previousItems, previousUnread };
+    },
+    onError: (_error, _variables, context) => {
+      if (!context) return;
+      qc.setQueryData(["notifications"], context.previousItems);
+      qc.setQueryData(["notifications-unread"], context.previousUnread);
+    },
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["notifications"] });
       void qc.invalidateQueries({ queryKey: ["notifications-unread"] });
     },
@@ -635,16 +655,6 @@ export default function ProfilePage() {
 
           <div className="flex items-center gap-3">
             <ProfileNotificationBell />
-            <div className="hidden md:flex items-center gap-2.5 bg-white rounded-full px-5 py-3 shadow-sm border border-violet-100 w-64">
-              <Search className="w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Tìm kiếm..."
-                className="bg-transparent text-sm text-slate-700 outline-none w-full placeholder:text-slate-400"
-                readOnly
-              />
-            </div>
-            {/* Chuông thông báo in-app */}
           </div>
         </header>
 
@@ -1111,13 +1121,13 @@ export default function ProfilePage() {
         <footer className="relative z-10 px-4 sm:px-6 lg:px-8 pb-8 pt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
           <p>© 2024 Timi. All rights reserved.</p>
           <div className="flex items-center gap-4">
-            <button className="hover:text-slate-600 transition-colors">
+            <button onClick={() => navigate("/privacy")} className="hover:text-slate-600 transition-colors">
               Privacy Policy
             </button>
-            <button className="hover:text-slate-600 transition-colors">
+            <button onClick={() => navigate("/terms")} className="hover:text-slate-600 transition-colors">
               Terms of Service
             </button>
-            <button className="hover:text-slate-600 transition-colors">
+            <button onClick={() => navigate("/help")} className="hover:text-slate-600 transition-colors">
               Help Center
             </button>
           </div>

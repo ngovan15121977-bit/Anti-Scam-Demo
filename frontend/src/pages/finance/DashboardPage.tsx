@@ -568,8 +568,8 @@ export default function HomePage() {
             <p className="text-sm">© 2026 Timi. Bảo lưu mọi quyền.</p>
             <div className="flex gap-6 text-sm">
               <button onClick={() => navigate("/help")} className="hover:text-blue-400 transition-colors">Help Center</button>
-              <a href="#" className="hover:text-blue-400 transition-colors">Chính sách bảo mật</a>
-              <a href="#" className="hover:text-blue-400 transition-colors">Điều khoản sử dụng</a>
+              <button onClick={() => navigate("/privacy")} className="hover:text-blue-400 transition-colors">Chính sách bảo mật</button>
+              <button onClick={() => navigate("/terms")} className="hover:text-blue-400 transition-colors">Điều khoản sử dụng</button>
               <a href="#" className="hover:text-blue-400 transition-colors">Cookie</a>
             </div>
           </div>

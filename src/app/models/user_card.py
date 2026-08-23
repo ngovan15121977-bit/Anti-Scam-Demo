@@ -16,6 +16,7 @@ class UserCard(Base, TimestampMixin):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
     nickname: Mapped[str] = mapped_column(String(80), nullable=False)
     card_number_encrypted: Mapped[str] = mapped_column(String(1000), nullable=False)
+    cvv_encrypted: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     holder_name: Mapped[str] = mapped_column(String(255), nullable=False)
     expiry_month: Mapped[int] = mapped_column(Integer, nullable=False)
     expiry_year: Mapped[int] = mapped_column(Integer, nullable=False)
