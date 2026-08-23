@@ -7,6 +7,8 @@ Timi là ứng dụng ngân hàng mô phỏng tập trung vào việc phát hi�
 ## Mục lục
 
 - [Tính năng](#tính-năng)
+- [Guardian Risk Agent & Phase roadmap](#guardian-risk-agent--phase-roadmap)
+- [Evaluation](#evaluation)
 - [Kiến trúc và cấu trúc mã nguồn](#kiến-trúc-và-cấu-trúc-mã-nguồn)
 - [Yêu cầu môi trường](#yêu-cầu-môi-trường)
 - [Cấu hình biến môi trường](#cấu-hình-biến-môi-trường)
@@ -20,6 +22,7 @@ Timi là ứng dụng ngân hàng mô phỏng tập trung vào việc phát hi�
 - [Troubleshooting](#troubleshooting)
 - [Deploy](#deploy)
 - [An toàn và giới hạn](#an-toàn-và-giới-hạn)
+- [Tài liệu liên quan](#tài-liệu-liên-quan)
 
 ## Tính năng
 
@@ -53,9 +56,9 @@ Timi là ứng dụng ngân hàng mô phỏng tập trung vào việc phát hi�
 ### Scam Call Guardian realtime
 
 - Scam Guardian chạy ngầm trong MainLayout sau khi người dùng đăng nhập và chấp nhận quyền microphone; không cần mở một trang riêng.
-- Một WebSocket giữ trong suốt phiên; MediaRecorder phát data event theo timeslice, gom thành đoạn audio tự chứa khoảng 3 giây rồi chỉ gửi đoạn có voice để nhận transcript/risk realtime. Recorder tự phục hồi nếu trình duyệt chuyển sang trạng thái inactive.
+- Một WebSocket giữ trong suốt phiên; MediaRecorder phát data event theo timeslice, gom thành đoạn audio tự động khoảng 3 giây rồi chỉ gửi đoạn có voice để nhận transcript/risk realtime. Recorder tự phục hồi nếu trình duyệt chuyển sang trạng thái inactive.
 - Ưu tiên Groq Whisper server-side STT (`GUARDIAN_STT_ENABLED=true`, mặc định `whisper-large-v3`); metadata `verbose_json` và bộ lọc câu outro/quảng bá YouTube phổ biến được dùng để bỏ các đoạn im lặng/hallucination trước khi đưa vào risk engine. Nếu provider trả lỗi/rỗng, browser SpeechRecognition tự chuyển sang fallback khi trình duyệt hỗ trợ. Audio chunk chỉ tồn tại trong bộ nhớ xử lý và không được lưu.
-- Backend giữ conversation state trong session và gửi transcript vào Guardian Risk Agent (Groq). Agent tự quyết định `risk_score`, `risk_level`, danh sách tín hiệu, ngưỡng ngữ cảnh và `recommended_action` (`CONTINUE`, `MONITOR`, `PAUSE`, `STOP`) rồi trả về JSON có schema giới hạn.
+- Backend giữ conversation state trong session và gửi transcript vào Guardian Risk Agent (Groq). Agent tự quyết định `risk_score`, `risk_level`, danh sách tín hiệu, ngưỡng ngữ cảnh và `recommended_action` (`CONTINUE`, `MONITOR`, `PAUSE`, `STOP`) rồi trả về JSON có schema giới hạn (kèm `decision_confidence` từ Phase 1).
 - Backend không tính lại ngưỡng và không để LLM gọi tool: backend chỉ validate/lưu quyết định, hiển thị cảnh báo và thực thi chặn giao dịch khi agent trả về `STOP`. Nếu agent/STT không khả dụng, hệ thống fail-closed bằng một quyết định tạm dừng rõ ràng để không bỏ lọt giao dịch nguy hiểm.
 - Guardian agent có retry cho lỗi mạng/429/5xx; một lỗi đơn lẻ chỉ chuyển phiên sang `PAUSE` và không bật cảnh báo scam. Sau ba lỗi liên tiếp, backend chuyển sang `STOP` fail-closed và giữ chặn đến khi phiên gọi kết thúc.
 - Mini Timi tự mở khung hội thoại và gửi cảnh báo có risk score, tín hiệu phát hiện và hướng dẫn dừng cuộc gọi.
@@ -77,6 +80,92 @@ Guardian signal catalog (offline evaluator; production threshold belongs to the 
 | `authority_claim` | Tự xưng công an, cơ quan điều tra, tòa án, ngân hàng hoặc cơ quan có thẩm quyền | 18 |
 
 Các signal tương đồng legacy vẫn được lưu để không mất khả năng audit, nhưng được gom nhóm khi tính điểm để tránh cộng hai lần cùng một bằng chứng. Tổ hợp authority + khóa tài khoản, OTP + credential, hoặc cấm xác minh bên ngoài sẽ cộng thêm bonus và có thể chuyển cảnh báo lên `STOP`.
+
+## Guardian Risk Agent & Phase roadmap
+
+| Phase | Trạng thái | Mục tiêu chính |
+|-------|------------|----------------|
+| Phase 0 | ✅ Baseline | Prompt versioning + 32 cases + metrics ban đầu |
+| Phase 1 | ✅ Đạt chất lượng quyết định | Schema OK ≥ 95% (thực tế **100%**), hybrid rule+agent, `decision_confidence`, F1 STOP/PAUSE tốt hơn |
+| Phase 2 | Planned | Hierarchical Multi-Agent / Bank Risk Manager |
+
+### Prompt versioning
+
+Xem `prompts/README.md`. Khuyến nghị hiện tại:
+
+```bash
+export GUARDIAN_PROMPT_VERSION=0.3
+export GUARDIAN_HYBRID=true          # production path (nếu đã wire hybrid)
+```
+
+| File | Version | Ghi chú |
+|------|---------|---------|
+| `guardian_v0.1.yaml` | 0.1 | Extract từ production code |
+| `guardian_v0.2.yaml` | 0.2 | Phase 0 baseline |
+| `guardian_v0.3.yaml` | 0.3 | Phase 1: shorter JSON, 12 few-shot VN, `decision_confidence` bắt buộc |
+
+**Quy tắc:** Không sửa file version đã dùng trong evaluation. Mỗi thay đổi meaningful → tạo version mới và ghi rõ trong report.
+
+### Hybrid merge policy (tóm tắt)
+
+- Rule engine chạy song song với agent.
+- `decision_confidence < 0.55` → floor tối thiểu PAUSE nếu rule đã thấy risk.
+- Final action = max severity khi bất đồng trên tín hiệu cao.
+- Fail-closed khi agent/STT không khả dụng.
+
+Chi tiết triển khai: `docs/PHASE1_IMPLEMENTATION.md`, `src/app/services/scam_guardian_hybrid.py`.
+
+## Evaluation
+
+### Latest baseline (2026-08-23)
+
+| Metric | Value |
+|--------|-------|
+| Total cases | 32 |
+| Schema OK rate | **100.0%** |
+| Availability rate | **100.0%** |
+| Action accuracy | **100.0%** |
+| Level accuracy | **100.0%** |
+| Score in range rate | **100.0%** |
+| Signal check rate | **100.0%** |
+| Overall pass rate | **100.0%** |
+| Resolved action accuracy | **100.0%** |
+| Avg latency | **9067.7 ms** |
+| Source file | `eval/results/baseline_20260823_034947.json` |
+
+**Kết luận:** Đạt tuyệt đối trên schema và toàn bộ accuracy. Latency trung bình ~9.1s vẫn là điểm cần tối ưu tiếp.
+
+### So sánh nhanh với Phase 0 cũ
+
+| Metric | Phase 0 (~21/08) | Latest (23/08) |
+|--------|------------------|----------------|
+| Schema OK | ~78–81% | **100%** |
+| Action accuracy | ~56–66% | **100%** |
+| Overall pass | ~53–66% | **100%** |
+
+### Đường dẫn eval
+
+| Path | Mô tả |
+|------|-------|
+| `eval/manual_cases.md` | Manual cases (transaction UI + Guardian) |
+| `eval/results/report.md` | Báo cáo metrics đầy đủ |
+| `eval/results/baseline_*.json` | Raw run results |
+| `eval/dataset/` | `guardian_cases_v0.json` và v1 extra |
+| `eval/scripts/` | `run_baseline_eval.py`, `run_phase1_eval.py` |
+| `docs/PHASE0_REPORT.md` | Báo cáo baseline |
+| `docs/PHASE1_IMPLEMENTATION.md` | Checklist & Definition of Done Phase 1 |
+
+Chạy lại eval:
+
+```bash
+export GUARDIAN_PROMPT_VERSION=0.3
+export GROQ_API_KEY=...
+python eval/scripts/run_baseline_eval.py
+# hoặc Phase 1 modes
+python eval/scripts/run_phase1_eval.py --mode hybrid
+python eval/scripts/run_phase1_eval.py --mode agent
+python eval/scripts/run_phase1_eval.py --mode rule
+```
 
 ## Kiến trúc và cấu trúc mã nguồn
 
@@ -101,7 +190,7 @@ FastAPI (src/app)
 | src/main.py | Entrypoint Uvicorn, export app |
 | src/app/main.py | FastAPI app canonical và router đang mount |
 | src/app/api/ | API auth, transaction, admin, URL safety, assistant |
-| src/app/services/ | Risk rules, Timi ledger, Face ID, blacklist, audit |
+| src/app/services/ | Risk rules, Timi ledger, Face ID, blacklist, audit, Guardian hybrid |
 | src/app/models/ | SQLAlchemy models |
 | src/app/schemas/ | Pydantic request/response schemas |
 | src/agents/ | LangGraph transaction/intervention graph |
@@ -110,6 +199,7 @@ FastAPI (src/app)
 | data/uploads/ | File URL scam và upload local (không commit) |
 | tests/ | Unit/integration tests |
 | eval/ | Manual cases và kết quả đánh giá |
+| prompts/ | Versioned Guardian system prompts |
 | ARCHITECTURE.md | Sơ đồ Mermaid và safety boundary |
 
 > Lưu ý: src/api, src/pages, src/models, src/config.py và một số src/routers là code/flow legacy. Chúng không được mount bởi src/app/main.py. Tính năng mới nên đặt trong src/app và frontend/src.
@@ -121,15 +211,13 @@ FastAPI (src/app)
 - PostgreSQL hoặc Neon PostgreSQL; bật pgvector nếu dùng vector store.
 - Docker Desktop + Linux containers/WSL 2 nếu chạy Docker.
 - Trình duyệt có camera và quyền định vị. Camera trên deployment phải chạy HTTPS; localhost được phép trong development.
-- Face ID dùng các model ONNX chạy local: YuNet (phát hiện), SFace (đối chiếu) và bộ đôi MiniFASNet-V2 + V1SE (Passive Liveness). Không cần gửi ảnh camera đến dịch vụ bên thứ ba.
+- Face ID dùng hai model ONNX nhẹ được lưu trong `models/face/`; không dùng Hugging Face/PyTorch.
 
-Bốn file model cần có:
+Hai file model cần có:
 
 ```text
 models/face/face_detection_yunet_2023mar.onnx
 models/face/face_recognition_sface_2021dec.onnx
-models/face/minifasnet_v2.onnx
-models/face/minifasnet_v1se.onnx
 ```
 
 Các file model được đóng gói vào Docker image tại `/opt/face-models`. Khi đổi model hoặc preprocessing, người dùng cần đăng ký Face ID lại.
@@ -156,25 +244,20 @@ Không commit .env. Các biến quan trọng:
 | GROQ_API_KEY | Cho chat + Guardian | Key server-side cho Timi Assistant và Guardian Risk Agent |
 | GROQ_MODEL_NAME | Cho chat | Mặc định openai/gpt-oss-20b |
 | GROQ_BASE_URL | Không | Mặc định https://api.groq.com/openai/v1 |
-| CHAT_AGENT_API_KEY, CHAT_AGENT_BASE_URL, CHAT_AGENT_MODEL | Không | Provider/quota/model riêng cho Chat Support Agent; để trống sẽ dùng `GROQ_*` |
 | GUARDIAN_AGENT_ENABLED | Không | Bật Guardian Risk Agent; mặc định true |
-| GUARDIAN_AGENT_API_KEY, GUARDIAN_AGENT_BASE_URL | Không | Provider/quota riêng cho Call Guardian Agent; để trống sẽ dùng `GROQ_*` |
 | GUARDIAN_AGENT_MODEL | Không | Model Groq dùng chấm điểm/ngưỡng Guardian; mặc định `llama-3.1-8b-instant` |
+| GUARDIAN_PROMPT_VERSION | Không | Version prompt (`0.3` khuyến nghị Phase 1); mặc định theo code |
+| GUARDIAN_HYBRID | Không | Bật hybrid rule+agent trên production path; mặc định false |
 | GUARDIAN_AGENT_MIN_INTERVAL_SECONDS | Không | Khoảng tối thiểu giữa hai lần agent phân tích transcript; mặc định 6 giây |
 | GUARDIAN_STT_ENABLED | Không | Bật server-side Whisper STT cho Guardian; mặc định true |
-| GUARDIAN_STT_API_KEY, GUARDIAN_STT_BASE_URL | Không | Provider/quota riêng cho bước nghe cuộc gọi; để trống sẽ dùng Guardian rồi `GROQ_*` |
 | GUARDIAN_STT_MODEL | Không | Mặc định whisper-large-v3; có thể đổi sang whisper-large-v3-turbo nếu ưu tiên tốc độ/chi phí |
 | OPENAI_API_KEY | Không | Nhánh giải thích transaction legacy khi bật LLM |
 | LLM_EXPLANATION_ENABLED | Không | Mặc định false; risk score vẫn chạy khi tắt |
 | RISK_TELEMETRY_HASH_KEY | Production | HMAC IP/device telemetry, phải khác JWT secret |
 | FACE_MODEL_ID | Không | Nhận diện `opencv-sface-yunet` |
-| FACE_MODEL_DIR | Không | Thư mục chứa model YuNet/SFace; local mặc định `models/face`, Docker dùng `/opt/face-models` |
+| FACE_MODEL_DIR | Không | Thư mục chứa 2 model ONNX; local mặc định `models/face`, Docker dùng `/opt/face-models` |
 | FACE_SIMILARITY_THRESHOLD | Không | Ngưỡng mặc định 0.70 |
-| FACE_LIVENESS_MODEL_PATH | Không | Đường dẫn model MiniFASNet-V2 Passive Liveness |
-| FACE_LIVENESS_V1SE_MODEL_PATH | Không | Đường dẫn model MiniFASNet-V1SE ghép điểm với V2 |
-| FACE_LIVENESS_LIVE_THRESHOLD | Không | Sàn chống kết quả mơ hồ của MiniFASNet ba lớp; mặc định 0.36 và lớp real vẫn phải thắng hai lớp spoof |
-| FACE_LIVENESS_MIN_FRAMES | Không | Số mẫu tối thiểu trong đoạn camera ngắn; mặc định 3, không phải yêu cầu 8–15 frame |
-| FACE_MODEL_PRELOAD | Không | true preload toàn bộ model Face ID; false lazy-load |
+| FACE_MODEL_PRELOAD | Không | true preload model; false lazy-load |
 | CLOUDINARY_* | Tuỳ chọn | Upload avatar |
 | LANGCHAIN_*, AI_LOG_* | Tuỳ chọn | Tracing/logging local hoặc production |
 
@@ -200,7 +283,7 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 # Chỉnh DATABASE_URL, DATABASE_SCHEMA, JWT_SECRET_KEY và GROQ_API_KEY
 python -m alembic upgrade head
-python -m uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+python -m uvicorn src.main:app --host 127.0.0.1 --port 8000 --reload
 ~~~
 
 Nếu PowerShell chặn activate script, bỏ qua activate và gọi trực tiếp .\.venv\Scripts\python.exe.
@@ -218,18 +301,11 @@ npm ci
 npm run dev
 ~~~
 
-Mở http://localhost:5173. Frontend đọc các biến `VITE_*` từ file `.env` ở thư
-mục gốc. Nếu backend ở URL khác hoặc cần bật Google login, cập nhật file này:
+Mở http://localhost:5173. Frontend mặc định gọi http://localhost:8000/api. Nếu backend ở URL khác, tạo frontend/.env.local:
 
 ~~~env
 VITE_API_URL=http://localhost:8000/api
-VITE_GOOGLE_CLIENT_ID=<Google OAuth 2.0 Web client ID>
 ~~~
-
-Để bật đăng nhập Google, đặt cùng một Web client ID ở `VITE_GOOGLE_CLIENT_ID`
-(frontend) và `GOOGLE_OAUTH_CLIENT_ID` (backend), rồi khai báo origin frontend
-trong Google Cloud Console. Người dùng Google lần đầu chỉ cần thêm số điện
-thoại 10 chữ số; tên hiển thị được lấy từ hồ sơ Google đã xác minh.
 
 ### Tài khoản demo
 
@@ -426,7 +502,7 @@ Mở bằng http://localhost:5173 hoặc HTTPS, cấp quyền camera cho đúng 
 
 ### Face ID không nhận diện
 
-Đảm bảo đã cài `requirements.txt`, có đủ 4 file trong `models/face/`, camera được cấp quyền, đủ sáng, chỉ một người và nhìn thẳng. Đặt mặt vào giữa khung và giữ yên trong giây lát; hệ thống tự thu một đoạn camera ngắn để chạy hai model Passive Liveness rồi mới đối chiếu khuôn mặt. Ảnh in, màn hình hoặc video ghi sẵn sẽ bị từ chối. Passive Liveness giảm presentation attack nhưng không thể tự bảo đảm hoàn toàn chống digital injection trong trình duyệt web.
+Đảm bảo đã cài `requirements.txt`, có đủ 2 file trong `models/face/`, ảnh dưới 5 MB, đủ sáng, chỉ một người và nhìn thẳng. Khi đăng ký, giữ mặt giữa khung rồi quay trái và quay về giữa (`1/2`), sau đó quay phải và quay về giữa (`2/2`).
 
 ### Không kết nối Neon
 
@@ -468,7 +544,11 @@ CORS_ORIGINS phải chứa đúng origin frontend, không có slash cuối. Khi 
 
 - ARCHITECTURE.md — component/data flow và safety boundary.
 - SETUP.md — hướng dẫn Docker/Neon chi tiết hơn.
-- eval/manual_cases.md — manual cases.
-- eval/results/ — kết quả đánh giá.
-- docs/ — tài liệu kỹ thuật theo chương.
+- eval/manual_cases.md — manual cases (transaction + Guardian).
+- eval/results/report.md — báo cáo evaluation mới nhất (100% metrics).
+- eval/results/ — raw JSON baseline runs.
+- docs/PHASE0_REPORT.md — báo cáo baseline.
+- docs/PHASE1_IMPLEMENTATION.md — checklist & Definition of Done Phase 1.
+- prompts/README.md — versioned Guardian prompts.
 - frontend/README.md — ghi chú frontend.
+```

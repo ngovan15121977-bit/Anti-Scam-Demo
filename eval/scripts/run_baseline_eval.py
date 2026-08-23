@@ -5,7 +5,9 @@ Phase 0 - Baseline Evaluation Script for Guardian Agent
 Located at: eval/scripts/run_baseline_eval.py (inside the project)
 
 Usage (from repository root):
-  # Configure GUARDIAN_AGENT_API_KEY (or GROQ_API_KEY fallback) in .env.
+  export GROQ_API_KEY=your_key
+  # optional:
+  export GUARDIAN_PROMPT_VERSION=0.2
   python eval/scripts/run_baseline_eval.py
 
 This script evaluates the current Guardian agent against the dataset
@@ -21,8 +23,8 @@ import json
 import os
 import sys
 import time
-from collections import defaultdict
-from datetime import UTC, datetime
+from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -31,12 +33,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 try:
-    from src.app.services.agent_provider_config import guardian_provider_config
     from src.app.services.scam_guardian import GuardianConversationState
     from src.app.services.scam_guardian_agent import (
-        GUARDIAN_AGENT_PROMPT_VERSION,
-        GuardianAgentUnavailableError,
         analyze_with_guardian_agent,
+        GuardianAgentUnavailableError,
     )
 except ImportError as e:
     print(f"[ERROR] Cannot import Guardian modules: {e}")
@@ -47,9 +47,9 @@ except ImportError as e:
 DATASET_PATH = REPO_ROOT / "eval" / "dataset" / "guardian_cases_v0.json"
 RESULTS_DIR = REPO_ROOT / "eval" / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-CASE_DELAY_SECONDS = float(os.getenv("GUARDIAN_EVAL_CASE_DELAY_SECONDS", "3"))
-MAX_CASE_ATTEMPTS = max(1, int(os.getenv("GUARDIAN_EVAL_MAX_ATTEMPTS", "3")))
-MAX_RETRY_WAIT_SECONDS = 30.0
+
+# Align with scam_guardian_agent.py default
+PROMPT_VERSION = os.getenv("GUARDIAN_PROMPT_VERSION", "0.3")
 
 
 def load_dataset() -> list[dict[str, Any]]:
@@ -70,29 +70,6 @@ def get_latest_text(transcript: list[dict]) -> str:
     return transcript[-1].get("text", "")
 
 
-def _error_metadata(exc: GuardianAgentUnavailableError) -> dict[str, Any]:
-    """Expose safe transport diagnostics so provider outages are not scored as AI mistakes."""
-    cause = exc.__cause__
-    status_code = getattr(cause, "status_code", None)
-    return {
-        "error_type": type(cause).__name__ if cause else type(exc).__name__,
-        "status_code": status_code if isinstance(status_code, int) else None,
-        "retry_after_seconds": exc.retry_after_seconds,
-        "provider_message": str(cause)[:500] if cause else None,
-    }
-
-
-def _should_retry(exc: GuardianAgentUnavailableError) -> bool:
-    cause = exc.__cause__
-    status_code = getattr(cause, "status_code", None)
-    # HTTP 400 is a deterministic request/model-contract failure and retrying
-    # the same payload only inflates latency. The production client already
-    # handles Groq's structured-output fallback before it reaches this point.
-    if status_code == 429 or (isinstance(status_code, int) and status_code >= 500):
-        return True
-    return type(cause).__name__ in {"APIConnectionError", "APITimeoutError"}
-
-
 def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     """Run one case and return detailed result."""
     case_id = case["id"]
@@ -104,34 +81,17 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
 
     start = time.perf_counter()
     error = None
-    error_metadata: dict[str, Any] | None = None
     result = None
-    attempts = 0
+    schema_ok = True
 
-    for attempts in range(1, MAX_CASE_ATTEMPTS + 1):
-        try:
-            result = analyze_with_guardian_agent(state, latest)
-            error = None
-            error_metadata = None
-            break
-        except GuardianAgentUnavailableError as exc:
-            error = str(exc)
-            error_metadata = _error_metadata(exc)
-            if attempts == MAX_CASE_ATTEMPTS or not _should_retry(exc):
-                break
-            provider_wait = exc.retry_after_seconds or (2.0 * attempts)
-            time.sleep(min(MAX_RETRY_WAIT_SECONDS, max(2.0, provider_wait)))
-        except Exception as exc:
-            error = f"Unexpected: {type(exc).__name__}: {exc}"
-            error_metadata = {
-                "error_type": type(exc).__name__,
-                "status_code": None,
-                "retry_after_seconds": 0,
-                "provider_message": str(exc)[:500],
-            }
-            break
-
-    schema_ok = result is not None
+    try:
+        result = analyze_with_guardian_agent(state, latest)
+    except GuardianAgentUnavailableError as exc:
+        error = str(exc)
+        schema_ok = False
+    except Exception as exc:
+        error = f"Unexpected: {type(exc).__name__}: {exc}"
+        schema_ok = False
 
     latency_ms = round((time.perf_counter() - start) * 1000, 1)
 
@@ -139,10 +99,9 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     action_match = False
     level_match = False
     score_in_range = False
-    signal_ok = False
+    signal_ok = True
 
     if result is not None:
-        signal_ok = True
         action_match = result.recommended_action == expected["recommended_action"]
         level_match = result.risk_level == expected["risk_level"]
         low, high = expected["risk_score_range"]
@@ -163,8 +122,6 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
         "latency_ms": latency_ms,
         "schema_ok": schema_ok,
         "error": error,
-        "error_metadata": error_metadata,
-        "attempts": attempts,
         "predicted_action": result.recommended_action if result else None,
         "predicted_level": result.risk_level if result else None,
         "predicted_score": result.risk_score if result else None,
@@ -188,6 +145,11 @@ def compute_metrics(results: list[dict]) -> dict[str, Any]:
     signal_ok = sum(1 for r in results if r["signal_ok"])
     overall_pass = sum(1 for r in results if r["overall_pass"])
 
+    # Status counts
+    n_pass = sum(1 for r in results if r["overall_pass"])
+    n_error = sum(1 for r in results if r["error"])
+    n_fail = total - n_pass - n_error  # schema ok but action wrong
+
     # Per-action confusion style
     by_action = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0, "support": 0})
     for r in results:
@@ -201,36 +163,132 @@ def compute_metrics(results: list[dict]) -> dict[str, Any]:
             if pred:
                 by_action[pred]["fp"] += 1
 
+    # Predicted action distribution (None = schema fail)
+    action_dist = Counter(
+        (r["predicted_action"] if r["predicted_action"] is not None else "None")
+        for r in results
+    )
+
+    # Per-category breakdown
+    by_category: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"total": 0, "pass": 0, "fail": 0, "error": 0}
+    )
+    for r in results:
+        cat = r.get("category") or "unknown"
+        by_category[cat]["total"] += 1
+        if r["error"]:
+            by_category[cat]["error"] += 1
+        elif r["overall_pass"]:
+            by_category[cat]["pass"] += 1
+        else:
+            by_category[cat]["fail"] += 1
+
+    # Latency (schema OK only)
     latencies = [r["latency_ms"] for r in results if r["schema_ok"]]
     avg_latency = round(sum(latencies) / len(latencies), 1) if latencies else None
+    p50_latency = None
+    p95_latency = None
+    if latencies:
+        sorted_lat = sorted(latencies)
+        p50_latency = sorted_lat[len(sorted_lat) // 2]
+        p95_idx = min(len(sorted_lat) - 1, int(len(sorted_lat) * 0.95))
+        p95_latency = sorted_lat[p95_idx]
+
+    # Lists for report
+    error_cases = [
+        {"id": r["id"], "category": r.get("category"), "error": r["error"], "latency_ms": r["latency_ms"]}
+        for r in results
+        if r["error"]
+    ]
+    fail_cases = [
+        {
+            "id": r["id"],
+            "category": r.get("category"),
+            "expected_action": r["expected_action"],
+            "predicted_action": r["predicted_action"],
+            "latency_ms": r["latency_ms"],
+        }
+        for r in results
+        if not r["error"] and not r["overall_pass"]
+    ]
 
     return {
         "total_cases": total,
+        "pass_count": n_pass,
+        "fail_count": n_fail,
+        "error_count": n_error,
         "schema_ok_count": schema_ok,
         "schema_ok_rate": round(schema_ok / total, 4) if total else 0,
-        "availability_rate": round(schema_ok / total, 4) if total else 0,
         "action_accuracy": round(action_correct / total, 4) if total else 0,
         "level_accuracy": round(level_correct / total, 4) if total else 0,
         "score_in_range_rate": round(score_ok / total, 4) if total else 0,
         "signal_ok_rate": round(signal_ok / total, 4) if total else 0,
         "overall_pass_rate": round(overall_pass / total, 4) if total else 0,
         "avg_latency_ms": avg_latency,
-        "resolved_action_accuracy": round(action_correct / schema_ok, 4) if schema_ok else 0,
+        "p50_latency_ms": p50_latency,
+        "p95_latency_ms": p95_latency,
         "by_action": dict(by_action),
+        "action_distribution": dict(action_dist),
+        "by_category": dict(by_category),
+        "error_cases": error_cases,
+        "fail_cases": fail_cases,
     }
+
+
+def print_summary(metrics: dict[str, Any], prompt_version: str, out_path: Path) -> None:
+    print("\n" + "=" * 60)
+    print("BASELINE SUMMARY")
+    print("=" * 60)
+    print(f"Prompt version       : v{prompt_version}")
+    print(f"Total cases          : {metrics['total_cases']}")
+    print(f"  PASS / FAIL / ERROR: {metrics['pass_count']} / {metrics['fail_count']} / {metrics['error_count']}")
+    print(f"Schema OK rate       : {metrics['schema_ok_rate']:.1%}")
+    print(f"Action accuracy      : {metrics['action_accuracy']:.1%}")
+    print(f"Level accuracy       : {metrics['level_accuracy']:.1%}")
+    print(f"Score in range rate  : {metrics['score_in_range_rate']:.1%}")
+    print(f"Signal check rate    : {metrics['signal_ok_rate']:.1%}")
+    print(f"Overall pass rate    : {metrics['overall_pass_rate']:.1%}")
+    print(f"Avg latency (ms)     : {metrics['avg_latency_ms']}")
+    print(f"P50 / P95 latency    : {metrics['p50_latency_ms']} / {metrics['p95_latency_ms']}")
+
+    print("\nAction distribution (predicted):")
+    for action, count in sorted(metrics["action_distribution"].items(), key=lambda x: (-x[1], x[0])):
+        print(f"  {action:12} {count}")
+
+    print("\nBy category:")
+    for cat, stats in sorted(metrics["by_category"].items()):
+        print(
+            f"  {cat:10} total={stats['total']:2}  "
+            f"pass={stats['pass']:2}  fail={stats['fail']:2}  error={stats['error']:2}"
+        )
+
+    if metrics["error_cases"]:
+        print("\nSchema ERROR cases:")
+        for c in metrics["error_cases"]:
+            err_short = (c["error"] or "")[:80]
+            print(f"  - {c['id']} ({c['category']}): {err_short}")
+
+    if metrics["fail_cases"]:
+        print("\nAction FAIL cases:")
+        for c in metrics["fail_cases"]:
+            print(
+                f"  - {c['id']} ({c['category']}): "
+                f"expected={c['expected_action']} → predicted={c['predicted_action']}"
+            )
+
+    print(f"\nDetailed report saved to: {out_path}")
+    print("=" * 60)
 
 
 def main() -> None:
     print("=" * 60)
     print("Phase 0 – Guardian Agent Baseline Evaluation")
     print("=" * 60)
+    print(f"Prompt version (GUARDIAN_PROMPT_VERSION): v{PROMPT_VERSION}")
 
-    provider = guardian_provider_config()
-    if not provider.api_key:
-        print("[WARN] Guardian API key is not configured. Agent calls will fail.")
-        print("       Set GUARDIAN_AGENT_API_KEY or GROQ_API_KEY in .env before running.")
-    else:
-        print(f"Provider configured: model={provider.model}")
+    if not os.getenv("GROQ_API_KEY"):
+        print("[WARN] GROQ_API_KEY not set. Agent calls will fail.")
+        print("       Set it in environment or .env before running for real numbers.")
 
     dataset = load_dataset()
     print(f"Loaded {len(dataset)} cases from {DATASET_PATH}")
@@ -244,18 +302,23 @@ def main() -> None:
             status = "ERROR"
         print(f"{status} (action={res['predicted_action']}, {res['latency_ms']}ms)")
         results.append(res)
-        # A conservative cadence avoids turning an evaluation batch into a
-        # provider rate-limit test. Override only when your quota supports it.
-        time.sleep(CASE_DELAY_SECONDS)
+        # Small delay to be gentle on rate limits
+        time.sleep(1.5)
 
     metrics = compute_metrics(results)
 
-    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     report = {
         "phase": "0",
         "timestamp_utc": timestamp,
-        "prompt_version": GUARDIAN_AGENT_PROMPT_VERSION,
-        "dataset": str(DATASET_PATH.name),
+        "prompt_version": f"v{PROMPT_VERSION}",
+        "dataset": DATASET_PATH.name,
+        "env": {
+            "GUARDIAN_PROMPT_VERSION": PROMPT_VERSION,
+            "GUARDIAN_AGENT_MODEL": os.getenv("GUARDIAN_AGENT_MODEL")
+            or os.getenv("GROQ_MODEL")
+            or "from_settings",
+        },
         "metrics": metrics,
         "results": results,
     }
@@ -264,21 +327,7 @@ def main() -> None:
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
 
-    print("\n" + "=" * 60)
-    print("BASELINE SUMMARY")
-    print("=" * 60)
-    print(f"Total cases          : {metrics['total_cases']}")
-    print(f"Schema OK rate       : {metrics['schema_ok_rate']:.1%}")
-    print(f"Availability rate    : {metrics['availability_rate']:.1%}")
-    print(f"Action accuracy      : {metrics['action_accuracy']:.1%}")
-    print(f"Level accuracy       : {metrics['level_accuracy']:.1%}")
-    print(f"Score in range rate  : {metrics['score_in_range_rate']:.1%}")
-    print(f"Signal check rate    : {metrics['signal_ok_rate']:.1%}")
-    print(f"Overall pass rate    : {metrics['overall_pass_rate']:.1%}")
-    print(f"Resolved action acc. : {metrics['resolved_action_accuracy']:.1%}")
-    print(f"Avg latency (ms)     : {metrics['avg_latency_ms']}")
-    print(f"\nDetailed report saved to: {out_path}")
-    print("=" * 60)
+    print_summary(metrics, PROMPT_VERSION, out_path)
 
 
 if __name__ == "__main__":

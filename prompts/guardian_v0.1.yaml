@@ -2,7 +2,7 @@
 version: "0.1"
 model_recommendation: "llama-3.1-8b-instant"
 temperature: 0
-max_completion_tokens: 400
+max_completion_tokens: 600
 response_format: json_object
 
 system_prompt: |

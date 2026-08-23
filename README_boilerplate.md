@@ -1,182 +1,150 @@
-# [FIN-19] Timi — FintechGuard Anti-Scam Demo
+# Timi — FIN-19: AI Agent Chống Lừa Đảo & Cảnh Báo Giao Dịch Rủi Ro
 
-> Ứng dụng ngân hàng mô phỏng dùng AI để phát hiện, giải thích và ngăn các giao dịch có dấu hiệu lừa đảo trước khi người dùng xác nhận chuyển tiền.
+> Tóm tắt 1 câu: Người dùng ví điện tử/ngân hàng bị lừa chuyển tiền bởi các kịch bản scam tinh vi và cuộc gọi mạo danh → AI Agent (rule-based + LLM + LangGraph) chấm điểm rủi ro và cảnh báo theo thời gian thực, có Human-in-the-Loop, cho người dùng ví điện tử/ngân hàng số và đội vận hành/CSKH.
 
 ## Vấn đề (Problem)
 
-Lừa đảo chuyển khoản thường khai thác sự gấp gáp, giả danh ngân hàng/cơ quan chức năng, yêu cầu cung cấp OTP hoặc hướng người dùng tới các đường dẫn độc hại. Người dùng thường phải tự đánh giá rủi ro trong vài giây, trong khi các ứng dụng chuyển tiền thông thường chưa cung cấp đủ ngữ cảnh và cảnh báo dễ hiểu.
-
-Các vấn đề chính:
-
-- Người dùng khó nhận biết người nhận, nội dung chuyển tiền hoặc URL QR có dấu hiệu bất thường.
-- Cảnh báo đơn lẻ thường thiếu bằng chứng và không giải thích rõ vì sao giao dịch nguy hiểm.
-- Các cuộc gọi lừa đảo có thể thao túng người dùng trước hoặc trong lúc thực hiện giao dịch.
-- Việc xác thực bổ sung như PIN, Face ID và quy trình dừng giao dịch chưa được kết hợp thành một luồng thống nhất.
+- **Ai đang gặp vấn đề?** Người dùng ví điện tử/ngân hàng số, đặc biệt là người lớn tuổi hoặc ít kiến thức bảo mật, dễ bị lừa chuyển tiền qua các kịch bản giả mạo người quen, giả danh nhân viên ngân hàng/công an, gửi link giả hoặc gọi điện thao túng tâm lý ngay trong lúc thực hiện giao dịch.
+- **Vấn đề tốn bao nhiêu thời gian/tiền?** Lừa đảo chuyển khoản gây thiệt hại tài chính trực tiếp cho nạn nhân, đồng thời làm tăng chi phí xử lý khiếu nại/hoàn tiền cho doanh nghiệp ví điện tử/ngân hàng và ảnh hưởng tiêu cực đến uy tín thương hiệu.
+- **Tại sao các giải pháp hiện tại chưa đủ?** Cảnh báo giao dịch hiện tại thường tĩnh, chung chung, không phân tích ngữ cảnh theo thời gian thực (nội dung hội thoại, tốc độ giao dịch, thiết bị lạ...), nên người dùng dễ bỏ qua; đồng thời phần lớn hệ thống chưa giám sát được rủi ro phát sinh ngay trong cuộc gọi lừa đảo trước khi lệnh chuyển tiền được tạo ra.
 
 ## Giải pháp (Solution)
 
-Timi là một ngân hàng mô phỏng nội bộ, kết hợp rule engine, dữ liệu lịch sử và AI agent để hỗ trợ người dùng ra quyết định an toàn. Hệ thống không tự ý chuyển tiền và không kết nối hệ thống ngân hàng thật.
+Sản phẩm là ứng dụng ngân hàng số mô phỏng (Timi) tích hợp AI Agent chấm điểm rủi ro và giám sát cuộc gọi theo thời gian thực:
 
-Các chức năng chính:
-
-- **Đánh giá rủi ro giao dịch:** phân tích số tiền, người nhận, tần suất, thiết bị/IP, từ khóa đáng ngờ và blacklist.
-- **Cảnh báo có giải thích:** hiển thị risk score, mức độ rủi ro, tín hiệu phát hiện và khuyến nghị tiếp tục hoặc hủy.
-- **Scam Call Guardian:** nhận transcript cuộc gọi theo thời gian thực, phát hiện các dấu hiệu giả danh, ép buộc, xin OTP/PIN và đưa ra hành động `CONTINUE`, `MONITOR`, `PAUSE` hoặc `STOP`.
-- **Bảo vệ QR và URL:** quét QR, kiểm tra hostname với danh sách URL/domain lừa đảo và chặn đường dẫn nguy hiểm.
-- **Xác thực giao dịch:** hỗ trợ PIN giao dịch, Face ID cho giao dịch giá trị cao và quy trình Human-in-the-Loop.
-- **Audit và quản trị:** lưu risk event, quyết định, báo cáo scam và lịch sử để phục vụ kiểm tra.
+- **Feature 1 — Risk Agent cho giao dịch (LangGraph):** Điều phối guard input → thu thập bằng chứng → chấm điểm → giải thích. Risk score/level do rule engine và dữ liệu (blacklist, số tiền bất thường, tốc độ giao dịch, thiết bị/IP lạ, từ khóa đáng ngờ, lịch sử) quyết định; LLM chỉ giải thích, không được tự đổi điểm hay chuyển tiền. Cảnh báo rủi ro trung bình/cao bắt buộc đi qua xác nhận của người dùng (Human-in-the-Loop).
+- **Feature 2 — Scam Call Guardian realtime:** Chạy nền sau khi đăng nhập, dùng WebSocket + STT (Groq Whisper, fallback SpeechRecognition trình duyệt) để lấy transcript cuộc gọi, gửi cho Guardian Risk Agent (Groq) chấm `risk_score`, tín hiệu (mạo danh ngân hàng, dọa khóa tài khoản, đòi OTP, ép giữ bí mật với người khác...) và `recommended_action` (`CONTINUE`/`MONITOR`/`PAUSE`/`STOP`). Hệ thống fail-closed khi agent/STT lỗi liên tiếp, và chặn giao dịch khi phát hiện `STOP`.
+- **Feature 3 — QR & URL safety:** Quét QR bằng camera/ảnh, tự đối chiếu hostname với danh sách URL/domain scam (import từ CSV/TXT/JSON), chặn truy cập nếu nằm trong blacklist hoặc khi dịch vụ an toàn không khả dụng.
+- **Feature 4 — Admin Dashboard & Timi Assistant:** Trang quản trị cho CSKH quản lý blacklist, report và audit log; trợ lý Timi Chibi chỉ hỗ trợ giải thích trong phạm vi tính năng, không có quyền duyệt giao dịch hay đổi số dư.
+- **Ràng buộc bắt buộc:** Human-in-the-Loop tuyệt đối (AI không tự chặn/hủy giao dịch trừ rào chắn an toàn `STOP` của Guardian), minh bạch (mọi cảnh báo có lý do giải thích rõ ràng, không hộp đen), và tuân thủ PDPA (ẩn danh hóa dữ liệu demo, hạn chế lưu trữ dữ liệu nhạy cảm).
 
 ## Target User
 
-- **Primary:** người dùng ngân hàng số cần được hỗ trợ trước khi chuyển tiền hoặc mở URL từ QR.
-- **Secondary:** nhóm vận hành/quản trị cần theo dõi blacklist, báo cáo scam, audit log và kết quả đánh giá rủi ro.
+- **Primary:** Người dùng cuối sử dụng ví điện tử/ngân hàng số để chuyển tiền, bao gồm nhóm người dùng phổ thông (ít kiến thức bảo mật) và người dùng lớn tuổi (dễ bị thao túng tâm lý qua điện thoại).
+- **Secondary:** Đội vận hành/CSKH (quản lý blacklist, cập nhật kịch bản lừa đảo) và ban quản trị doanh nghiệp/sponsor (theo dõi hiệu quả cảnh báo, bằng chứng tuân thủ pháp lý).
 
 ## Tech Stack
 
 | Layer | Technology |
-|---|---|
-| AI Agent | LangGraph, Groq/OpenAI-compatible API, Whisper STT tùy cấu hình |
-| Backend | FastAPI, Python 3.11+, SQLAlchemy, Pydantic |
-| Frontend | React, Vite, JavaScript/JSX, Tailwind CSS |
-| Database | PostgreSQL/Neon, Alembic migrations, schema `antiscam` |
-| Computer Vision | OpenCV Zoo SFace + YuNet cho Face ID |
-| Realtime | WebSocket, MediaRecorder API |
-| DevOps | Docker, Docker Compose, Nginx, Render tùy môi trường |
-| Testing | Pytest, Ruff, ESLint, Vite build |
+|-------|-----------|
+| AI Agent | LangGraph + LangChain + Groq (Guardian Risk Agent, Whisper STT) / OpenAI (giải thích transaction, tuỳ chọn) |
+| Backend | FastAPI + Python 3.11+, SQLAlchemy + Alembic, JWT auth (python-jose, passlib) |
+| Frontend | React 18 + TypeScript + Vite, TailwindCSS, Zustand, TanStack Query |
+| Database | PostgreSQL (Neon), pgvector cho vector store |
+| Face ID | OpenCV Zoo SFace + YuNet (ONNX, chạy local, không dùng Hugging Face/PyTorch) |
+| DevOps | Docker (multi-stage) + docker-compose (dev/prod), Nginx reverse proxy, Render deploy |
 
 ## Quick Start
 
-### Yêu cầu
+```bash
+# 1. Clone repo
+git clone https://github.com/ngovan15121977-bit/Anti-Scam-Demo.git
+cd Anti-Scam-Demo
 
-- Python 3.11+.
-- Node.js 20+ và npm.
-- PostgreSQL/Neon PostgreSQL.
-- Docker Desktop nếu chạy bằng Docker.
-- Hai model Face ID trong `models/face/` nếu sử dụng nhận diện khuôn mặt.
+# 2. Setup environment
+cp .env.example .env
+# Chỉnh DATABASE_URL, DATABASE_SCHEMA, JWT_SECRET_KEY và GROQ_API_KEY
 
-### Chạy local không Docker
+# 3. Install dependencies (backend)
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-Copy-Item .env.example .env
-# Cập nhật DATABASE_URL, DATABASE_SCHEMA, JWT_SECRET_KEY và GROQ_API_KEY trong .env
+# 4. Chạy migration và khởi động backend
 python -m alembic upgrade head
-python -m uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
-```
+python -m uvicorn src.main:app --reload
 
-Mở terminal khác để chạy frontend:
-
-```powershell
-Set-Location frontend
+# 5. Cài đặt và chạy frontend (terminal khác)
+cd frontend
 npm ci
 npm run dev
 ```
 
+- API root: http://localhost:8000/ · Swagger: http://localhost:8000/docs
 - Frontend: http://localhost:5173
-- Backend: http://localhost:8000
-- Swagger UI: http://localhost:8000/docs
-- Health check: http://localhost:8000/health
-
-### Chạy bằng Docker
-
-```powershell
-Copy-Item .env.example .env
-docker compose -f docker-compose.dev.yml up --build
-```
-
-Hướng dẫn cấu hình Neon, migration, deploy Render và xử lý lỗi chi tiết nằm trong [SETUP.md](SETUP.md).
-
-> Không commit `.env`, API key, JWT secret hoặc secret production vào Git.
 
 ## Project Structure
 
-```text
+```
 ├── src/
-│   ├── app/                 # FastAPI app, API, models, schemas, services chính
-│   ├── agents/              # LangGraph transaction/intervention/risk graphs
-│   ├── main.py              # Entrypoint Uvicorn
-│   └── services/            # Một số service dùng chung/legacy
-├── frontend/                # React/Vite frontend
-├── alembic/                 # Database migrations
-├── models/face/             # Model ONNX cho Face ID
-├── data/uploads/            # Dữ liệu upload và blacklist local
-├── tests/                   # Unit và integration tests
-├── eval/                    # Manual cases và evaluation results
-├── docs/                    # Tài liệu kỹ thuật
-├── ARCHITECTURE.md          # Kiến trúc và safety boundary
-├── SETUP.md                 # Hướng dẫn chạy và deploy
-├── Dockerfile               # Backend production image
-├── docker-compose.yml       # Production-like stack
-└── docker-compose.dev.yml   # Development hot reload stack
+│   ├── agents/            # LangGraph transaction/intervention graph
+│   ├── app/
+│   │   ├── api/            # Auth, transaction, admin, URL safety, assistant, scam-guardian
+│   │   ├── services/       # Risk rules, Timi ledger, Face ID, blacklist, audit
+│   │   ├── models/         # SQLAlchemy models
+│   │   ├── schemas/        # Pydantic request/response schemas
+│   │   └── main.py         # FastAPI app canonical
+│   └── main.py             # Entrypoint Uvicorn
+├── frontend/src/            # React pages, stores, API clients, components
+├── alembic/versions/        # Database migrations
+├── models/face/              # ONNX face detection/recognition models
+├── prompts/                  # Guardian agent prompt versions (guardian_v0.x.yaml)
+├── tests/                    # Unit/integration tests
+├── eval/                     # Manual cases, golden dataset, kết quả đánh giá
+├── presentation/              # Demo materials (pitch deck W2-1)
+├── docs/                      # Tài liệu kỹ thuật, architecture diagram
+├── Gate_1/                    # Brief, PRD, UI Flow của giai đoạn Gate 1
+├── Dockerfile, docker-compose*.yml
+└── ARCHITECTURE.md            # Sơ đồ Mermaid và safety boundary
 ```
 
-## API Endpoints chính
-
-Các endpoint dưới đây thường nằm dưới `/api/v1` và yêu cầu JWT, ngoại trừ health check:
+## API Endpoints
 
 | Method | Path | Description |
-|---|---|---|
-| POST | `/auth/register` | Đăng ký tài khoản Timi |
-| POST | `/auth/login` | Đăng nhập và nhận JWT |
-| POST | `/recipients/resolve` | Tra cứu người nhận |
-| POST | `/transactions/assess` | Đánh giá rủi ro trước giao dịch |
-| POST | `/transactions/{id}/decision` | Tiếp tục hoặc hủy giao dịch cảnh báo |
-| GET | `/transactions/history` | Xem lịch sử giao dịch |
-| POST | `/url-safety/check` | Kiểm tra URL/hostname đáng ngờ |
-| POST | `/assistant/chat` | Chat với Timi Assistant |
-| POST | `/scam-guardian/sessions` | Tạo phiên Scam Guardian |
-| WS | `/scam-guardian/ws/{session_id}` | Nhận transcript và risk update realtime |
-| GET | `/health` | Liveness check |
-| GET | `/health/ready` | Readiness check có kiểm tra database |
+|--------|------|-------------|
+| GET | /health, /health/ready | Health/readiness check |
+| POST | /api/v1/auth/register | Tạo tài khoản Timi (phone 10 chữ số) |
+| POST | /api/v1/auth/login | Đăng nhập, nhận JWT |
+| PUT | /api/v1/auth/face/enrollment | Enroll Face ID |
+| POST | /api/v1/auth/face/verify | Verify Face ID |
+| POST | /api/v1/transactions/assess | Đánh giá rủi ro trước khi chuyển tiền |
+| POST | /api/v1/transactions/{id}/decision | Người dùng quyết định tiếp tục/hủy khi có cảnh báo |
+| GET | /api/v1/transactions/history | Lịch sử giao dịch (cursor pagination) |
+| POST | /api/v1/url-safety/check | Kiểm tra URL từ QR |
+| POST | /api/v1/assistant/chat | Chat giới hạn phạm vi với Timi Assistant |
+| POST | /api/v1/scam-guardian/sessions | Tạo phiên bảo vệ cuộc gọi nền |
+| WS | /api/v1/scam-guardian/ws/{session_id} | Audio/transcript realtime và cập nhật risk |
+| GET | /api/v1/admin/blacklist, /admin/scam-reports | Admin quản lý blacklist/report theo trang |
 
-## Kiểm thử
-
-```powershell
-\.venv\Scripts\python.exe -m pytest tests -q
-\.venv\Scripts\python.exe -m ruff check src tests
-npm --prefix frontend run build
-npm --prefix frontend run lint
-```
+Swagger đầy đủ tại `/docs` khi chạy backend.
 
 ## Deliverables Checklist
 
-- [x] Source code
-- [x] README và hướng dẫn setup
-- [x] Architecture document (`ARCHITECTURE.md`)
-- [x] AI logs (`.ai-log/` khi được cấu hình)
-- [x] Weekly journal (`JOURNAL.md`)
+- [x] Source Code (GitHub)
+- [x] README.md
+- [x] Architecture Diagram (`docs/architecture_diagram.md`, `ARCHITECTURE.md`)
+- [x] AI Logs (auto-collected, `scripts/log_antigravity.py`, `scripts/ai_log_setup.py`)
+- [ ] Live URL / Deploy
+- [ ] Video Demo
+- [x] Pitch Deck (`presentation/W2-1`)
+- [x] Weekly Journal (`JOURNAL.md`)
 - [x] Worklog (`WORKLOG.md`)
-- [x] Evaluation cases/results (`eval/`)
-- [x] Live URL / deployment chính thức
-- [x] Video demo
-- [ ] Pitch deck hoàn thiện
+- [x] Evaluation Evidence (`eval/results/`, `eval/manual_cases.md`)
 
 ## Team
 
-| Thành viên | Vai trò | Mã sinh viên |
-|---|---|---|
-| Nguyễn Ngọc Huân | Full-stack Developer; DevOps & Docker; Testing/QA; AI Agent, Database | 2A202601164 |
-| Lý Thành Đạt | Full-stack Developer; AI Agent, Database, Testing/QA; | 2A202601469 |
-| Nguyễn Vũ Việt Anh | Thành viên phát triển |  |
-| Nguyễn Văn Tuấn Anh | Thành viên phát triển |  |
+| Thành viên | Vai trò | Nhiệm vụ chính | Giai đoạn phụ trách |
+|---|---|---|---|
+| Huân | AI Engineer + ML Engineer | Thiết kế prompt, LangGraph state machine, tích hợp LLM + tool-calling; xây dựng và huấn luyện model chấm điểm rủi ro, đánh giá false positive/negative | MVP và Giai đoạn Nâng cao (nặng nhất toàn dự án) |
+| Đạt | Backend Engineer + Data Engineer | FastAPI, pre-transaction hook, tích hợp PostgreSQL/pgvector; pipeline cập nhật blacklist, chuẩn hóa dữ liệu mô phỏng | Chuẩn bị & MVP |
+| Tuấn Anh | Frontend Engineer + Product/UX Designer | Giao diện chuyển tiền + luồng cảnh báo tương tác; thiết kế nội dung cảnh báo dễ hiểu, tránh gây hoang mang | MVP và Đánh giá sau MVP |
+| Tuấn Anh – Việt Anh | PM kiêm QA & đầu mối Compliance | Điều phối tiến độ, chạy bộ test case (mục 7), là đầu mối làm việc với Legal/Compliance ngoài team (tư vấn part-time) để rà soát PDPA và cơ chế "tạm giữ" | Kiểm thử toàn diện & rà soát pháp lý |
 
-## Giới hạn và an toàn
+## An toàn và giới hạn
 
-- Đây là MVP/demo giáo dục, không sử dụng cho tiền thật hoặc quyết định tài chính thực tế.
-- AI agent chỉ hỗ trợ đánh giá và cảnh báo; không được cấp quyền tự thay đổi số dư hoặc tự phê duyệt giao dịch.
-- Không đưa OTP, PIN, mật khẩu, API key hay dữ liệu nhạy cảm vào nội dung chat/log.
-- Secret phải được lưu trong biến môi trường hoặc secret manager; dữ liệu Face ID và telemetry cần được bảo vệ khi triển khai thật.
+- Đây là demo/MVP nội bộ (FIN-19), không kết nối hệ thống thanh toán ngân hàng thật; Timi Bank chỉ ghi nợ/ghi có trong cùng cơ sở dữ liệu demo.
+- Human-in-the-Loop bắt buộc: AI/LLM chỉ cố vấn và cảnh báo, không tự quyền chặn hoặc hủy giao dịch của người dùng (ngoại trừ rào chắn an toàn `STOP` của Guardian khi phát hiện rủi ro nghiêm trọng trong cuộc gọi).
+- Mọi cảnh báo phải có lý do giải thích rõ ràng (Explainable AI), không dùng mô hình hộp đen.
+- Tuân thủ PDPA: hạn chế lưu trữ dữ liệu nhạy cảm (face embedding, transcript cuộc gọi chỉ lưu khi có consent), pseudonymize IP/device bằng HMAC trước khi lưu.
 
 ## Tài liệu liên quan
 
-- [README.md](README.md) — tài liệu dự án đầy đủ
-- [SETUP.md](SETUP.md) — hướng dẫn chạy Docker, Neon và Render
-- [ARCHITECTURE.md](ARCHITECTURE.md) — kiến trúc và ranh giới an toàn
-- [eval/manual_cases.md](eval/manual_cases.md) — các ca đánh giá thủ công
-- [JOURNAL.md](JOURNAL.md) — nhật ký theo tuần
-- [WORKLOG.md](WORKLOG.md) — nhật ký công việc
+- `ARCHITECTURE.md` — component/data flow và safety boundary.
+- `Gate_1/Brief.md`, `Gate_1/PRD.md`, `Gate_1/UI_Flow.md` — brief, yêu cầu sản phẩm và luồng UI giai đoạn Gate 1.
+- `SETUP.md` — hướng dẫn Docker/Neon chi tiết.
+- `eval/manual_cases.md`, `eval/results/` — manual test case và kết quả đánh giá.
+- `docs/` — tài liệu kỹ thuật theo chương, `docs/architecture_diagram.md`.
+- `frontend/README.md` — ghi chú frontend.
 
 ## License
 
