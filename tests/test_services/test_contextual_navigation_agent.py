@@ -84,3 +84,37 @@ def test_navigation_agent_rejects_model_route_outside_allowlist(monkeypatch) -> 
     monkeypatch.setattr(contextual_navigation_agent, "OpenAI", FakeOpenAI)
 
     assert contextual_navigation_agent.understand_navigation_request("Mở phần bất kỳ") is None
+
+
+def test_navigation_agent_accepts_public_help_route_from_allowlist(monkeypatch) -> None:
+    class FakeOpenAI:
+        def __init__(self, **_kwargs) -> None:
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **_kwargs: _response({"route": "/help"})
+                )
+            )
+
+    monkeypatch.setattr(
+        contextual_navigation_agent,
+        "get_settings",
+        lambda: SimpleNamespace(
+            task_navigator_agent_enabled=True,
+            task_navigator_agent_api_key="navigator-key",
+            task_navigator_agent_api_keys="",
+            task_navigator_agent_base_url="https://navigator.test/v1",
+            task_navigator_agent_model="router-model",
+            task_navigator_agent_max_completion_tokens=120,
+            groq_api_key="",
+            groq_base_url="",
+            groq_model_name="",
+        ),
+    )
+    monkeypatch.setattr(contextual_navigation_agent, "OpenAI", FakeOpenAI)
+
+    result = contextual_navigation_agent.understand_navigation_request(
+        "Mình muốn tìm nơi được hỗ trợ"
+    )
+
+    assert result is not None
+    assert result.route == "/help"

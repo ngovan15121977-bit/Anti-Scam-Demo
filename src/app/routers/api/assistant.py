@@ -33,6 +33,7 @@ from src.app.services.assistant_chat_history import (
 from src.app.services.timi_assistant import (
     SENSITIVE_CREDENTIAL_ANSWER,
     contains_sensitive_credential,
+    is_admin_policy_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,9 @@ def chat_with_timi(
             action=navigation.action,
         )
 
-    cached = find_cached_exchange(
+    # Admin safety wording is server-owned and may have changed since an old
+    # cached transfer-routing answer was stored. Never replay that stale pair.
+    cached = None if is_admin_policy_message(payload.message) else find_cached_exchange(
         db,
         user_id=current_user.id,
         message=payload.message,

@@ -35,6 +35,10 @@ NavigationRoute: TypeAlias = Literal[
     "/me?open=pin",
     "/setup-pin",
     "/setup-face",
+    "/terms",
+    "/privacy",
+    "/mission",
+    "/help",
 ]
 
 
@@ -46,7 +50,8 @@ class ContextualNavigationDecision(BaseModel):
 
 
 _NAVIGATION_CUE_PATTERN = re.compile(
-    r"\b(?:mo|vao|den|sang|ve|qua|dua|trang|man hinh|muc|phan|chuc nang)\b"
+    r"\b(?:mo|vao|den|sang|ve|qua|dua|trang|man hinh|muc|phan|chuc nang|"
+    r"dieu khoan|bao mat|su menh|tro giup|ho tro|cau hoi thuong gap)\b"
 )
 _JSON_FENCE_PATTERN = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
@@ -69,6 +74,10 @@ Chỉ được chọn một route trong danh sách:
 - /me?open=pin: mở đổi PIN.
 - /setup-pin: mở tạo PIN.
 - /setup-face: mở Face ID.
+- /terms: mở Điều khoản sử dụng.
+- /privacy: mở Chính sách bảo mật dữ liệu.
+- /mission: mở Sứ mệnh của Timi.
+- /help: mở Trung tâm trợ giúp/câu hỏi thường gặp.
 
 Nếu không phải yêu cầu điều hướng rõ ràng, hoặc chỉ hỏi hướng dẫn/cách làm,
 route phải là null. Đặc biệt, "trang chuyển tiền" là /transfer; tuyệt đối

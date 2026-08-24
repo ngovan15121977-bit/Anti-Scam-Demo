@@ -2,8 +2,11 @@ from types import SimpleNamespace
 
 import src.app.services.timi_assistant as timi_assistant
 from src.app.services.timi_assistant import (
+    ADMIN_POLICY_ANSWER,
+    ADMIN_TRANSFER_ANSWER,
     OUT_OF_SCOPE_ANSWER,
     SENSITIVE_CREDENTIAL_ANSWER,
+    answer_timi_question,
     contains_sensitive_credential,
     is_in_scope,
 )
@@ -25,6 +28,24 @@ def test_timi_assistant_blocks_sensitive_credentials() -> None:
     assert contains_sensitive_credential("Mã PIN: 123456")
     assert contains_sensitive_credential("OTP 987654")
     assert "không bao giờ" in SENSITIVE_CREDENTIAL_ANSWER
+
+
+def test_timi_assistant_explains_admin_role_without_calling_provider() -> None:
+    answer, out_of_scope = answer_timi_question(
+        "Admin có những quyền gì? Scam được tài khoản khách hàng không?", []
+    )
+
+    assert answer == ADMIN_POLICY_ANSWER
+    assert not out_of_scope
+
+
+def test_timi_assistant_blocks_admin_transfer_assumption() -> None:
+    answer, out_of_scope = answer_timi_question(
+        "Thế là mình nhờ bạn chuyển tiền vào tài khoản của admin phải không?", []
+    )
+
+    assert answer == ADMIN_TRANSFER_ANSWER
+    assert not out_of_scope
 
 
 def test_timi_assistant_uses_groq_chat_completions(monkeypatch) -> None:

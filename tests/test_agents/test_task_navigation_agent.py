@@ -200,6 +200,18 @@ def test_transfer_guidance_question_clears_an_unfinished_transfer_draft() -> Non
     assert question.task_state.task == "none"
 
 
+def test_admin_transfer_question_never_starts_a_transfer_draft() -> None:
+    result = route_task(
+        "Thế là mình nhờ bạn chuyển tiền vào tài khoản của admin phải không?",
+        AssistantTaskState(),
+    )
+
+    assert not result.handled
+    assert result.action is None
+    assert result.task_state.task == "none"
+    assert result.allow_contextual_navigation is False
+
+
 def test_transfer_guidance_question_never_uses_contextual_navigation(monkeypatch) -> None:
     monkeypatch.setattr(
         specialists,

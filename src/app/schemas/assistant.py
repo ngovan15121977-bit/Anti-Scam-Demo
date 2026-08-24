@@ -52,6 +52,10 @@ class AssistantUiAction(BaseModel):
         "/me?open=pin",
         "/setup-pin",
         "/setup-face",
+        "/terms",
+        "/privacy",
+        "/mission",
+        "/help",
     ] | None = None
 
 

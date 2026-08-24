@@ -53,11 +53,35 @@ _TRANSFER_GUIDANCE_PHRASES = (
     "bat dau tu dau",
     "duoc khong",
 )
+_TRANSFER_CONTEXT_TERMS = ("chuyen tien", "chuyen khoan", "gui tien", "tao giao dich")
+_TRANSFER_QUESTION_CUES = (
+    "co the",
+    "co phai",
+    "can gi",
+    "lam gi",
+    "phai lam",
+    "khong biet",
+    "bao nhieu",
+    "cho ai",
+    "nao",
+    "co an toan",
+)
 _GUARDIAN_TERMS = (
     "nghe va bao ve cuoc goi",
     "bao ve cuoc goi",
     "tu dong nghe",
     "guardian",
+)
+_ADMIN_TERMS = ("admin", "quan tri", "quan trị")
+_ADMIN_TRANSFER_CUES = (
+    "chuyen tien",
+    "chuyen khoan",
+    "gui tien",
+    "gui admin",
+    "gui vao",
+    "chuyen vao",
+    "nap tien",
+    "thanh toan cho",
 )
 _NAVIGATION_INTENTS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     (
@@ -67,12 +91,12 @@ _NAVIGATION_INTENTS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ),
     (
         "/me?open=pin",
-        ("doi pin", "thay pin", "cap nhat pin", "ma pin giao dich"),
+        ("doi pin", "thay pin", "cap nhat pin", "pin giao dich", "ma pin giao dich"),
         "Đã mở phần cập nhật mã PIN giao dịch. Nhập PIN hiện tại, PIN mới và xác nhận để hoàn tất.",
     ),
     (
         "/setup-pin",
-        ("tao pin", "cai dat pin", "dang ky pin"),
+        ("tao pin", "tao ma pin", "ma pin moi", "cai dat pin", "dang ky pin"),
         "Đã mở phần tạo mã PIN giao dịch. Chọn một PIN dễ nhớ với bạn nhưng khó đoán, rồi xác nhận lại mã.",
     ),
     (
@@ -119,13 +143,69 @@ _NAVIGATION_INTENTS: tuple[tuple[str, tuple[str, ...], str], ...] = (
             "mo chuyen tien",
             "vao chuyen tien",
             "den chuyen tien",
+            "vao phan chuyen tien",
+            "mo phan chuyen tien",
+            "phan chuyen tien",
+            "man hinh chuyen tien",
+            "sang chuyen tien",
+            "qua chuyen tien",
         ),
         "Đã mở trang Chuyển tiền. Nhập số tài khoản, ngân hàng và số tiền; kiểm tra lại trước khi xác nhận.",
     ),
     (
         "/dashboard",
-        ("trang chu", "tong quan", "ve trang chu", "mo trang tong quan"),
+        (
+            "trang chu",
+            "man hinh chinh",
+            "tong quan",
+            "ve trang chu",
+            "mo trang tong quan",
+        ),
         "Đã mở trang Tổng quan. Từ đây bạn có thể xem số dư, hoạt động gần đây hoặc chọn chức năng cần dùng.",
+    ),
+    (
+        "/terms",
+        (
+            "dieu khoan",
+            "dieu khoan su dung",
+            "trang dieu khoan",
+            "xem dieu khoan",
+            "terms",
+        ),
+        "Đã mở Điều khoản sử dụng của Timi để bạn xem lại các điều kiện và trách nhiệm khi dùng dịch vụ.",
+    ),
+    (
+        "/privacy",
+        (
+            "bao mat du lieu",
+            "chinh sach bao mat",
+            "quyen rieng tu",
+            "trang bao mat",
+            "privacy",
+        ),
+        "Đã mở Chính sách bảo mật để bạn xem cách Timi bảo vệ và sử dụng dữ liệu cá nhân.",
+    ),
+    (
+        "/mission",
+        (
+            "su menh",
+            "su menh timi",
+            "tam nhin timi",
+            "gioi thieu timi",
+            "trang su menh",
+        ),
+        "Đã mở trang Sứ mệnh của Timi để bạn xem định hướng và các cam kết của chúng tôi.",
+    ),
+    (
+        "/help",
+        (
+            "tro giup",
+            "trung tam tro giup",
+            "trang ho tro",
+            "cau hoi thuong gap",
+            "help",
+        ),
+        "Đã mở Trung tâm trợ giúp. Bạn có thể xem câu hỏi thường gặp hoặc thông tin liên hệ hỗ trợ.",
     ),
 )
 _NAVIGATION_RESPONSE_OVERRIDES: tuple[tuple[str, tuple[str, ...], str], ...] = (
@@ -216,14 +296,25 @@ def _canonical_bank_code(message: str) -> str | None:
     return None
 
 
-def _extract_account(message: str, *, allow_bare: bool) -> str | None:
+def _extract_account(
+    message: str,
+    *,
+    allow_bare: bool,
+    exclude_value: int | None = None,
+) -> str | None:
     match = _ACCOUNT_LABEL_PATTERN.search(_normalize(message))
-    if not match and allow_bare:
-        match = _ACCOUNT_PATTERN.search(message)
-    if not match:
+    if match:
+        account = re.sub(r"\D", "", match.group(1) if match.lastindex else match.group(0))
+        return account if 6 <= len(account) <= 19 else None
+    if not allow_bare:
         return None
-    account = re.sub(r"\D", "", match.group(1) if match.lastindex else match.group(0))
-    return account if 6 <= len(account) <= 19 else None
+    for candidate in _ACCOUNT_PATTERN.finditer(message):
+        account = re.sub(r"\D", "", candidate.group(0))
+        if 6 <= len(account) <= 19 and (
+            exclude_value is None or int(account) != exclude_value
+        ):
+            return account
+    return None
 
 
 def _extract_amount(message: str, *, allow_bare: bool) -> int | None:
@@ -254,14 +345,50 @@ def _extract_amount(message: str, *, allow_bare: bool) -> int | None:
 
 def _is_transfer_start(message: str) -> bool:
     normalized = _normalize(message)
-    return any(phrase in normalized for phrase in _TRANSFER_START_PHRASES)
+    if any(phrase in normalized for phrase in _TRANSFER_START_PHRASES):
+        return True
+    if not re.search(r"\b(?:chuyen|gui)\b", normalized):
+        return False
+    # Natural voice/text variants often place the amount or account between
+    # the verb and recipient (e.g. "chuyển khoản 1 triệu cho..."). Those are
+    # still explicit transaction starts, while guidance questions are filtered
+    # by _is_transfer_guidance_question before this function is called.
+    return _extract_amount(message, allow_bare=True) is not None or _extract_account(
+        message,
+        allow_bare=True,
+    ) is not None
 
 
 def _is_transfer_guidance_question(message: str) -> bool:
     """Keep informational transfer questions on the Chat Support path."""
 
     normalized = _normalize(message)
-    return any(phrase in normalized for phrase in _TRANSFER_GUIDANCE_PHRASES)
+    if "huong dan" in normalized and any(
+        phrase in normalized for phrase in _TRANSFER_CONTEXT_TERMS
+    ):
+        return True
+    if any(phrase in normalized for phrase in _TRANSFER_GUIDANCE_PHRASES):
+        return True
+    if not any(phrase in normalized for phrase in _TRANSFER_CONTEXT_TERMS):
+        return False
+    return (
+        any(phrase in normalized for phrase in _TRANSFER_QUESTION_CUES)
+        or normalized.rstrip().endswith((" khong", " a", " ha", " nhi"))
+    )
+
+
+def _is_admin_transfer_request(message: str) -> bool:
+    """Keep admin-role questions out of the transfer draft flow.
+
+    ``admin`` describes a permission role, not a recipient identity. A user
+    mentioning a transfer to an admin must receive a safety explanation first,
+    never an account-number collection prompt or automatic navigation.
+    """
+
+    normalized = _normalize(message)
+    mentions_admin = any(term in normalized for term in _ADMIN_TERMS)
+    mentions_transfer = any(phrase in normalized for phrase in _ADMIN_TRANSFER_CUES)
+    return mentions_admin and mentions_transfer
 
 
 def _is_transfer_cancel(message: str) -> bool:
@@ -434,18 +561,15 @@ def _route_transfer(message: str, state: AssistantTaskState) -> TaskNavigationDe
     draft = state.transfer.model_copy(deep=True)
     newly_recorded: str | None = None
     amount = _extract_amount(message, allow_bare=bool(draft.recipient_account))
-    account = _extract_account(
-        message,
-        allow_bare=not draft.recipient_account and amount is None,
-    )
+    account = _extract_account(message, allow_bare=True, exclude_value=amount)
     bank_code = _canonical_bank_code(message)
-    if not draft.recipient_account and account:
+    if account and account != draft.recipient_account:
         draft.recipient_account = account
         newly_recorded = "số tài khoản"
-    if not draft.bank_code and bank_code:
+    if bank_code and bank_code != draft.bank_code:
         draft.bank_code = bank_code
         newly_recorded = f"ngân hàng {bank_code}"
-    if not draft.amount and amount:
+    if amount and amount != draft.amount:
         draft.amount = amount
         newly_recorded = f"số tiền {amount:,.0f}đ".replace(",", ".")
 
@@ -513,6 +637,17 @@ def route_task(message: str, state: AssistantTaskState) -> TaskNavigationDecisio
                 voice_monitoring_enabled=True,
             ),
             history_message=message,
+        )
+
+    # An admin is a role in Timi, not a recipient selected by the assistant.
+    # Route these messages to Chat Support for the safety/policy explanation;
+    # never collect account details or open the transfer review screen.
+    if _is_admin_transfer_request(message):
+        return TaskNavigationDecision(
+            handled=False,
+            answer=None,
+            task_state=_empty_state(),
+            allow_contextual_navigation=False,
         )
 
     navigation = _navigation_request(message)

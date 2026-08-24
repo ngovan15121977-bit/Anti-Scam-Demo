@@ -45,6 +45,10 @@ export type AssistantUiAction =
         | "/me?open=pin"
         | "/setup-pin"
         | "/setup-face"
+        | "/terms"
+        | "/privacy"
+        | "/mission"
+        | "/help"
         | null;
     };
 
