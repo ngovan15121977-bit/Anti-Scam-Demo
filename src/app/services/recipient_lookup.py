@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from src.app.models.blacklist import Blacklist
 from src.app.models.recipient_directory import RecipientDirectory
 from src.app.models.trusted_recipient import TrustedRecipient
+from src.app.models.user import UserRole
 from src.app.services.bank_normalization import normalize_bank_name
 from src.app.services.timi_bank import TIMI_BANK_CODE, find_active_timi_recipient
 
@@ -45,6 +46,8 @@ def lookup_recipient(
         timi_user = find_active_timi_recipient(db, account_number)
         if timi_user is None:
             raise RecipientLookupNotFound
+        if timi_user.role == UserRole.ADMIN.value:
+            raise RecipientLookupInvalid("Không thể chuyển tiền đến tài khoản quản trị viên.")
         if str(timi_user.id) == str(user_id):
             raise RecipientLookupInvalid("Không thể chuyển tiền vào chính tài khoản Timi của bạn.")
         return RecipientLookupResult(timi_user.full_name, "timi")

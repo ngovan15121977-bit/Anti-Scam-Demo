@@ -121,6 +121,7 @@ export interface RecentContact {
   full_name: string;
   account_number: string;
   bank_code: string;
+  role?: "user" | "admin" | null;
   avatar_url?: string | null;
   last_transferred_at?: string;
 }

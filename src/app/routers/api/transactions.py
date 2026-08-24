@@ -36,7 +36,7 @@ from src.app.models.scam_guardian import ScamGuardianSession
 from src.app.models.scam_report import ScamReport
 from src.app.models.transaction import Transaction, TransactionEnvironment, TransactionStatus
 from src.app.models.trusted_recipient import TrustedRecipient
-from src.app.models.user import User
+from src.app.models.user import User, UserRole
 from src.app.schemas.risk import (
     AssessRequest,
     AssessResponse,
@@ -61,6 +61,7 @@ from src.app.services.timi_bank import (
     TimiSelfTransfer,
     TimiTransferError,
     apply_timi_transfer,
+    find_active_timi_recipient,
     is_timi_bank,
     lock_timi_transfer_parties,
 )
@@ -128,7 +129,9 @@ def _normalize_request(payload: AssessRequest) -> AssessRequest:
     )
 
 
-def _verified_recipient_request(payload: AssessRequest, current_user: User) -> AssessRequest:
+def _verified_recipient_request(
+    payload: AssessRequest, current_user: User, db: Session
+) -> AssessRequest:
     """Use only the name that was returned by a recent recipient lookup."""
     payload = _normalize_request(payload)
     account_number = payload.payee_account.replace(" ", "").strip()
@@ -150,6 +153,13 @@ def _verified_recipient_request(payload: AssessRequest, current_user: User) -> A
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Thông tin người nhận đã thay đổi. Vui lòng tra cứu lại.",
         )
+    if is_timi_bank(payload.bank_code):
+        timi_recipient = find_active_timi_recipient(db, account_number)
+        if timi_recipient is not None and timi_recipient.role == UserRole.ADMIN.value:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Không thể chuyển tiền đến tài khoản quản trị viên.",
+            )
     return payload.model_copy(
         update={"payee_account": account_number, "payee_name": verified["account_name"]}
     )
@@ -403,7 +413,7 @@ def assess(
     current_user: User = Depends(get_current_user),
 ) -> AssessResponse:
     """Create a sandbox transaction and store its first risk assessment."""
-    payload = _verified_recipient_request(payload, current_user)
+    payload = _verified_recipient_request(payload, current_user, db)
     transaction = Transaction(
         user_id=current_user.id,
         payee_account=payload.payee_account.replace(" ", "").strip(),
@@ -429,7 +439,7 @@ def reassess(
     current_user: User = Depends(get_current_user),
 ) -> AssessResponse:
     """Append a new assessment when rules/model inputs need to be re-evaluated."""
-    payload = _verified_recipient_request(payload, current_user)
+    payload = _verified_recipient_request(payload, current_user, db)
     transaction = db.scalar(
         select(Transaction).where(
             Transaction.id == transaction_id,
@@ -900,8 +910,8 @@ def recent_contacts(
 
     A recipient remains selectable after a completed transfer even when the
     original assessment was high risk: selecting it starts a fresh lookup and
-    risk assessment for the new transfer. User and admin recipients follow the
-    same rule; role is not a visibility filter.
+    risk assessment for the new transfer. Administrator accounts are never
+    listed as transfer recipients.
     """
     page_size = min(max(limit, 1), 10)
     recipient = aliased(User)
@@ -945,6 +955,8 @@ def recent_contacts(
         bank_code = transaction.bank_code or ""
         if (account, normalize_bank_name(bank_code)) in blacklisted_accounts:
             continue
+        if recipient_user and recipient_user.role == UserRole.ADMIN.value:
+            continue
         recipient_name = (
             recipient_user.full_name if recipient_user else transaction.payee_name
         ).strip()
@@ -964,6 +976,7 @@ def recent_contacts(
                 "full_name": recipient_name,
                 "account_number": account,
                 "bank_code": bank_code,
+                "role": recipient_user.role if recipient_user else None,
                 "avatar_url": recipient_user.avatar_url if recipient_user else None,
                 "last_transferred_at": transaction.created_at,
             }

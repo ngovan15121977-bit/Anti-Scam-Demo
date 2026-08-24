@@ -13,9 +13,6 @@ router = APIRouter(prefix="/support", tags=["support"])
 class SupportContactOut(BaseModel):
     email: str
     phone: str
-    account_number: str
-    account_name: str
-    bank_name: str = "Timi Bank"
 
 
 @router.get("/contact", response_model=SupportContactOut)
@@ -40,6 +37,4 @@ def get_support_contact(
     return SupportContactOut(
         email=admin.email,
         phone=admin.phone or "Chưa cập nhật",
-        account_number=admin.phone or "Chưa cập nhật",
-        account_name=admin.full_name,
     )

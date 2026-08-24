@@ -9,10 +9,12 @@ from sqlalchemy.orm import Session
 
 from src.app.models.timi_ledger_entry import TimiLedgerEntry, TimiLedgerEntryType
 from src.app.models.transaction import Transaction
-from src.app.models.user import User
+from src.app.models.user import User, UserRole
 
 TIMI_BANK_CODE = "TIMI"
 TIMI_BANK_NAME = "Timi Bank"
+
+
 class TimiTransferError(Exception):
     """A domain error that must stop an internal money movement."""
 
@@ -22,6 +24,10 @@ class TimiRecipientUnavailable(TimiTransferError):
 
 
 class TimiSelfTransfer(TimiTransferError):
+    pass
+
+
+class TimiAdminRecipientError(TimiTransferError):
     pass
 
 
@@ -67,6 +73,8 @@ def lock_timi_transfer_parties(
         raise TimiTransferError("Tài khoản Timi của người gửi chưa sẵn sàng.")
     if recipient is None or not recipient.is_active:
         raise TimiRecipientUnavailable("Tài khoản Timi người nhận không còn hoạt động.")
+    if recipient.role == UserRole.ADMIN.value:
+        raise TimiAdminRecipientError("Không thể chuyển tiền đến tài khoản quản trị viên.")
     if sender.id == recipient.id:
         raise TimiSelfTransfer("Không thể chuyển tiền vào chính tài khoản Timi của bạn.")
     return sender, recipient

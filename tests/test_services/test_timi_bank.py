@@ -4,16 +4,21 @@ from uuid import uuid4
 import pytest
 
 from src.app.models.timi_ledger_entry import TimiLedgerEntryType
+from src.app.models.user import UserRole
 from src.app.schemas.auth import (
     LoginLocationRequest,
     LoginRequest,
     RegisterRequest,
 )
+from src.app.services.recipient_lookup import RecipientLookupInvalid, lookup_recipient
 from src.app.services.timi_bank import (
+    TIMI_BANK_CODE,
     InsufficientTimiBalance,
+    TimiAdminRecipientError,
     TimiSelfTransfer,
     apply_timi_transfer,
     is_timi_bank,
+    lock_timi_transfer_parties,
 )
 
 LOCATION_CONTEXT = {
@@ -30,6 +35,22 @@ class RecordingSession:
 
     def add_all(self, rows: list[object]) -> None:
         self.added.extend(rows)
+
+
+class LockedUsersResult:
+    def __init__(self, users: list[object]) -> None:
+        self.users = users
+
+    def all(self) -> list[object]:
+        return self.users
+
+
+class LockedUsersSession:
+    def __init__(self, users: list[object]) -> None:
+        self.users = users
+
+    def scalars(self, _query: object) -> LockedUsersResult:
+        return LockedUsersResult(self.users)
 
 
 def test_timi_bank_code_is_unambiguous() -> None:
@@ -131,3 +152,47 @@ def test_self_transfer_is_rejected_before_any_balance_change() -> None:
 
     assert account.balance == 500_000
     assert db.added == []
+
+
+def test_admin_timi_account_cannot_receive_transfers() -> None:
+    sender = SimpleNamespace(
+        id=uuid4(),
+        phone="0900000001",
+        timi_bank_enabled=True,
+        is_active=True,
+        role=UserRole.USER.value,
+    )
+    admin = SimpleNamespace(
+        id=uuid4(),
+        phone="0900000002",
+        timi_bank_enabled=True,
+        is_active=True,
+        role=UserRole.ADMIN.value,
+    )
+
+    with pytest.raises(TimiAdminRecipientError, match="quản trị viên"):
+        lock_timi_transfer_parties(
+            LockedUsersSession([sender, admin]),
+            sender_user_id=sender.id,
+            recipient_account_number=admin.phone,
+        )
+
+
+def test_admin_timi_account_cannot_be_resolved_as_a_recipient(monkeypatch: pytest.MonkeyPatch) -> None:
+    admin = SimpleNamespace(
+        id=uuid4(),
+        full_name="Admin",
+        role=UserRole.ADMIN.value,
+    )
+    monkeypatch.setattr(
+        "src.app.services.recipient_lookup.find_active_timi_recipient",
+        lambda _db, _account_number: admin,
+    )
+
+    with pytest.raises(RecipientLookupInvalid, match="quản trị viên"):
+        lookup_recipient(
+            object(),
+            user_id=uuid4(),
+            account_number="0900000002",
+            bank_code=TIMI_BANK_CODE,
+        )

@@ -136,8 +136,7 @@ export default function TransferPage() {
     staleTime: 0,
   });
 
-  // Lấy mọi người nhận đã chuyển thành công (user và admin như nhau).
-  // API chỉ loại tài khoản blacklist; không lọc theo role của người nhận.
+  // Chỉ hiển thị tài khoản người dùng hợp lệ; admin không phải người nhận.
   const recentContactsQuery = useQuery({
     queryKey: ["recent-contacts", user?.id],
     queryFn: () => transactionsApi.getRecentContacts(10),
@@ -149,6 +148,7 @@ export default function TransferPage() {
         const name = contact.full_name.trim().toLocaleLowerCase("vi-VN");
         return (
           contact.id !== user?.id &&
+          contact.role !== "admin" &&
           (!ownPhone || account !== ownPhone) &&
           (!ownName || name !== ownName)
         );
