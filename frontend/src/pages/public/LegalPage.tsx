@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import axiosInstance from "@/services/api/axios";
 import TimiLogo from "@/components/brand/TimiLogo";
+import { useAuthStore } from "@/stores/authStore";
 
 interface LegalPageProps {
   type: "terms" | "privacy";
@@ -35,6 +36,8 @@ const content = {
 
 export default function LegalPage({ type }: LegalPageProps) {
   const page = content[type];
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const backPath = isAuthenticated ? "/dashboard" : "/";
   const managedQuery = useQuery({
     queryKey: ["public-content", type],
     queryFn: async () => (await axiosInstance.get<Array<{ title: string | null; body: string | null; image_url: string | null }>>(`/v1/content/${type}`)).data,
@@ -53,9 +56,9 @@ export default function LegalPage({ type }: LegalPageProps) {
             </span>
             <span className="text-xl font-bold text-slate-900">Timi</span>
           </Link>
-          <Link to="/" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-blue-600">
+          <Link to={backPath} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-blue-600">
             <ArrowLeft className="h-4 w-4" />
-            Về trang chủ
+            {isAuthenticated ? "Về Dashboard" : "Về trang chủ"}
           </Link>
         </div>
       </header>

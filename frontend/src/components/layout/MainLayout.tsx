@@ -20,8 +20,8 @@ export default function MainLayout() {
   const location = useLocation();
   const { logout, isAdmin } = useAuthStore();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate("/", { replace: true });
   };
 
@@ -93,7 +93,7 @@ export default function MainLayout() {
 
             {/* Logout */}
             <button
-              onClick={handleLogout}
+              onClick={() => void handleLogout()}
               className="flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
             >
               <LogOut className="w-4 h-4" />

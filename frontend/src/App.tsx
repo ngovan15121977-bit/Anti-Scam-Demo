@@ -76,6 +76,7 @@ function App() {
                 <Route path="/terms" element={<LegalPage type="terms" />} />
                 <Route path="/privacy" element={<LegalPage type="privacy" />} />
                 <Route path="/mission" element={<MissionPage />} />
+                <Route path="/help" element={<HelpPage />} />
                 <Route
                   path="/login"
                   element={
@@ -118,7 +119,6 @@ function App() {
                   <Route path="/history" element={<HistoryPage />} />
                   <Route path="/me" element={<ProfilePage />} />
                   <Route path="/notifications" element={<NotificationSettingsPage />} />
-                  <Route path="/help" element={<HelpPage />} />
                   <Route path="/qr" element={<QrPaymentPage />} />
                   <Route
                     path="/admin"

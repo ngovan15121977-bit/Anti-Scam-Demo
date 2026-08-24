@@ -12,6 +12,7 @@ import {
   Users,
 } from "lucide-react";
 import TimiLogo from "@/components/brand/TimiLogo";
+import { useAuthStore } from "@/stores/authStore";
 
 const pillars = [
   {
@@ -40,6 +41,8 @@ const commitments = [
 ];
 
 export default function MissionPage() {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const backPath = isAuthenticated ? "/dashboard" : "/";
   const managedQuery = useQuery({
     queryKey: ["public-content", "mission"],
     queryFn: async () => (await axiosInstance.get<Array<{ title: string | null; body: string | null; image_url: string | null; placement: string }>>("/v1/content/mission")).data,
@@ -54,9 +57,9 @@ export default function MissionPage() {
             </span>
             <span className="text-xl font-bold">Timi</span>
           </Link>
-          <Link to="/" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-blue-600">
+          <Link to={backPath} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-blue-600">
             <ArrowLeft className="h-4 w-4" />
-            Về trang chủ
+            {isAuthenticated ? "Về Dashboard" : "Về trang chủ"}
           </Link>
         </div>
       </header>

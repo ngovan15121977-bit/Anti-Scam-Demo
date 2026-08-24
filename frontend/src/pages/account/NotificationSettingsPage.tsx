@@ -21,6 +21,7 @@ function getStorageKey(email?: string) {
 
 export default function NotificationSettingsPage() {
   const navigate = useNavigate();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const email = useAuthStore((state) => state.user?.email);
   const storageKey = useMemo(() => getStorageKey(email), [email]);
   const [settings, setSettings] = useState<NotificationSettings>(() => {
@@ -45,8 +46,8 @@ export default function NotificationSettingsPage() {
   return (
     <div className="min-h-screen bg-[#f5f3ff] px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl">
-        <button type="button" onClick={() => navigate("/me")} className="mb-5 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-violet-600">
-          <ArrowLeft className="h-4 w-4" /> Quay lại tài khoản
+        <button type="button" onClick={() => navigate(isAuthenticated ? "/dashboard" : "/")} className="mb-5 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-violet-600">
+          <ArrowLeft className="h-4 w-4" /> {isAuthenticated ? "Về Dashboard" : "Về trang chủ"}
         </button>
         <div className="mb-6 rounded-3xl bg-gradient-to-br from-violet-600 to-indigo-600 p-7 text-white shadow-xl shadow-violet-200">
           <div className="flex items-center gap-4">

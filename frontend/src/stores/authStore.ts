@@ -102,7 +102,6 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async () => {
-        await authApi.logout();
         localStorage.removeItem("token");
         localStorage.removeItem("auth-storage");
         sessionStorage.removeItem("token");
@@ -114,6 +113,7 @@ export const useAuthStore = create<AuthState>()(
           isAdmin: false,
           rememberMe: false,
         });
+        await authApi.logout();
       },
 
       fetchMe: async () => {

@@ -34,11 +34,16 @@ axiosInstance.interceptors.response.use(
       || requestUrl.includes("/v1/auth/google")
       || requestUrl.includes("/v1/auth/transaction-pin/status");
     if (error.response?.status === 401 && !isAuthAttempt) {
+      const hadStoredSession = Boolean(
+        localStorage.getItem("token") || sessionStorage.getItem("token"),
+      );
       localStorage.removeItem("token");
       localStorage.removeItem("auth-storage");
       sessionStorage.removeItem("token");
       sessionStorage.removeItem("auth-storage");
-      window.location.replace("/login");
+      // A late 401 from an in-flight request must not override an intentional
+      // logout that is already returning the user to Home.
+      window.location.replace(hadStoredSession ? "/login" : "/");
     }
     return Promise.reject(error);
   }

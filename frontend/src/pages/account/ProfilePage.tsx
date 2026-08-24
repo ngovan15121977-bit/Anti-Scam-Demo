@@ -616,8 +616,8 @@ export default function ProfilePage() {
     },
   ].filter((item) => !isGoogleAccount || !item.isPasswordItem);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate("/", { replace: true });
   };
 
@@ -1122,7 +1122,7 @@ export default function ProfilePage() {
 
           {/* ===== LOGOUT ===== */}
           <button
-            onClick={handleLogout}
+            onClick={() => void handleLogout()}
             className="w-full py-4 bg-red-50 text-red-600 font-bold rounded-2xl hover:bg-red-100 active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 text-base border border-red-100"
           >
             <LogOut className="w-5 h-5" />

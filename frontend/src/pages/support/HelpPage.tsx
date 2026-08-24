@@ -3,6 +3,7 @@ import { ArrowLeft, ChevronDown, Copy, HelpCircle, MessageCircle, Phone, ShieldC
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axiosInstance from "@/services/api/axios";
+import { useAuthStore } from "@/stores/authStore";
 
 type SupportContact = { email: string; phone: string; account_number: string; account_name: string; bank_name: string };
 type ManagedFaq = { title: string | null; body: string | null; image_url: string | null; content_type?: string };
@@ -16,8 +17,9 @@ const faqs = [
 
 export default function HelpPage() {
   const navigate = useNavigate();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [open, setOpen] = useState(0);
-  const contactQuery = useQuery({ queryKey: ["support-contact"], queryFn: async () => (await axiosInstance.get<SupportContact>("/v1/support/contact")).data, staleTime: 5 * 60_000 });
+  const contactQuery = useQuery({ queryKey: ["support-contact"], queryFn: async () => (await axiosInstance.get<SupportContact>("/v1/support/contact")).data, enabled: isAuthenticated, staleTime: 5 * 60_000 });
   const contentQuery = useQuery({ queryKey: ["public-content", "help"], queryFn: async () => (await axiosInstance.get<ManagedFaq[]>("/v1/content/help")).data });
   const faqItems = contentQuery.data?.length
     ? contentQuery.data.map((item) => ({ question: item.title || "Câu hỏi", answer: item.body || "", image: item.image_url }))
@@ -26,7 +28,8 @@ export default function HelpPage() {
 
   return (
     <div className="min-h-screen bg-[#f5f3ff] px-4 py-6 sm:px-6 lg:px-8"><div className="mx-auto max-w-4xl">
-      <button type="button" onClick={() => navigate("/me")} className="mb-5 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-violet-600"><ArrowLeft className="h-4 w-4" /> Quay lại tài khoản</button>
+      {!isAuthenticated && <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">Bạn có thể xem các câu hỏi thường gặp mà không cần đăng nhập. Vui lòng đăng nhập để xem thông tin liên hệ admin.</div>}
+      <button type="button" onClick={() => navigate(isAuthenticated ? "/dashboard" : "/")} className="mb-5 flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-violet-600"><ArrowLeft className="h-4 w-4" /> {isAuthenticated ? "Về Dashboard" : "Về trang chủ"}</button>
       <div className="mb-6 rounded-3xl bg-gradient-to-br from-violet-600 to-indigo-600 p-7 text-white shadow-xl shadow-violet-200"><div className="flex items-center gap-4"><div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15"><HelpCircle className="h-7 w-7" /></div><div><h1 className="text-2xl font-bold">Câu hỏi thường gặp</h1><p className="mt-1 text-sm text-violet-100">Tìm câu trả lời nhanh hoặc liên hệ với admin.</p></div></div></div>
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <section className="overflow-hidden rounded-3xl border border-violet-100 bg-white shadow-sm">{faqItems.map(({ question, answer, image }, index) => <div key={`${question}-${index}`} className={index ? "border-t border-slate-100" : ""}><button type="button" onClick={() => setOpen(open === index ? -1 : index)} className="flex w-full items-center justify-between gap-4 px-5 py-5 text-left font-semibold text-slate-900 sm:px-6"><span>{question}</span><ChevronDown className={`h-5 w-5 shrink-0 text-violet-500 transition-transform ${open === index ? "rotate-180" : ""}`} /></button>{open === index && <div className="px-5 pb-5 sm:px-6"><p className="text-sm leading-6 text-slate-500">{answer}</p>{image && <div className="mt-4 overflow-hidden rounded-2xl border border-violet-100 bg-slate-50"><img src={image} alt={question} className="max-h-64 w-full object-contain" /></div>}</div>}</div>)}</section>
