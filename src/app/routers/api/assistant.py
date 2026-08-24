@@ -30,6 +30,7 @@ from src.app.services.assistant_chat_history import (
     recent_context,
     save_exchange,
 )
+from src.app.services.public_content_rag import format_context, retrieve_public_context
 from src.app.services.timi_assistant import (
     SENSITIVE_CREDENTIAL_ANSWER,
     contains_sensitive_credential,
@@ -121,9 +122,22 @@ def chat_with_timi(
         now=now,
     )
     try:
+        knowledge_context = format_context(
+            retrieve_public_context(db, payload.message)
+        )
+    except Exception:
+        # RAG is an evidence enhancement, never a reason to take Chat Support
+        # offline when the embedding provider or index is unavailable.
+        logger.exception("Public content RAG retrieval failed")
+        knowledge_context = ""
+    try:
         result = get_multi_agent_supervisor().dispatch(
             AgentId.CHAT_SUPPORT,
-            ChatSupportTask(message=payload.message, history=history),
+            ChatSupportTask(
+                message=payload.message,
+                history=history,
+                knowledge_context=knowledge_context,
+            ),
         )
         if not isinstance(result, ChatSupportResult):
             raise TypeError("Chat Support Agent trả về kết quả không hợp lệ")

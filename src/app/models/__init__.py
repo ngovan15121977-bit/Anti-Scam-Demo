@@ -6,6 +6,7 @@ from src.app.models.audit_log import AuditLog
 from src.app.models.blacklist import Blacklist
 from src.app.models.compliance import DataRetentionPolicy, UserConsent
 from src.app.models.content_item import ContentItem
+from src.app.models.content_chunk import ContentChunk
 from src.app.models.face_enrollment import FaceEnrollment
 from src.app.models.face_verification_log import FaceVerificationLog
 from src.app.models.face_verification_state import FaceVerificationState
@@ -46,6 +47,7 @@ __all__ = [
     "Blacklist",
     "DataRetentionPolicy",
     "ContentItem",
+    "ContentChunk",
     "FaceEnrollment",
     "FaceVerificationLog",
     "FaceVerificationState",

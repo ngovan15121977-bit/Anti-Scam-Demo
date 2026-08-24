@@ -116,6 +116,13 @@ class Settings(BaseSettings):
     # ---- Vector store (pgvector, dùng chung DB với Postgres) ----
     embedding_model: str = "text-embedding-3-small"
     embedding_dim: int = Field(default=1536, ge=1)
+    # Public-content RAG. Indexing is explicit; retrieval fails open to the
+    # normal Chat Support path when embeddings/provider are unavailable.
+    rag_enabled: bool = True
+    rag_top_k: int = Field(default=4, ge=1, le=8)
+    rag_min_similarity: float = Field(default=0.18, ge=0.0, le=1.0)
+    rag_chunk_size: int = Field(default=900, ge=300, le=2000)
+    rag_chunk_overlap: int = Field(default=120, ge=0, le=400)
 
     # ---- Recipient lookup ----
     # Token proves that a recipient name came from the internal directory.

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 class ChatSupportTask:
     message: str
     history: list[AssistantChatTurn]
+    knowledge_context: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +78,11 @@ class ChatSupportAgent:
     def execute(self, payload: object) -> ChatSupportResult:
         if not isinstance(payload, ChatSupportTask):
             raise TypeError("Chat Support Agent nhận sai loại tác vụ")
-        answer, out_of_scope = answer_timi_question(payload.message, payload.history)
+        answer, out_of_scope = answer_timi_question(
+            payload.message,
+            payload.history,
+            knowledge_context=payload.knowledge_context,
+        )
         return ChatSupportResult(answer=answer, out_of_scope=out_of_scope)
 
 

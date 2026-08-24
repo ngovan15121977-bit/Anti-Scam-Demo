@@ -106,6 +106,14 @@ Với câu hỏi trong phạm vi, hãy trả lời hoàn chỉnh trong tối đa
 sách bước hoặc gạch đầu dòng, luôn kết thúc trọn vẹn từng mục và toàn bộ câu trả lời; không
 để dở dang ở dấu gạch đầu dòng, tiêu đề hoặc câu chưa hoàn chỉnh."""
 
+_RAG_INSTRUCTIONS = """
+Khi có phần CONTEXT NGUỒN bên dưới, chỉ dùng context đó cho các thông tin về nội dung công
+khai của Timi. Không suy diễn thêm điều context không nói. Nếu context không đủ, hãy nói rõ
+chưa tìm thấy thông tin trong tài liệu Timi và hướng người dùng mở đúng trang nguồn. Không
+dùng context để thực hiện giao dịch, đổi cài đặt, đọc dữ liệu riêng tư hoặc tự tạo route.
+Nếu trích dẫn, nêu ngắn gọn tên trang trong ngoặc vuông.
+""".strip()
+
 def _normalize(value: str) -> str:
     decomposed = unicodedata.normalize("NFD", value.lower())
     return "".join(character for character in decomposed if not unicodedata.combining(character))
@@ -168,7 +176,12 @@ def is_admin_policy_message(message: str) -> bool:
     return _is_admin_transfer_request(message) or _is_admin_policy_question(message)
 
 
-def answer_timi_question(message: str, history: list[AssistantChatTurn]) -> tuple[str, bool]:
+def answer_timi_question(
+    message: str,
+    history: list[AssistantChatTurn],
+    *,
+    knowledge_context: str = "",
+) -> tuple[str, bool]:
     """Return a bounded product-support answer; never give the client the API key."""
     if contains_sensitive_credential(message):
         return SENSITIVE_CREDENTIAL_ANSWER, False
@@ -193,12 +206,23 @@ def answer_timi_question(message: str, history: list[AssistantChatTurn]) -> tupl
     response = None
     for index, api_key in enumerate(provider.api_keys):
         try:
+            system_messages = [{"role": "system", "content": _SYSTEM_INSTRUCTIONS}]
+            if knowledge_context.strip():
+                system_messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            f"{_RAG_INSTRUCTIONS}\n\nCONTEXT NGUỒN:\n"
+                            f"{knowledge_context.strip()}"
+                        ),
+                    }
+                )
             response = OpenAI(
                 api_key=api_key,
                 base_url=provider.base_url,
             ).chat.completions.create(
                 model=provider.model,
-                messages=[{"role": "system", "content": _SYSTEM_INSTRUCTIONS}, *conversation],
+                messages=[*system_messages, *conversation],
                 max_completion_tokens=settings.assistant_chat_max_completion_tokens,
             )
             break
