@@ -1895,10 +1895,10 @@ function EmailTab() {
 
       <FalconCard
         title="Lưu ý"
-        subtitle="SMTP Gmail"
+        subtitle="Gmail API"
         bodyClassName="p-4 text-sm text-slate-600 space-y-2"
       >
-        <p>• Gửi qua SMTP (Gmail App Password) — không cần Resend domain.</p>
+        <p>• Gửi qua Gmail API; không dùng Gmail App Password.</p>
         <p>• <b>Gửi thử</b> chỉ gửi về email tài khoản admin đang đăng nhập.</p>
         <p>• <b>Gửi toàn bộ user</b> / công bố cập nhật: mọi user có email trong DB.</p>
         <p>

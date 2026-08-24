@@ -20,6 +20,12 @@ class FakeResponse:
         return json.dumps(self.payload).encode("utf-8")
 
 
+def test_email_provider_defaults_to_gmail_api(monkeypatch) -> None:
+    monkeypatch.delenv("EMAIL_PROVIDER", raising=False)
+
+    assert email_service._provider() == "gmail_api"
+
+
 def test_gmail_api_provider_refreshes_token_and_sends_mime_message(
     monkeypatch,
 ) -> None:
