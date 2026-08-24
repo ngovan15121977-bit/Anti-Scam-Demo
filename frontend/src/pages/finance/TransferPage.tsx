@@ -1472,6 +1472,7 @@ export default function TransferPage() {
             />
             <button
               type="button"
+              tabIndex={-1}
               aria-label={isPinVisible ? "Ẩn mã PIN" : "Hiện mã PIN"}
               onClick={() => {
                 if (pinVisibilityTimer.current !== null) {

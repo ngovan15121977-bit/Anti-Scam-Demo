@@ -899,7 +899,7 @@ export default function ProfilePage() {
           </section>
 
           {/* ===== TWO COLUMN: Personal + Settings ===== */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 items-start lg:grid-cols-2 gap-6">
             {/* Personal Info */}
             <div className="bg-white rounded-2xl shadow-sm border border-violet-100/80 overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-50">
@@ -968,7 +968,7 @@ export default function ProfilePage() {
             </div>
 
             {/* Settings Menu */}
-            <div className="bg-white rounded-2xl shadow-sm border border-violet-100/80 overflow-hidden">
+            <div className="self-start bg-white rounded-2xl shadow-sm border border-violet-100/80 overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-50">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">
                   Cài đặt

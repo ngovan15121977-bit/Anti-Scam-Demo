@@ -130,6 +130,7 @@ export default function PinSetupPage() {
           />
           <button
             type="button"
+            tabIndex={-1}
             onClick={() => revealPin("pin")}
             className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-violet-600 transition-colors"
             aria-label="Hiện PIN trong 0.5 giây"
@@ -161,6 +162,7 @@ export default function PinSetupPage() {
           />
           <button
             type="button"
+            tabIndex={-1}
             onClick={() => revealPin("confirm")}
             className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-violet-600 transition-colors"
             aria-label="Hiện PIN xác nhận trong 0.5 giây"

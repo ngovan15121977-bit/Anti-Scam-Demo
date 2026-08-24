@@ -94,9 +94,11 @@ function voiceMonitoringPreferenceKey(userId: string | undefined): string {
 
 function readVoiceMonitoringPreference(userId: string | undefined): boolean {
   try {
-    return window.localStorage.getItem(voiceMonitoringPreferenceKey(userId)) !== "false";
+    // Listening/call protection is opt-in. Keep an explicit user choice, but
+    // do not request microphone access for a new account by default.
+    return window.localStorage.getItem(voiceMonitoringPreferenceKey(userId)) === "true";
   } catch {
-    return true;
+    return false;
   }
 }
 
