@@ -235,6 +235,13 @@ export default function TransferPage() {
     const isKnownBank = banks.some((bank) => bank.code === bankCode);
     if (!/^\d{6,19}$/.test(accountNumber) || !isKnownBank) return;
 
+    // A chat/QR prefill can arrive while this component is still showing a
+    // previous review or risk step. Reset that stale flow first; the fresh
+    // recipient lookup below must complete before the review screen is shown.
+    setStep("form");
+    setRiskData(null);
+    setTxId("");
+    setPin("");
     setForm((current) => ({
       ...current,
       recipient_account: accountNumber,

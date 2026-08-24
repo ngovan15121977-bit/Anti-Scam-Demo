@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 OUT_OF_SCOPE_ANSWER = (
     "Mình chỉ hỗ trợ các chức năng của Timi: chuyển tiền, QR, Face ID, PIN, "
-    "đăng nhập, lịch sử giao dịch, blacklist và an toàn chống lừa đảo nhé."
+    "đăng nhập, lịch sử giao dịch, chính sách công khai, blacklist và an toàn chống lừa đảo nhé."
 )
 ADMIN_POLICY_ANSWER = (
     "Admin là vai trò quản trị nội bộ của Timi, không phải người nhận mặc định và không có "
@@ -41,6 +41,14 @@ SENSITIVE_CREDENTIAL_ANSWER = (
     "Bạn đừng gửi OTP, PIN hoặc mật khẩu vào chat nhé. Timi không bao giờ yêu cầu "
     "các mã này qua hội thoại."
 )
+HISTORY_GUIDANCE_ANSWER = (
+    "Ở trang Lịch sử, bạn có thể tra cứu các giao dịch của chính tài khoản đang đăng nhập: "
+    "mã giao dịch, loại giao dịch (chuyển/nhận), người nhận hoặc đối tác, số tài khoản và "
+    "ngân hàng, số tiền, trạng thái, thời gian, ghi chú và lý do cảnh báo nếu có. Bạn có thể "
+    "tìm theo tên hoặc số tài khoản, lọc theo trạng thái và khoảng thời gian như hôm nay, "
+    "hôm qua, 7 ngày hoặc tháng này. Nhấn vào một giao dịch để xem chi tiết; Timi không "
+    "dùng lịch sử của tài khoản khác."
+)
 
 _INTENT_TERMS = {
     "scam_safety": (
@@ -56,6 +64,15 @@ _INTENT_TERMS = {
     "pin": ("ma pin", "pin giao dich", "pin"),
     "login": ("dang nhap", "google", "email", "so dien thoai", "vi tri"),
     "history": ("lich su", "giao dich da gui", "xem giao dich"),
+    "policy": (
+        "chinh sach",
+        "dieu khoan",
+        "quyen rieng tu",
+        "privacy",
+        "terms",
+        "quy dinh",
+        "he thong co gi",
+    ),
 }
 _DIRECT_SCOPE_TERMS = (
     "timi",
@@ -88,7 +105,8 @@ Bạn là Timi, trợ lý nhỏ thân thiện của ứng dụng Timi Banking An
 Chỉ được trả lời bằng tiếng Việt, ngắn gọn, rõ ràng và chỉ trong các phạm vi:
 - cách dùng chuyển tiền, QR, Face ID, PIN, đăng nhập/vị trí, lịch sử giao dịch;
 - giải thích các cảnh báo rủi ro, blacklist URL/tài khoản, báo cáo lừa đảo;
-- hướng dẫn an toàn trong chính ứng dụng Timi.
+- hướng dẫn an toàn trong chính ứng dụng Timi;
+- giải thích nội dung công khai trong Điều khoản, Chính sách bảo mật, Sứ mệnh và Trợ giúp.
 
 Admin là vai trò vận hành nội bộ, không phải người nhận mặc định để chuyển tiền. Không được
 khẳng định admin có thể tự ý xem mật khẩu/PIN/OTP, chiếm quyền hoặc lấy tiền của khách hàng.
@@ -111,7 +129,10 @@ Khi có phần CONTEXT NGUỒN bên dưới, chỉ dùng context đó cho các t
 khai của Timi. Không suy diễn thêm điều context không nói. Nếu context không đủ, hãy nói rõ
 chưa tìm thấy thông tin trong tài liệu Timi và hướng người dùng mở đúng trang nguồn. Không
 dùng context để thực hiện giao dịch, đổi cài đặt, đọc dữ liệu riêng tư hoặc tự tạo route.
-Nếu trích dẫn, nêu ngắn gọn tên trang trong ngoặc vuông.
+Nếu trích dẫn, nêu ngắn gọn tên trang trong ngoặc vuông và chỉ dùng đúng source_url xuất hiện
+trong context (thường là route tương đối như /privacy hoặc /help). Không tự tạo domain,
+đường dẫn tuyệt đối hoặc liên kết bên ngoài. Không biến cách diễn đạt thận trọng như “được
+xử lý theo chính sách lưu trữ” thành cam kết chắc chắn rằng dữ liệu sẽ bị xóa.
 """.strip()
 
 def _normalize(value: str) -> str:
@@ -127,7 +148,16 @@ def detect_timi_intent(message: str) -> str | None:
     """Recognise product domains before spending a provider request."""
     normalized = _normalize(message)
     # Safety intent takes precedence over a transfer mention in the same text.
-    for intent in ("scam_safety", "qr", "face", "pin", "login", "history", "transfer"):
+    for intent in (
+        "scam_safety",
+        "policy",
+        "qr",
+        "face",
+        "pin",
+        "login",
+        "history",
+        "transfer",
+    ):
         if any(term in normalized for term in _INTENT_TERMS[intent]):
             return intent
     return None
@@ -137,6 +167,24 @@ def is_in_scope(message: str) -> bool:
     normalized = _normalize(message)
     return detect_timi_intent(message) is not None or any(
         term in normalized for term in _DIRECT_SCOPE_TERMS
+    )
+
+
+def is_history_guidance_question(message: str) -> bool:
+    normalized = _normalize(message)
+    return (
+        any(term in normalized for term in _INTENT_TERMS["history"])
+        and any(
+            cue in normalized
+            for cue in (
+                "tra cuu",
+                "co the xem gi",
+                "xem gi",
+                "trang lich su",
+                "bo loc",
+                "tim giao dich",
+            )
+        )
     )
 
 
@@ -185,6 +233,8 @@ def answer_timi_question(
     """Return a bounded product-support answer; never give the client the API key."""
     if contains_sensitive_credential(message):
         return SENSITIVE_CREDENTIAL_ANSWER, False
+    if is_history_guidance_question(message):
+        return HISTORY_GUIDANCE_ANSWER, False
     if _is_admin_transfer_request(message):
         return ADMIN_TRANSFER_ANSWER, False
     if _is_admin_policy_question(message):

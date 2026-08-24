@@ -21,6 +21,7 @@ from src.app.schemas.assistant import (
     AssistantChatRequest,
     AssistantChatResponse,
 )
+from src.app.services.agent_provider_config import is_rate_limit_error
 from src.app.services.assistant_chat_history import (
     clear_history,
     find_cached_exchange,
@@ -32,9 +33,11 @@ from src.app.services.assistant_chat_history import (
 )
 from src.app.services.public_content_rag import format_context, retrieve_public_context
 from src.app.services.timi_assistant import (
+    HISTORY_GUIDANCE_ANSWER,
     SENSITIVE_CREDENTIAL_ANSWER,
     contains_sensitive_credential,
     is_admin_policy_message,
+    is_history_guidance_question,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,6 +58,30 @@ def chat_with_timi(
 
     settings = get_settings()
     now = datetime.now(UTC)
+    # This is a deterministic product-capability question. Answer it locally
+    # so a temporary Task/Chat Agent outage cannot turn a basic FAQ into a
+    # generic connection error. History persistence remains best-effort.
+    if is_history_guidance_question(payload.message):
+        try:
+            save_exchange(
+                db,
+                user_id=current_user.id,
+                message=payload.message,
+                answer=HISTORY_GUIDANCE_ANSWER,
+                out_of_scope=False,
+                response_source="policy",
+                settings=settings,
+                now=now,
+            )
+            prune_expired_exchanges(db, user_id=current_user.id, now=now)
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("Unable to persist local history guidance answer")
+        return AssistantChatResponse(
+            answer=HISTORY_GUIDANCE_ANSWER,
+            task_state=payload.task_state,
+        )
     try:
         navigation = get_multi_agent_supervisor().dispatch(
             AgentId.TASK_NAVIGATOR,
@@ -129,6 +156,11 @@ def chat_with_timi(
         # RAG is an evidence enhancement, never a reason to take Chat Support
         # offline when the embedding provider or index is unavailable.
         logger.exception("Public content RAG retrieval failed")
+        # PostgreSQL marks the current transaction as aborted after an
+        # UndefinedTable/provider-backed query error.  Reset it before the
+        # chat/history path continues; otherwise the later retention DELETE
+        # surfaces a misleading 500 (InFailedSqlTransaction).
+        db.rollback()
         knowledge_context = ""
     try:
         result = get_multi_agent_supervisor().dispatch(
@@ -146,8 +178,16 @@ def chat_with_timi(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Trợ lý Timi chưa được cấu hình API. Vui lòng thử lại sau.",
         ) from None
-    except Exception:
+    except Exception as exc:
         logger.exception("Timi assistant request failed")
+        if is_rate_limit_error(exc):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Chat Agent đang hết quota hoặc bị giới hạn tốc độ. "
+                    "Vui lòng thử lại sau hoặc cấu hình key dự phòng khác tài khoản."
+                ),
+            ) from None
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Timi chưa thể trả lời lúc này. Vui lòng thử lại sau.",

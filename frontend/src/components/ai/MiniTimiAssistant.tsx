@@ -38,6 +38,23 @@ type SpeechRecognitionLike = {
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
+type AssistantApiError = {
+  response?: {
+    status?: number;
+    data?: { detail?: unknown };
+  };
+};
+
+function assistantErrorMessage(error: unknown): string {
+  const apiError = error as AssistantApiError;
+  const detail = apiError.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (apiError.response?.status === 503) {
+    return "Chat Agent đang tạm hết quota hoặc chưa được cấu hình. Bạn thử lại sau nhé.";
+  }
+  return "Timi chưa thể kết nối để trả lời lúc này. Bạn thử lại sau một chút nhé.";
+}
+
 const SENSITIVE_CREDENTIAL_PATTERN = /(?:mã\s*(?:otp|pin)|otp|pin|mật khẩu|password)\s*[:=-]?\s*\d{4,}/iu;
 const SENSITIVE_CREDENTIAL_MESSAGE = "Bạn đừng gửi OTP, PIN hoặc mật khẩu vào chat nhé. Timi không bao giờ yêu cầu các mã này qua hội thoại.";
 const WELCOME_MESSAGE: ChatMessage = {
@@ -54,6 +71,7 @@ const EMPTY_TASK_STATE: AssistantTaskState = {
     amount: null,
     note: null,
   },
+  last_recipient: null,
 };
 
 function taskStorageKey(userId: string): string {
@@ -73,8 +91,30 @@ function readTaskState(userId: string): AssistantTaskState {
     const stored = window.sessionStorage.getItem(taskStorageKey(userId));
     if (!stored) return EMPTY_TASK_STATE;
     const candidate = JSON.parse(stored) as Partial<AssistantTaskState>;
-    if (candidate.task !== "transfer" || !candidate.transfer) return EMPTY_TASK_STATE;
-    return { task: "transfer", transfer: { ...EMPTY_TASK_STATE.transfer, ...candidate.transfer } };
+    const rawLastRecipient = candidate.last_recipient;
+    const lastRecipient = rawLastRecipient?.recipient_account && rawLastRecipient.bank_code
+      ? {
+          ...EMPTY_TASK_STATE.transfer,
+          ...rawLastRecipient,
+          amount: null,
+          note: null,
+        }
+      : null;
+    if (candidate.task === "transfer" && candidate.transfer) {
+      return {
+        task: "transfer",
+        transfer: { ...EMPTY_TASK_STATE.transfer, ...candidate.transfer },
+        last_recipient: lastRecipient,
+      };
+    }
+    if (candidate.task === "none") {
+      return {
+        task: "none",
+        transfer: { ...EMPTY_TASK_STATE.transfer },
+        last_recipient: lastRecipient,
+      };
+    }
+    return EMPTY_TASK_STATE;
   } catch {
     return EMPTY_TASK_STATE;
   }
@@ -199,7 +239,18 @@ export default function MiniTimiAssistant() {
       if (response.action?.type === "navigate_transfer_review") {
         const transfer = response.action.transfer;
         if (transfer?.recipient_account && transfer.bank_code && transfer.amount) {
-          setTaskState(EMPTY_TASK_STATE);
+          setTaskState({
+            task: "none",
+            transfer: { ...EMPTY_TASK_STATE.transfer },
+            last_recipient: {
+              ...EMPTY_TASK_STATE.transfer,
+              recipient_name: transfer.recipient_name ?? null,
+              recipient_account: transfer.recipient_account,
+              bank_code: transfer.bank_code,
+              amount: null,
+              note: null,
+            },
+          });
           setChatOpen(false);
           navigate("/transfer", {
             state: {
@@ -214,8 +265,12 @@ export default function MiniTimiAssistant() {
         }
       }
     },
-    onError: () => {
-      setChatMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", content: "Timi chưa thể kết nối để trả lời lúc này. Bạn thử lại sau một chút nhé." }]);
+    onError: (error) => {
+      setChatMessages((current) => [...current, {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: assistantErrorMessage(error),
+      }]);
     },
   });
 
@@ -260,7 +315,7 @@ export default function MiniTimiAssistant() {
   useEffect(() => {
     if (!user?.id) return;
     try {
-      if (taskState.task === "none") {
+      if (taskState.task === "none" && !taskState.last_recipient) {
         window.sessionStorage.removeItem(taskStorageKey(user.id));
       } else {
         window.sessionStorage.setItem(taskStorageKey(user.id), JSON.stringify(taskState));

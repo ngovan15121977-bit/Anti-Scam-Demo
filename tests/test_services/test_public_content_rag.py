@@ -86,6 +86,37 @@ def test_retrieve_public_context_fails_closed_when_disabled(monkeypatch) -> None
     assert public_content_rag.retrieve_public_context(db, "chính sách bảo mật") == []
 
 
+def test_reindex_falls_back_to_lexical_chunks_when_embeddings_fail(monkeypatch) -> None:
+    monkeypatch.setattr(public_content_rag, "get_settings", lambda: _settings())
+    monkeypatch.setattr(
+        public_content_rag,
+        "embed_texts",
+        lambda _texts: (_ for _ in ()).throw(RuntimeError("invalid api key")),
+    )
+    db = _db()
+    db.add(
+        ContentItem(
+            id=uuid.uuid4(),
+            page_key="privacy",
+            content_type="article",
+            title="Chính sách bảo mật",
+            body="Timi bảo vệ dữ liệu cá nhân của người dùng.",
+            placement="top",
+            is_published=True,
+            sort_order=1,
+        )
+    )
+    db.commit()
+
+    assert public_content_rag.reindex_public_content(db) == 1
+    chunk = db.query(ContentChunk).one()
+    assert chunk.embedding is None
+    assert chunk.embedding_model is None
+    assert "bảo vệ dữ liệu" in public_content_rag.retrieve_public_context(
+        db, "dữ liệu cá nhân"
+    )[0].text
+
+
 def test_chat_prompt_receives_public_context_without_changing_action_boundary(monkeypatch) -> None:
     import src.app.services.timi_assistant as timi_assistant
 

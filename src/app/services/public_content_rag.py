@@ -160,18 +160,26 @@ def reindex_public_content(db: Session, *, page_keys: Iterable[str] | None = Non
     if not items:
         return 0
 
-    if not settings.openai_api_key:
-        raise RuntimeError("OPENAI_API_KEY is required to build the public RAG index")
-
     item_ids = [item.id for item in items]
     db.execute(delete(ContentChunk).where(ContentChunk.content_item_id.in_(item_ids)))
     pending: list[tuple[ContentItem, int, str]] = []
     for item in items:
         for index, text in enumerate(_item_chunks(item)):
             pending.append((item, index, text))
-    embeddings = embed_texts([text for _item, _index, text in pending])
-    if len(embeddings) != len(pending):
-        raise RuntimeError("Embedding provider returned an incomplete batch")
+    # Embeddings improve ranking but are optional. A missing, expired, or
+    # invalid OpenAI key must not prevent the public policy index from being
+    # built: chunks without vectors are still searchable lexically.
+    embeddings: list[list[float] | None]
+    try:
+        embeddings = embed_texts([text for _item, _index, text in pending])
+        if len(embeddings) != len(pending):
+            raise RuntimeError("Embedding provider returned an incomplete batch")
+    except Exception as exc:
+        logger.warning(
+            "Public RAG embeddings unavailable; indexing lexical-only chunks: %s",
+            type(exc).__name__,
+        )
+        embeddings = [None] * len(pending)
 
     for (item, index, text), embedding in zip(pending, embeddings):
         db.add(
@@ -183,7 +191,7 @@ def reindex_public_content(db: Session, *, page_keys: Iterable[str] | None = Non
                 text=text,
                 source_url=PAGE_ROUTES.get(item.page_key, "/"),
                 content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
-                embedding_model=settings.embedding_model,
+                embedding_model=settings.embedding_model if embedding is not None else None,
                 embedding=embedding,
                 is_published=True,
             )
@@ -242,11 +250,14 @@ def retrieve_public_context(
         return _fallback_items(db, query, selected, limit)
 
     query_embedding: list[float] | None = None
-    try:
-        if _embedding_client() is not None:
-            query_embedding = embed_texts([query])[0]
-    except Exception as exc:  # Retrieval must not take Chat Support down.
-        logger.warning("Public RAG embedding unavailable; using lexical fallback: %s", type(exc).__name__)
+    # Avoid calling an invalid embedding provider for an index that is known
+    # to contain lexical-only chunks. This keeps normal chat fast and quiet.
+    if any(chunk.embedding is not None for chunk in chunks):
+        try:
+            if _embedding_client() is not None:
+                query_embedding = embed_texts([query])[0]
+        except Exception as exc:  # Retrieval must not take Chat Support down.
+            logger.warning("Public RAG embedding unavailable; using lexical fallback: %s", type(exc).__name__)
 
     results: list[RetrievedContent] = []
     for chunk in chunks:

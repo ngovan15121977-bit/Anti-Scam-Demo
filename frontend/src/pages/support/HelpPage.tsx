@@ -12,7 +12,7 @@ const faqs = [
   ["Làm sao để đổi mật khẩu?", "Vào Tài khoản, chọn Bảo mật tài khoản rồi nhập mật khẩu hiện tại và mật khẩu mới."],
   ["Tôi quên mã PIN giao dịch thì phải làm gì?", "Vào Tài khoản > Thay đổi mã PIN để cập nhật lại PIN sau khi xác thực."],
   ["Tại sao giao dịch cần xác minh khuôn mặt?", "Đây là lớp bảo vệ giúp xác nhận đúng chủ tài khoản trước các thao tác nhạy cảm."],
-  ["Tôi cần hỗ trợ trực tiếp thì liên hệ ở đâu?", "Bạn có thể gửi email cho admin hoặc chuyển khoản phí hỗ trợ vào tài khoản được hiển thị bên dưới."],
+  ["Tôi cần hỗ trợ trực tiếp thì liên hệ ở đâu?", "Bạn có thể gửi email cho admin hoặc sử dụng thông tin liên hệ chính thức được hiển thị trong ứng dụng."],
 ];
 
 export default function HelpPage() {

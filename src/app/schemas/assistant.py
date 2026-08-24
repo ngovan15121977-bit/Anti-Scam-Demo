@@ -31,6 +31,10 @@ class AssistantTaskState(BaseModel):
 
     task: Literal["none", "transfer"] = "none"
     transfer: AssistantTransferDraft = Field(default_factory=AssistantTransferDraft)
+    # A short-lived convenience context for explicit follow-up requests such
+    # as "chuyển thêm cho người này".  It never contains an amount or consent
+    # to transfer; the transfer page must resolve the recipient again.
+    last_recipient: AssistantTransferDraft | None = None
 
 
 class AssistantUiAction(BaseModel):

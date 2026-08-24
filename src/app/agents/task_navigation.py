@@ -54,6 +54,23 @@ _TRANSFER_GUIDANCE_PHRASES = (
     "duoc khong",
 )
 _TRANSFER_CONTEXT_TERMS = ("chuyen tien", "chuyen khoan", "gui tien", "tao giao dich")
+_REPEAT_RECIPIENT_CUES = (
+    "nguoi nay",
+    "nguoi do",
+    "nguoi vua roi",
+    "nguoi vua chuyen",
+    "chuyen them",
+    "gui them",
+    "chuyen tiep",
+    "gui tiep",
+)
+_TRANSFER_AMOUNT_CHANGE_CUES = (
+    "thay doi so tien",
+    "doi so tien",
+    "sua so tien",
+    "cap nhat so tien",
+    "chinh so tien",
+)
 _TRANSFER_QUESTION_CUES = (
     "co the",
     "co phai",
@@ -377,6 +394,44 @@ def _is_transfer_guidance_question(message: str) -> bool:
     )
 
 
+def _is_repeat_recipient_request(message: str) -> bool:
+    """Recognize an explicit reference to the previously used recipient.
+
+    This intentionally does not treat an amount-only message as a repeat:
+    the user must say who to reuse (for example, "người này" or "chuyển
+    thêm") before any remembered account is put back into a draft.
+    """
+
+    normalized = _normalize(message)
+    return any(phrase in normalized for phrase in _REPEAT_RECIPIENT_CUES)
+
+
+def _is_transfer_amount_change_request(message: str) -> bool:
+    """Recognize an explicit request to edit the amount in the last draft."""
+
+    normalized = _normalize(message)
+    return any(phrase in normalized for phrase in _TRANSFER_AMOUNT_CHANGE_CUES)
+
+
+def _is_history_guidance_question(message: str) -> bool:
+    """Keep history capability questions out of contextual page navigation."""
+
+    normalized = _normalize(message)
+    return (
+        "lich su" in normalized
+        and any(
+            cue in normalized
+            for cue in (
+                "tra cuu",
+                "co the xem gi",
+                "xem gi",
+                "bo loc",
+                "tim giao dich",
+            )
+        )
+    )
+
+
 def _is_admin_transfer_request(message: str) -> bool:
     """Keep admin-role questions out of the transfer draft flow.
 
@@ -542,8 +597,24 @@ def _redact_history_message(message: str) -> str:
     return _ACCOUNT_PATTERN.sub(mask, message)
 
 
-def _empty_state() -> AssistantTaskState:
-    return AssistantTaskState()
+def _remember_recipient(draft: AssistantTransferDraft) -> AssistantTransferDraft | None:
+    """Keep only an account/bank pair for an explicit follow-up."""
+
+    if not draft.recipient_account or not draft.bank_code:
+        return None
+    return AssistantTransferDraft(
+        recipient_name=draft.recipient_name,
+        recipient_account=draft.recipient_account,
+        bank_code=draft.bank_code,
+        amount=None,
+        note=None,
+    )
+
+
+def _empty_state(
+    *, last_recipient: AssistantTransferDraft | None = None,
+) -> AssistantTaskState:
+    return AssistantTaskState(last_recipient=last_recipient)
 
 
 def _next_question(draft: AssistantTransferDraft, newly_recorded: str | None) -> str:
@@ -580,7 +651,11 @@ def _route_transfer(message: str, state: AssistantTaskState) -> TaskNavigationDe
         return TaskNavigationDecision(
             handled=True,
             answer="Tài khoản Timi Bank cần đúng 10 chữ số. Vui lòng nhập lại số tài khoản.",
-            task_state=AssistantTaskState(task="transfer", transfer=draft),
+            task_state=AssistantTaskState(
+                task="transfer",
+                transfer=draft,
+                last_recipient=state.last_recipient,
+            ),
             history_message=_redact_history_message(message),
         )
 
@@ -592,7 +667,7 @@ def _route_transfer(message: str, state: AssistantTaskState) -> TaskNavigationDe
                 "tên chủ tài khoản. Bạn hãy kiểm tra lại người nhận, số tiền và tự bấm kiểm tra "
                 "rủi ro/xác nhận nếu đồng ý."
             ),
-            task_state=_empty_state(),
+            task_state=_empty_state(last_recipient=_remember_recipient(draft)),
             action=AssistantUiAction(
                 type="navigate_transfer_review",
                 transfer=draft,
@@ -603,7 +678,11 @@ def _route_transfer(message: str, state: AssistantTaskState) -> TaskNavigationDe
     return TaskNavigationDecision(
         handled=True,
         answer=_next_question(draft, newly_recorded),
-        task_state=AssistantTaskState(task="transfer", transfer=draft),
+        task_state=AssistantTaskState(
+            task="transfer",
+            transfer=draft,
+            last_recipient=state.last_recipient,
+        ),
         history_message=_redact_history_message(message),
     )
 
@@ -681,6 +760,49 @@ def route_task(message: str, state: AssistantTaskState) -> TaskNavigationDecisio
             task_state=_empty_state(),
             allow_contextual_navigation=False,
         )
+
+    if _is_history_guidance_question(message):
+        return TaskNavigationDecision(
+            handled=False,
+            answer=None,
+            task_state=state,
+            allow_contextual_navigation=False,
+        )
+
+    # A completed transfer leaves a recipient-only context.  Rehydrate it
+    # only for an explicit follow-up reference; never for a bare amount.
+    if state.task == "none" and _is_repeat_recipient_request(message):
+        remembered = state.last_recipient
+        if remembered and remembered.recipient_account and remembered.bank_code:
+            repeat_draft = remembered.model_copy(deep=True)
+            repeat_draft.amount = None
+            repeat_draft.note = None
+            return _route_transfer(
+                message,
+                AssistantTaskState(
+                    task="transfer",
+                    transfer=repeat_draft,
+                    last_recipient=remembered,
+                ),
+            )
+
+    # After the review screen opens, the user may correct only the amount and
+    # ask to review again.  Reuse the recipient pair, but never bypass the
+    # transfer page's fresh lookup, risk check, or final confirmation.
+    if state.task == "none" and _is_transfer_amount_change_request(message):
+        remembered = state.last_recipient
+        if remembered and remembered.recipient_account and remembered.bank_code:
+            amount_draft = remembered.model_copy(deep=True)
+            amount_draft.amount = None
+            amount_draft.note = None
+            return _route_transfer(
+                message,
+                AssistantTaskState(
+                    task="transfer",
+                    transfer=amount_draft,
+                    last_recipient=remembered,
+                ),
+            )
 
     if state.task == "transfer":
         return _route_transfer(message, state)

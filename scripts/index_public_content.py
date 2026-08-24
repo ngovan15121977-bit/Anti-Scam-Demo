@@ -8,9 +8,21 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 
-from src.app.db.session import SessionLocal
-from src.app.services.public_content_rag import PUBLIC_PAGE_KEYS, reindex_public_content
+# Running ``python scripts/index_public_content.py`` puts ``scripts/`` (not
+# the repository root) on sys.path. Add the root so the canonical ``src``
+# package can be imported without requiring PYTHONPATH configuration.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.app.db.session import SessionLocal  # noqa: E402
+from src.app.services.public_content_rag import (  # noqa: E402
+    PUBLIC_PAGE_KEYS,
+    reindex_public_content,
+)
 
 
 def main() -> int:

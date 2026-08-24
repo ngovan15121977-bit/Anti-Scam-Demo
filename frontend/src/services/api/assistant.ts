@@ -16,6 +16,7 @@ export type AssistantTransferDraft = {
 export type AssistantTaskState = {
   task: "none" | "transfer";
   transfer: AssistantTransferDraft;
+  last_recipient: AssistantTransferDraft | null;
 };
 
 export type AssistantUiAction =

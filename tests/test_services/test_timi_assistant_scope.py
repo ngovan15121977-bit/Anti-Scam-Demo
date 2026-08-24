@@ -4,6 +4,7 @@ import src.app.services.timi_assistant as timi_assistant
 from src.app.services.timi_assistant import (
     ADMIN_POLICY_ANSWER,
     ADMIN_TRANSFER_ANSWER,
+    HISTORY_GUIDANCE_ANSWER,
     OUT_OF_SCOPE_ANSWER,
     SENSITIVE_CREDENTIAL_ANSWER,
     answer_timi_question,
@@ -17,6 +18,8 @@ def test_timi_assistant_allows_product_questions() -> None:
     assert is_in_scope("Face ID cần bao nhiêu phần trăm để xác thực?")
     assert is_in_scope("Tôi không hiểu cách chuyển tiền")
     assert is_in_scope("Tôi muốn gửi tiền cho người thân")
+    assert is_in_scope("Chính sách của hệ thống có những gì?")
+    assert is_in_scope("Cho tôi xem điều khoản và quyền riêng tư")
 
 
 def test_timi_assistant_rejects_unrelated_questions() -> None:
@@ -28,6 +31,17 @@ def test_timi_assistant_blocks_sensitive_credentials() -> None:
     assert contains_sensitive_credential("Mã PIN: 123456")
     assert contains_sensitive_credential("OTP 987654")
     assert "không bao giờ" in SENSITIVE_CREDENTIAL_ANSWER
+
+
+def test_history_guidance_is_local_and_does_not_require_provider() -> None:
+    answer, out_of_scope = answer_timi_question(
+        "Tôi muốn biết trang lịch sử có thể tra cứu những gì", []
+    )
+
+    assert answer == HISTORY_GUIDANCE_ANSWER
+    assert not out_of_scope
+    assert "mã giao dịch" in answer
+    assert "tìm theo tên hoặc số tài khoản" in answer
 
 
 def test_timi_assistant_explains_admin_role_without_calling_provider() -> None:

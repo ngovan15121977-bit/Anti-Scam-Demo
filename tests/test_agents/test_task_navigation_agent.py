@@ -5,7 +5,7 @@ import pytest
 from src.app.agents import specialists
 from src.app.agents.specialists import TaskNavigationAgent, TaskNavigationTask
 from src.app.agents.task_navigation import route_task
-from src.app.schemas.assistant import AssistantTaskState
+from src.app.schemas.assistant import AssistantTaskState, AssistantTransferDraft
 from src.app.services.contextual_navigation_agent import ContextualNavigationDecision
 
 
@@ -38,6 +38,60 @@ def test_transfer_task_collects_missing_fields_then_only_navigates_to_review() -
     assert complete.action.transfer.amount == 500_000
 
 
+def test_explicit_repeat_request_reuses_only_the_previous_recipient() -> None:
+    state = AssistantTaskState(
+        last_recipient=AssistantTransferDraft(
+            recipient_account="1234567890",
+            bank_code="VCB",
+        )
+    )
+
+    repeated = route_task("Tôi muốn chuyển thêm cho người này 5tr", state)
+
+    assert repeated.handled
+    assert repeated.action is not None
+    assert repeated.action.type == "navigate_transfer_review"
+    assert repeated.action.transfer is not None
+    assert repeated.action.transfer.recipient_account == "1234567890"
+    assert repeated.action.transfer.bank_code == "VCB"
+    assert repeated.action.transfer.amount == 5_000_000
+    assert repeated.task_state.last_recipient is not None
+    assert repeated.task_state.last_recipient.amount is None
+
+
+def test_bare_amount_does_not_reuse_the_previous_recipient() -> None:
+    state = AssistantTaskState(
+        last_recipient=AssistantTransferDraft(
+            recipient_account="1234567890",
+            bank_code="VCB",
+        )
+    )
+
+    result = route_task("5tr", state)
+
+    assert not result.handled
+    assert result.action is None
+
+
+def test_amount_change_reopens_review_for_the_previous_recipient() -> None:
+    state = AssistantTaskState(
+        last_recipient=AssistantTransferDraft(
+            recipient_account="0112233445",
+            bank_code="TIMI",
+        )
+    )
+
+    changed = route_task("Tôi muốn thay đổi số tiền thành 2tr", state)
+
+    assert changed.handled
+    assert changed.action is not None
+    assert changed.action.type == "navigate_transfer_review"
+    assert changed.action.transfer is not None
+    assert changed.action.transfer.recipient_account == "0112233445"
+    assert changed.action.transfer.bank_code == "TIMI"
+    assert changed.action.transfer.amount == 2_000_000
+
+
 def test_task_agent_can_disable_only_the_explicit_guardian_preference() -> None:
     result = route_task("Tôi muốn tắt tự động nghe và bảo vệ cuộc gọi", AssistantTaskState())
 
@@ -54,6 +108,17 @@ def test_task_agent_can_enable_only_the_explicit_guardian_preference() -> None:
     assert result.action is not None
     assert result.action.type == "set_guardian_voice_monitoring"
     assert result.action.voice_monitoring_enabled is True
+
+
+def test_history_capability_question_stays_out_of_navigation_model() -> None:
+    result = route_task(
+        "Tôi muốn biết trang lịch sử có thể tra cứu những gì",
+        AssistantTaskState(),
+    )
+
+    assert not result.handled
+    assert result.action is None
+    assert result.allow_contextual_navigation is False
 
 
 @pytest.mark.parametrize(
