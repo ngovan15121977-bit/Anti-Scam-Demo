@@ -2,6 +2,7 @@
 
 Env (.env):
   EMAIL_ENABLED=true
+  EMAIL_PROVIDER=gmail_api         # gmail_api, smtp, or resend
   EMAIL_HOST=smtp.gmail.com
   EMAIL_PORT=587
   EMAIL_USER=your@gmail.com
@@ -11,12 +12,14 @@ Env (.env):
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
 import smtplib
 import ssl
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -69,6 +72,96 @@ def _from_address() -> str:
 
 def _resend_api_key() -> str:
     return (os.getenv("RESEND_API_KEY") or "").strip()
+
+
+def _provider() -> str:
+    """Return the configured provider, retaining the previous auto fallback."""
+    configured = (os.getenv("EMAIL_PROVIDER") or "").strip().lower()
+    if not configured:
+        return "resend" if _resend_api_key() else "smtp"
+    return configured
+
+
+def _gmail_api_credentials() -> tuple[str, str, str]:
+    return (
+        (os.getenv("GMAIL_CLIENT_ID") or "").strip(),
+        (os.getenv("GMAIL_CLIENT_SECRET") or "").strip(),
+        (os.getenv("GMAIL_REFRESH_TOKEN") or "").strip(),
+    )
+
+
+def _build_message(
+    *,
+    to: str,
+    subject: str,
+    html: str,
+    text: Optional[str],
+) -> tuple[MIMEMultipart, str]:
+    from_name, from_addr = _parse_from(_from_address())
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = formataddr((from_name, from_addr))
+    msg["To"] = to
+    msg.attach(MIMEText(text or "Xem phiên bản HTML của email này.", "plain", "utf-8"))
+    msg.attach(MIMEText(html, "html", "utf-8"))
+    return msg, from_addr
+
+
+def _send_via_gmail_api(
+    *,
+    to: str,
+    subject: str,
+    html: str,
+    text: Optional[str],
+) -> bool:
+    """Send through Gmail's HTTPS API, including on Render Free."""
+    client_id, client_secret, refresh_token = _gmail_api_credentials()
+    if not all((client_id, client_secret, refresh_token)):
+        logger.error(
+            "EMAIL_PROVIDER=gmail_api requires GMAIL_CLIENT_ID, "
+            "GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN"
+        )
+        return False
+
+    try:
+        token_request = Request(
+            "https://oauth2.googleapis.com/token",
+            data=urlencode(
+                {
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        with urlopen(token_request, timeout=30) as response:
+            access_token = json.loads(response.read().decode("utf-8"))["access_token"]
+
+        message, _ = _build_message(to=to, subject=subject, html=html, text=text)
+        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
+        send_request = Request(
+            "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+            data=json.dumps({"raw": raw_message}).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                "User-Agent": "timi-antiscam/1.0",
+            },
+            method="POST",
+        )
+        with urlopen(send_request, timeout=30) as response:
+            response_body = json.loads(response.read().decode("utf-8"))
+        logger.info("Gmail API OK to %s subject=%s id=%s", to, subject, response_body.get("id"))
+        return True
+    except HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        logger.error("Gmail API failed to %s status=%s body=%s", to, error.code, body)
+    except (URLError, TimeoutError, OSError, KeyError, ValueError, json.JSONDecodeError) as error:
+        logger.error("Gmail API failed to %s: %s", to, error)
+    return False
 
 
 def _send_via_resend(
@@ -133,10 +226,20 @@ def send_email(
         logger.warning("EMAIL_ENABLED=false — NOT sending to %s", to)
         return False
 
-    # Render Free blocks outbound SMTP ports. Prefer HTTPS when configured;
-    # the SMTP path below remains available for local or paid deployments.
-    if _resend_api_key():
+    provider = _provider()
+    if provider == "resend":
+        if not _resend_api_key():
+            logger.error("EMAIL_PROVIDER=resend but RESEND_API_KEY is missing")
+            return False
         return _send_via_resend(to=to, subject=subject, html=html, text=text)
+    if provider == "gmail_api":
+        return _send_via_gmail_api(to=to, subject=subject, html=html, text=text)
+    if provider != "smtp":
+        logger.error(
+            "Unsupported EMAIL_PROVIDER=%s; expected 'smtp', 'gmail_api', or 'resend'",
+            provider,
+        )
+        return False
 
     user = _user()
     password = _password()
