@@ -14,11 +14,14 @@ import {
   Building2,
   Menu,
   X,
+  User as UserIcon,
+  LogOut,
   Star,
   Play,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import TimiLogo from "@/components/brand/TimiLogo";
+import { useAuthStore } from "@/stores/authStore";
 
 /* ------------------------------------------------------------------ */
 /*  Nội dung                                                          */
@@ -98,6 +101,7 @@ const heroBanners = [
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const { isAuthenticated, user, logout } = useAuthStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [, setSlide] = useState(0);
   const [activeBanner, setActiveBanner] = useState(0);
@@ -108,6 +112,13 @@ export default function HomePage() {
     }, 3500);
     return () => clearInterval(id);
   }, []);
+
+  const handleLogout = async () => {
+    await logout();
+    setMobileMenuOpen(false);
+  };
+
+  const displayName = user?.full_name || user?.email || "Tài khoản";
 
   return (
     <div className="min-h-screen bg-white w-full font-[Inter]">
@@ -136,13 +147,37 @@ export default function HomePage() {
               <a href="#app" className="text-slate-700 hover:text-[#4F6BFF] font-medium transition-colors">Tải app</a>
             </div>
 
-            <div className="hidden md:flex items-center gap-3">
-              <button onClick={() => navigate("/login")} className="px-5 py-2 text-[#0B0B0B] font-semibold hover:bg-slate-50 rounded-full transition-colors">
-                Đăng nhập
-              </button>
-              <button onClick={() => navigate("/register")} className="px-5 py-2.5 bg-[#4F6BFF] text-white font-bold rounded-full hover:bg-[#3D53E8] transition-colors">
-                Đăng ký
-              </button>
+            <div className="hidden md:flex items-center gap-2">
+              {isAuthenticated ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => navigate("/dashboard")}
+                    className="flex max-w-52 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                    title="Mở Dashboard"
+                  >
+                    <UserIcon className="h-4 w-4 shrink-0 text-violet-600" />
+                    <span className="truncate">{displayName}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleLogout()}
+                    className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-500 transition-colors hover:bg-rose-50 hover:text-rose-600"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Đăng xuất
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => navigate("/login")} className="px-5 py-2 text-[#0B0B0B] font-semibold hover:bg-slate-50 rounded-full transition-colors">
+                    Đăng nhập
+                  </button>
+                  <button onClick={() => navigate("/register")} className="px-5 py-2.5 bg-[#4F6BFF] text-white font-bold rounded-full hover:bg-[#3D53E8] transition-colors">
+                    Đăng ký
+                  </button>
+                </>
+              )}
             </div>
 
             <button className="md:hidden p-2 text-slate-700" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
@@ -160,8 +195,23 @@ export default function HomePage() {
             <Link to="/terms" className="block py-2 text-slate-700 font-medium">Điều khoản</Link>
             <Link to="/privacy" className="block py-2 text-slate-700 font-medium">Bảo mật dữ liệu</Link>
             <hr className="border-slate-100" />
-            <button onClick={() => navigate("/login")} className="block w-full text-left py-2 text-[#0B0B0B] font-semibold">Đăng nhập</button>
-            <button onClick={() => navigate("/register")} className="w-full py-2.5 bg-[#4F6BFF] text-white font-bold rounded-full">Đăng ký</button>
+            {isAuthenticated ? (
+              <>
+                <button onClick={() => navigate("/dashboard")} className="flex w-full items-center gap-2 py-2 text-left font-semibold text-slate-700">
+                  <UserIcon className="h-4 w-4 text-violet-600" />
+                  <span className="truncate">{displayName}</span>
+                </button>
+                <button onClick={() => void handleLogout()} className="flex w-full items-center gap-2 rounded-full py-2.5 text-left font-semibold text-rose-600">
+                  <LogOut className="h-4 w-4" />
+                  Đăng xuất
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => navigate("/login")} className="block w-full text-left py-2 text-[#0B0B0B] font-semibold">Đăng nhập</button>
+                <button onClick={() => navigate("/register")} className="w-full py-2.5 bg-[#4F6BFF] text-white font-bold rounded-full">Đăng ký</button>
+              </>
+            )}
           </div>
         )}
       </nav>

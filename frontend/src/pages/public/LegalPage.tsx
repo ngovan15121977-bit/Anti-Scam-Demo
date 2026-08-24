@@ -1,9 +1,6 @@
-import { Link } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import axiosInstance from "@/services/api/axios";
-import TimiLogo from "@/components/brand/TimiLogo";
-import { useAuthStore } from "@/stores/authStore";
+import PublicSiteChrome from "@/components/layout/PublicSiteChrome";
 
 interface LegalPageProps {
   type: "terms" | "privacy";
@@ -36,8 +33,6 @@ const content = {
 
 export default function LegalPage({ type }: LegalPageProps) {
   const page = content[type];
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const backPath = isAuthenticated ? "/dashboard" : "/";
   const managedQuery = useQuery({
     queryKey: ["public-content", type],
     queryFn: async () => (await axiosInstance.get<Array<{ title: string | null; body: string | null; image_url: string | null }>>(`/v1/content/${type}`)).data,
@@ -47,43 +42,33 @@ export default function LegalPage({ type }: LegalPageProps) {
     : page.sections;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-6">
-          <Link to="/" className="flex items-center gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl">
-              <TimiLogo className="h-full w-full rounded-xl" />
-            </span>
-            <span className="text-xl font-bold text-slate-900">Timi</span>
-          </Link>
-          <Link to={backPath} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-blue-600">
-            <ArrowLeft className="h-4 w-4" />
-            {isAuthenticated ? "Về Dashboard" : "Về trang chủ"}
-          </Link>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-3xl px-6 py-12 sm:py-16">
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-10">
-          <p className="mb-3 text-sm font-semibold uppercase tracking-wider text-blue-600">Timi</p>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">{page.title}</h1>
-          <p className="mt-4 leading-relaxed text-slate-600">{page.intro}</p>
-
-          <div className="mt-10 space-y-8">
-            {sections.map(([heading, text], index) => (
-              <section key={heading}>
-                <h2 className="text-lg font-bold text-slate-900">{heading}</h2>
-                <p className="mt-2 leading-7 text-slate-600">{text}</p>
-                {managedQuery.data?.[index]?.image_url && <div className="mt-4 flex min-h-44 w-full items-center justify-center overflow-hidden rounded-2xl bg-slate-50"><img src={managedQuery.data[index].image_url || ""} alt={heading} className="max-h-80 w-full object-contain" /></div>}
-              </section>
-            ))}
+    <PublicSiteChrome>
+      <main>
+        <section className="w-full bg-[#F3F5FF]">
+          <div className="w-full px-6 py-9 lg:px-12 lg:py-12 xl:px-20">
+            <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[#4F6BFF]">Timi · Thông tin pháp lý</p>
+            <h1 className="font-display mt-3 max-w-3xl text-3xl font-bold leading-tight tracking-tight text-[#0B0B0B] sm:text-4xl">{page.title}</h1>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">{page.intro}</p>
           </div>
+        </section>
 
-          <p className="mt-10 border-t border-slate-100 pt-6 text-sm text-slate-500">
-            Cập nhật lần cuối: 19/08/2026
-          </p>
-        </div>
+        <section className="w-full bg-white">
+          <div className="w-full px-6 py-12 lg:px-12 lg:py-20 xl:px-20">
+            <div className="mx-auto max-w-4xl rounded-[2rem] border border-slate-100 bg-white p-6 shadow-sm sm:p-10">
+              <div className="space-y-8">
+                {sections.map(([heading, text], index) => (
+                  <section key={heading} className="border-b border-slate-100 pb-8 last:border-0 last:pb-0">
+                    <h2 className="font-display text-xl font-bold text-[#0B0B0B]">{heading}</h2>
+                    <p className="mt-3 leading-7 text-slate-600">{text}</p>
+                    {managedQuery.data?.[index]?.image_url && <div className="mt-4 flex min-h-44 w-full items-center justify-center overflow-hidden rounded-2xl bg-slate-50"><img src={managedQuery.data[index].image_url || ""} alt={heading} className="max-h-80 w-full object-contain" /></div>}
+                  </section>
+                ))}
+              </div>
+              <p className="mt-10 border-t border-slate-100 pt-6 text-sm text-slate-500">Cập nhật lần cuối: 19/08/2026</p>
+            </div>
+          </div>
+        </section>
       </main>
-    </div>
+    </PublicSiteChrome>
   );
 }

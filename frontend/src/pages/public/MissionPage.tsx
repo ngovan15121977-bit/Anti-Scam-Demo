@@ -1,18 +1,14 @@
-import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import axiosInstance from "@/services/api/axios";
 import {
-  ArrowLeft,
   CheckCircle2,
   HeartHandshake,
   LockKeyhole,
   Shield,
-  Sparkles,
   Target,
   Users,
 } from "lucide-react";
-import TimiLogo from "@/components/brand/TimiLogo";
-import { useAuthStore } from "@/stores/authStore";
+import PublicSiteChrome from "@/components/layout/PublicSiteChrome";
 
 const pillars = [
   {
@@ -41,43 +37,27 @@ const commitments = [
 ];
 
 export default function MissionPage() {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const backPath = isAuthenticated ? "/dashboard" : "/";
   const managedQuery = useQuery({
     queryKey: ["public-content", "mission"],
     queryFn: async () => (await axiosInstance.get<Array<{ title: string | null; body: string | null; image_url: string | null; placement: string }>>("/v1/content/mission")).data,
   });
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-          <Link to="/" className="flex items-center gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl">
-              <TimiLogo className="h-full w-full rounded-xl" />
-            </span>
-            <span className="text-xl font-bold">Timi</span>
-          </Link>
-          <Link to={backPath} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-blue-600">
-            <ArrowLeft className="h-4 w-4" />
-            {isAuthenticated ? "Về Dashboard" : "Về trang chủ"}
-          </Link>
-        </div>
-      </header>
-
+    <PublicSiteChrome>
       <main>
-        <section className="bg-gradient-to-br from-[#0B0B0B] via-[#172554] to-[#3D5AFB] px-6 py-20 text-white sm:py-28">
-          <div className="mx-auto max-w-5xl">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-blue-100">
-              <Sparkles className="h-4 w-4" />
-              Sứ mệnh của Timi
+        <section className="w-full bg-[#F3F5FF]">
+          <div className="w-full px-6 py-9 lg:px-12 lg:py-12 xl:px-20">
+            <div className="max-w-4xl">
+              <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[#4F6BFF]">
+                Timi · Sứ mệnh
+              </p>
+              <h1 className="font-display mt-3 max-w-3xl text-3xl font-bold leading-tight tracking-tight text-[#0B0B0B] sm:text-4xl">
+                Giúp mọi người bảo vệ và làm chủ đồng tiền của mình.
+              </h1>
+              <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
+                Timi được xây dựng để biến tài chính cá nhân từ một điều phức tạp và nhiều rủi ro
+                thành một trải nghiệm rõ ràng, an toàn và dễ tiếp cận hơn mỗi ngày.
+              </p>
             </div>
-            <h1 className="max-w-4xl text-4xl font-bold leading-tight sm:text-6xl">
-              Giúp mọi người bảo vệ và làm chủ đồng tiền của mình.
-            </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-200">
-              Timi được xây dựng để biến tài chính cá nhân từ một điều phức tạp và nhiều rủi ro
-              thành một trải nghiệm rõ ràng, an toàn và dễ tiếp cận hơn mỗi ngày.
-            </p>
           </div>
         </section>
 
@@ -169,10 +149,6 @@ export default function MissionPage() {
           </div>
         </section>
       </main>
-
-      <footer className="border-t border-slate-200 bg-white px-6 py-8 text-center text-sm text-slate-500">
-        © 2026 Timi. Bảo vệ bạn mọi lúc.
-      </footer>
-    </div>
+    </PublicSiteChrome>
   );
 }
