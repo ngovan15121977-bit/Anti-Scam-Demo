@@ -284,6 +284,53 @@ def _persist_assessment(
             ),
         ]
 
+    # --- Bank Risk Manager overlay (Phase 2/3) ---
+    try:
+        from src.app.services.risk_manager.integration import (
+            maybe_apply_manager_to_transaction,
+        )
+
+        signal_types = [
+            getattr(s, "signal_type", None) or str(s) for s in candidates
+        ]
+        ag_action = (
+            active_guardian.agent_action if active_guardian is not None else None
+        )
+        ag_score = (
+            active_guardian.max_risk_score if active_guardian is not None else None
+        )
+        score, level_str, explanation = maybe_apply_manager_to_transaction(
+            score=float(score),
+            level=str(level.value if hasattr(level, "value") else level),
+            explanation=str(explanation or ""),
+            signal_types=signal_types,
+            requires_hitl=bool(should_warn),
+            user_id_hash=str(current_user.id),
+            active_guardian_action=ag_action,
+            active_guardian_score=ag_score,
+            session_key=str(transaction.id),
+        )
+        try:
+            level = (
+                level_str
+                if isinstance(level_str, RiskLevel)
+                else RiskLevel(level_str)
+            )
+        except Exception:
+            level_map = {
+                "low": RiskLevel.LOW,
+                "medium": RiskLevel.MEDIUM,
+                "high": RiskLevel.HIGH,
+            }
+            level = level_map.get(str(level_str).lower(), level)
+        should_warn = level in {RiskLevel.MEDIUM, RiskLevel.HIGH} or should_warn
+    except Exception as _mgr_exc:  # noqa: BLE001
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning(
+            "Manager overlay skipped (tx): %s", _mgr_exc
+        )
+
     assessment = TransactionRiskAssessment(
         transaction_id=transaction.id,
         risk_score=score,

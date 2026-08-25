@@ -1,22 +1,23 @@
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
-from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from ..database import get_db
-from ..models import Transaction, User, AuditLog
-from ..schemas import (
-    TransactionCreate,
-    TransactionResponse,
-    TransactionDecision,
-    RiskAnalysis,
-    InterventionResponse,
-)
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
 from ..core.security import get_current_user
-from ..services.risk_engine import RiskEngine
+from ..database import get_db
+from ..models import AuditLog, Transaction, User
+from ..schemas import (
+    InterventionResponse,
+    RiskAnalysis,
+    TransactionCreate,
+    TransactionDecision,
+    TransactionResponse,
+)
+from ..services.email_service import send_security_email, send_transaction_email
 from ..services.llm_agent import InterventionAgent
-from ..services.email_service import send_transaction_email, send_security_email
+from ..services.risk_engine import RiskEngine
 
 router = APIRouter(prefix="/api/v1/transactions", tags=["Transactions"])
 
@@ -32,10 +33,55 @@ def log_audit(
 ) -> None:
     """Placeholder — thay bằng service audit thật nếu đã có."""
     try:
-        # Nếu project đã có log_audit riêng, import và dùng lại.
         pass
     except Exception:
         pass
+
+
+def _apply_risk_manager_overlay(
+    *,
+    user_id: Any,
+    tx_id: Any,
+    final_score: float,
+    level: str,
+    reason: str,
+    matched_blacklist: list | None = None,
+    matched_patterns: list | None = None,
+) -> tuple[float, str, str]:
+    """
+    Gọi Bank Risk Manager (flag-gated).
+    Trả về (score, level, reason). Lỗi / flag off → giữ nguyên input.
+    """
+    try:
+        from src.app.services.risk_manager.integration import (
+            maybe_apply_manager_to_transaction,
+        )
+
+        signals: list[str] = []
+        if matched_blacklist:
+            signals.append("blacklist_exact_match")
+        for p in matched_patterns or []:
+            name = p.get("name") if isinstance(p, dict) else str(p)
+            if name:
+                signals.append(f"pattern:{name}")
+
+        score, new_level, new_reason = maybe_apply_manager_to_transaction(
+            score=float(final_score),
+            level=str(level or "low"),
+            explanation=str(reason or ""),
+            signal_types=signals,
+            requires_hitl=str(level).lower() in ("medium", "high", "critical"),
+            user_id_hash=str(user_id),
+            session_key=str(tx_id) if tx_id else str(user_id),
+        )
+        return float(score), str(new_level), str(new_reason)
+    except Exception as exc:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Manager overlay skipped (legacy analyze): %s", exc
+        )
+        return float(final_score), str(level), str(reason or "")
 
 
 @router.post("/analyze", response_model=TransactionResponse)
@@ -59,15 +105,33 @@ async def analyze_transaction(
         description=tx_data.description,
     )
 
+    # --- Bank Risk Manager overlay (Phase 2/3) ---
+    final_score = float(risk_result.final_score)
+    level = str(risk_result.level)
+    reason = str(risk_result.reason or "")
+    final_score, level, reason = _apply_risk_manager_overlay(
+        user_id=current_user.id,
+        tx_id=None,
+        final_score=final_score,
+        level=level,
+        reason=reason,
+        matched_blacklist=getattr(risk_result, "matched_blacklist", None),
+        matched_patterns=getattr(risk_result, "matched_patterns", None),
+    )
+    # đồng bộ lại object để response/mail dùng cùng số liệu
+    risk_result.final_score = final_score
+    risk_result.level = level
+    risk_result.reason = reason
+
     transaction = Transaction(
         user_id=current_user.id,
         **tx_data.model_dump(),
         ml_risk_score=risk_result.ml_score,
         rule_risk_score=risk_result.rule_score,
-        final_risk_score=risk_result.final_score,
-        risk_level=risk_result.level,
-        agent_warning_shown=risk_result.level in ["medium", "high", "critical"],
-        warning_reason=risk_result.reason,
+        final_risk_score=final_score,
+        risk_level=level,
+        agent_warning_shown=level in ["medium", "high", "critical"],
+        warning_reason=reason,
         status="pending",
         user_decision="pending",
     )
@@ -76,6 +140,24 @@ async def analyze_transaction(
     db.commit()
     db.refresh(transaction)
 
+    # Gọi lại Manager với session_key = transaction.id (memory theo GD)
+    final_score, level, reason = _apply_risk_manager_overlay(
+        user_id=current_user.id,
+        tx_id=transaction.id,
+        final_score=final_score,
+        level=level,
+        reason=reason,
+        matched_blacklist=getattr(risk_result, "matched_blacklist", None),
+        matched_patterns=getattr(risk_result, "matched_patterns", None),
+    )
+    if reason != transaction.warning_reason or level != transaction.risk_level:
+        transaction.final_risk_score = final_score
+        transaction.risk_level = level
+        transaction.warning_reason = reason
+        transaction.agent_warning_shown = level in ["medium", "high", "critical"]
+        db.commit()
+        db.refresh(transaction)
+
     background_tasks.add_task(
         log_audit,
         db,
@@ -83,24 +165,19 @@ async def analyze_transaction(
         transaction.id,
         "INSERT",
         None,
-        {"status": "pending", "risk_level": risk_result.level},
+        {"status": "pending", "risk_level": level},
         current_user.id,
     )
 
-    # Mail bảo mật khi rủi ro cao / critical
-    if (
-        risk_result.level in ("high", "critical")
-        and getattr(current_user, "email", None)
-    ):
+    if level in ("high", "critical") and getattr(current_user, "email", None):
         background_tasks.add_task(
             send_security_email,
             to=current_user.email,
             full_name=getattr(current_user, "full_name", None) or "Bạn",
             title="Cảnh báo giao dịch rủi ro cao",
             message=(
-                f"Giao dịch {transaction.id} được đánh giá mức "
-                f"{risk_result.level}. "
-                f"{risk_result.reason or 'Hệ thống phát hiện tín hiệu bất thường.'} "
+                f"Giao dịch {transaction.id} được đánh giá mức {level}. "
+                f"{reason or 'Hệ thống phát hiện tín hiệu bất thường.'} "
                 "Vui lòng kiểm tra kỹ trước khi xác nhận."
             ),
         )
@@ -109,11 +186,11 @@ async def analyze_transaction(
     response.risk_analysis = RiskAnalysis(
         ml_risk_score=float(risk_result.ml_score) if risk_result.ml_score else None,
         rule_risk_score=float(risk_result.rule_score) if risk_result.rule_score else None,
-        final_risk_score=float(risk_result.final_score),
-        risk_level=risk_result.level,
-        warning_reason=risk_result.reason,
-        matched_blacklist=risk_result.matched_blacklist,
-        matched_patterns=risk_result.matched_patterns,
+        final_risk_score=float(final_score),
+        risk_level=level,
+        warning_reason=reason,
+        matched_blacklist=getattr(risk_result, "matched_blacklist", None),
+        matched_patterns=getattr(risk_result, "matched_patterns", None),
     )
 
     return response
@@ -147,10 +224,7 @@ async def make_decision(
     tx.user_decision_at = datetime.utcnow()
 
     if decision.decision == "confirmed":
-        # Người dùng chấp nhận rủi ro -> chuyển sang processing
         tx.status = "processing"
-        # Nếu pipeline của bạn complete ngay tại đây, đổi thành "completed"
-        # và gửi mail giao dịch bên dưới.
     elif decision.decision == "cancelled":
         tx.status = "rejected"
     elif decision.decision == "escalated":
@@ -159,7 +233,26 @@ async def make_decision(
     db.commit()
     db.refresh(tx)
 
-    # --- Email sau quyết định (không chặn response) ---
+    # Ghi HITL feedback cho Manager (Phase 3) — không đổi quyền quyết định của user
+    try:
+        from src.app.services.risk_manager.phase3.feedback import record_hitl_feedback
+
+        human_action = {
+            "confirmed": "CONTINUE",
+            "cancelled": "STOP",
+            "escalated": "PAUSE",
+        }.get(decision.decision, decision.decision)
+        record_hitl_feedback(
+            user_id_hash=str(current_user.id),
+            session_key=str(tx.id),
+            manager_action="PAUSE",  # analyze đã cảnh báo; có thể tinh chỉnh nếu lưu action Manager
+            manager_confidence=0.7,
+            human_action=human_action,
+            note=f"user_decision={decision.decision}",
+        )
+    except Exception:
+        pass
+
     user_email = getattr(current_user, "email", None)
     full_name = getattr(current_user, "full_name", None) or "Bạn"
     payee = (
@@ -172,7 +265,6 @@ async def make_decision(
 
     if user_email:
         if decision.decision == "confirmed":
-            # Mail giao dịch khi user xác nhận tiếp tục
             background_tasks.add_task(
                 send_transaction_email,
                 to=user_email,
@@ -180,7 +272,7 @@ async def make_decision(
                 amount=amount,
                 counterparty=str(payee),
                 direction="out",
-                status=tx.status,  # processing / completed tùy pipeline
+                status=tx.status,
             )
         elif decision.decision == "cancelled":
             background_tasks.add_task(

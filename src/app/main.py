@@ -5,15 +5,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from src.app.routers.api import (
-    newsletter,
     agents,
     assistant,
-    content,
     auth,
+    content,
     guardian,
     health,
+    newsletter,
     password_reset,
     recipients,
+    risk_manager,
     support,
     transactions,
     url_safety,
@@ -37,6 +38,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 app.include_router(admin_emails.router, prefix="/api/v1")
 app.include_router(support.router, prefix="/api/v1")
 app.include_router(newsletter.router, prefix="/api/v1")
@@ -50,8 +52,11 @@ app.include_router(agents.router, prefix="/api/v1")
 app.include_router(assistant.router, prefix="/api/v1")
 app.include_router(content.router, prefix="/api/v1")
 app.include_router(guardian.router, prefix="/api/v1")
+app.include_router(risk_manager.router, prefix="/api/v1")  # Phase 2/3 Bank Risk Manager
 app.include_router(admin_emails.notifications_router, prefix="/api/v1")
 app.include_router(password_reset.router, prefix="/api/v1")
+
+
 @app.on_event("startup")
 def preload_face_ai() -> None:
     """Warm Face ID when the deployment explicitly ships/preloads the models."""
@@ -61,7 +66,9 @@ def preload_face_ai() -> None:
         warm_face_model()
         warm_passive_liveness_model()
     except Exception:
-        logging.getLogger(__name__).warning("Face AI warm-up failed; it will retry on first verification.")
+        logging.getLogger(__name__).warning(
+            "Face AI warm-up failed; it will retry on first verification."
+        )
 
 
 @app.get("/")

@@ -1,0 +1,343 @@
+[
+  {
+    "id": "p3-001-otp-stop",
+    "session_key": "s-otp-1",
+    "session_type": "call_only",
+    "guardian": {
+      "risk_score": 92,
+      "risk_level": "critical",
+      "recommended_action": "STOP",
+      "signals": ["otp_request", "bank_impersonation"],
+      "decision_confidence": 0.92,
+      "explanation": "Đòi OTP giả danh ngân hàng"
+    },
+    "expected": {
+      "recommended_action": "STOP",
+      "must_not_action": ["CONTINUE"],
+      "escalate_optional": true
+    }
+  },
+  {
+    "id": "p3-002-blacklist-tx",
+    "session_key": "s-bl-1",
+    "session_type": "tx_only",
+    "transaction": {
+      "risk_score": 95,
+      "risk_level": "high",
+      "signals": ["blacklist_exact_match"],
+      "requires_hitl": true,
+      "explanation": "Khớp blacklist exact"
+    },
+    "expected": {
+      "recommended_action_in": ["STOP", "PAUSE"],
+      "must_not_action": ["CONTINUE"],
+      "escalate_to_human": true
+    }
+  },
+  {
+    "id": "p3-003-conflict-max-severity",
+    "session_key": "s-conf-1",
+    "session_type": "call_and_tx",
+    "guardian": {
+      "risk_score": 90,
+      "risk_level": "critical",
+      "recommended_action": "STOP",
+      "signals": ["otp_request"],
+      "decision_confidence": 0.9,
+      "explanation": "OTP"
+    },
+    "transaction": {
+      "risk_score": 10,
+      "risk_level": "low",
+      "signals": [],
+      "requires_hitl": false,
+      "explanation": "GD nhỏ"
+    },
+    "expected": {
+      "recommended_action": "STOP",
+      "must_not_action": ["CONTINUE", "MONITOR"]
+    }
+  },
+  {
+    "id": "p3-004-safe-both",
+    "session_key": "s-safe-1",
+    "session_type": "call_and_tx",
+    "guardian": {
+      "risk_score": 5,
+      "risk_level": "safe",
+      "recommended_action": "CONTINUE",
+      "signals": [],
+      "decision_confidence": 0.85,
+      "explanation": "Cuộc gọi bình thường"
+    },
+    "transaction": {
+      "risk_score": 8,
+      "risk_level": "low",
+      "signals": [],
+      "requires_hitl": false,
+      "explanation": "GD nhỏ"
+    },
+    "expected": {
+      "recommended_action_in": ["CONTINUE", "MONITOR"],
+      "must_not_action": ["STOP"]
+    }
+  },
+  {
+    "id": "p3-005-guardian-unavailable",
+    "session_key": "s-unavail-1",
+    "session_type": "call_only",
+    "guardian_available": false,
+    "expected": {
+      "recommended_action_in": ["PAUSE", "STOP"],
+      "escalate_to_human": true
+    }
+  },
+  {
+    "id": "p3-006-progressive-step1",
+    "session_key": "s-prog-1",
+    "session_type": "call_only",
+    "progressive_step": 1,
+    "guardian": {
+      "risk_score": 35,
+      "risk_level": "warning",
+      "recommended_action": "MONITOR",
+      "signals": ["urgency"],
+      "decision_confidence": 0.7,
+      "explanation": "Thúc giục nhẹ"
+    },
+    "expected": {
+      "recommended_action_in": ["MONITOR", "PAUSE", "CONTINUE"],
+      "must_not_action": ["STOP"]
+    }
+  },
+  {
+    "id": "p3-007-progressive-step2",
+    "session_key": "s-prog-1",
+    "session_type": "call_only",
+    "progressive_step": 2,
+    "depends_on": "p3-006-progressive-step1",
+    "guardian": {
+      "risk_score": 55,
+      "risk_level": "high",
+      "recommended_action": "PAUSE",
+      "signals": ["urgency", "authority_claim"],
+      "decision_confidence": 0.75,
+      "explanation": "Giả danh công an + urgency"
+    },
+    "expected": {
+      "recommended_action_in": ["PAUSE", "STOP"],
+      "must_not_action": ["CONTINUE"]
+    }
+  },
+  {
+    "id": "p3-008-progressive-step3-otp",
+    "session_key": "s-prog-1",
+    "session_type": "call_only",
+    "progressive_step": 3,
+    "depends_on": "p3-007-progressive-step2",
+    "guardian": {
+      "risk_score": 95,
+      "risk_level": "critical",
+      "recommended_action": "STOP",
+      "signals": ["otp_request", "bank_impersonation", "urgency"],
+      "decision_confidence": 0.95,
+      "explanation": "Đòi OTP sau khi xây dựng niềm tin"
+    },
+    "expected": {
+      "recommended_action": "STOP",
+      "must_not_action": ["CONTINUE", "MONITOR"]
+    }
+  },
+  {
+    "id": "p3-009-safe-account-rag",
+    "session_key": "s-safeacc-1",
+    "session_type": "call_only",
+    "guardian": {
+      "risk_score": 80,
+      "risk_level": "high",
+      "recommended_action": "PAUSE",
+      "signals": ["account_lock_threat"],
+      "decision_confidence": 0.7,
+      "explanation": "Dọa khóa tài khoản, yêu cầu chuyển tài khoản an toàn"
+    },
+    "expected": {
+      "recommended_action_in": ["STOP", "PAUSE"],
+      "must_not_action": ["CONTINUE"]
+    }
+  },
+  {
+    "id": "p3-010-remote-access",
+    "session_key": "s-remote-1",
+    "session_type": "call_only",
+    "guardian": {
+      "risk_score": 88,
+      "risk_level": "critical",
+      "recommended_action": "STOP",
+      "signals": ["credential_social_engineering"],
+      "decision_confidence": 0.9,
+      "explanation": "Yêu cầu cài AnyDesk điều khiển máy"
+    },
+    "expected": {
+      "recommended_action": "STOP",
+      "must_not_action": ["CONTINUE"]
+    }
+  },
+  {
+    "id": "p3-011-medium-unusual-amount",
+    "session_key": "s-amt-1",
+    "session_type": "tx_only",
+    "transaction": {
+      "risk_score": 55,
+      "risk_level": "medium",
+      "signals": ["unusual_amount", "new_payee"],
+      "requires_hitl": true,
+      "explanation": "Số tiền cao người nhận mới"
+    },
+    "expected": {
+      "recommended_action_in": ["PAUSE", "STOP", "MONITOR"],
+      "must_not_action": ["CONTINUE"],
+      "escalate_to_human": true
+    }
+  },
+  {
+    "id": "p3-012-behavior-velocity",
+    "session_key": "s-vel-1",
+    "session_type": "tx_only",
+    "transaction": {
+      "risk_score": 40,
+      "risk_level": "medium",
+      "signals": ["transaction_velocity"],
+      "requires_hitl": true,
+      "explanation": "Nhiều payee trong thời gian ngắn"
+    },
+    "behavior_anomalies": ["velocity", "many_new_payees"],
+    "expected": {
+      "recommended_action_in": ["PAUSE", "STOP", "MONITOR"],
+      "must_not_action": ["CONTINUE"]
+    }
+  },
+  {
+    "id": "p3-013-low-confidence",
+    "session_key": "s-lowc-1",
+    "session_type": "call_only",
+    "guardian": {
+      "risk_score": 50,
+      "risk_level": "warning",
+      "recommended_action": "PAUSE",
+      "signals": ["urgency"],
+      "decision_confidence": 0.4,
+      "explanation": "Tín hiệu mơ hồ"
+    },
+    "expected": {
+      "recommended_action_in": ["PAUSE", "STOP", "MONITOR"],
+      "escalate_to_human": true
+    }
+  },
+  {
+    "id": "p3-014-call-and-tx-both-high",
+    "session_key": "s-both-1",
+    "session_type": "call_and_tx",
+    "guardian": {
+      "risk_score": 70,
+      "risk_level": "high",
+      "recommended_action": "PAUSE",
+      "signals": ["authority_claim"],
+      "decision_confidence": 0.8,
+      "explanation": "Giả danh công an"
+    },
+    "transaction": {
+      "risk_score": 75,
+      "risk_level": "high",
+      "signals": ["unusual_amount", "scam_keyword"],
+      "requires_hitl": true,
+      "explanation": "GD lớn note đáng ngờ"
+    },
+    "expected": {
+      "recommended_action_in": ["PAUSE", "STOP"],
+      "must_not_action": ["CONTINUE"],
+      "escalate_to_human": true
+    }
+  },
+  {
+    "id": "p3-015-secrecy",
+    "session_key": "s-sec-1",
+    "session_type": "call_only",
+    "guardian": {
+      "risk_score": 65,
+      "risk_level": "high",
+      "recommended_action": "PAUSE",
+      "signals": ["prevent_external_verification", "secrecy_request"],
+      "decision_confidence": 0.78,
+      "explanation": "Cấm nói với ai, tắt máy"
+    },
+    "expected": {
+      "recommended_action_in": ["PAUSE", "STOP"],
+      "must_not_action": ["CONTINUE"]
+    }
+  },
+  {
+    "id": "p3-016-investment",
+    "session_key": "s-inv-1",
+    "session_type": "call_and_tx",
+    "guardian": {
+      "risk_score": 45,
+      "risk_level": "warning",
+      "recommended_action": "MONITOR",
+      "signals": ["urgency"],
+      "decision_confidence": 0.65,
+      "explanation": "Mời đầu tư sinh lời gấp"
+    },
+    "transaction": {
+      "risk_score": 60,
+      "risk_level": "medium",
+      "signals": ["unusual_amount", "new_payee"],
+      "requires_hitl": true,
+      "explanation": "Chuyển lớn cho payee mới"
+    },
+    "expected": {
+      "recommended_action_in": ["PAUSE", "STOP", "MONITOR"],
+      "must_not_action": ["CONTINUE"]
+    }
+  },
+  {
+    "id": "p3-017-tx-only-safe",
+    "session_key": "s-txsafe-1",
+    "session_type": "tx_only",
+    "transaction": {
+      "risk_score": 5,
+      "risk_level": "low",
+      "signals": [],
+      "requires_hitl": false,
+      "explanation": "GD nhỏ trusted"
+    },
+    "expected": {
+      "recommended_action_in": ["CONTINUE", "MONITOR"],
+      "must_not_action": ["STOP"]
+    }
+  },
+  {
+    "id": "p3-018-guardian-pause-tx-high",
+    "session_key": "s-gtx-1",
+    "session_type": "call_and_tx",
+    "guardian": {
+      "risk_score": 55,
+      "risk_level": "high",
+      "recommended_action": "PAUSE",
+      "signals": ["account_lock_threat"],
+      "decision_confidence": 0.7,
+      "explanation": "Dọa khóa TK"
+    },
+    "transaction": {
+      "risk_score": 80,
+      "risk_level": "high",
+      "signals": ["blacklist_exact_match"],
+      "requires_hitl": true,
+      "explanation": "Blacklist"
+    },
+    "expected": {
+      "recommended_action_in": ["STOP", "PAUSE"],
+      "must_not_action": ["CONTINUE"],
+      "escalate_to_human": true
+    }
+  }
+]
