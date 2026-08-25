@@ -111,7 +111,7 @@ class Settings(BaseSettings):
     llm_explanation_enabled: bool = False
 
     # Phase 2 — Bank Risk Manager overlay (default OFF; backend vẫn enforce)
-    risk_manager_enabled: bool = False
+    risk_manager_enabled: bool = True
     risk_manager_use_llm: bool = True
 
     # ---- Vector store (pgvector, dùng chung DB với Postgres) ----
