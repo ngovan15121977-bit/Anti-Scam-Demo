@@ -11,6 +11,14 @@ from .schema import (
     ACTION_SEVERITY,
     max_severity_action,
 )
+from .orchestrator import (
+    build_request,
+    build_request_from_objects,
+    run_manager,
+    validate_manager_decision,
+    enforce_action_allowed,
+    ManagerGateResult,
+)
 
 __all__ = [
     "ManagerOutput",
@@ -19,4 +27,10 @@ __all__ = [
     "validate_manager_output",
     "ACTION_SEVERITY",
     "max_severity_action",
+    "build_request",
+    "build_request_from_objects",
+    "run_manager",
+    "validate_manager_decision",
+    "enforce_action_allowed",
+    "ManagerGateResult",
 ]
