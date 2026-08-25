@@ -55,8 +55,20 @@ def _extract_json(text: str) -> dict[str, Any]:
     return json.loads(text)
 
 
-def run_manager_llm(req: ManagerRequest, *, version: str = "0.1") -> ManagerOutput:
+def _default_manager_version() -> str:
+    env = os.getenv("MANAGER_PROMPT_VERSION")
+    if env:
+        return env.strip()
+    try:
+        from src.app.config import get_settings
+        return str(getattr(get_settings(), "manager_prompt_version", None) or "0.2")
+    except Exception:
+        return "0.2"
+
+
+def run_manager_llm(req: ManagerRequest, *, version: str | None = None) -> ManagerOutput:
     """Call Groq (or OpenAI-compatible) with manager prompt. Raises on hard failure."""
+    version = version or _default_manager_version()
     prompt_cfg = load_manager_prompt(version)
     system = prompt_cfg["system_prompt"]
     # Env wins: MANAGER_MODEL > GUARDIAN_AGENT_MODEL > yaml > default

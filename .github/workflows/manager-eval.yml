@@ -1,0 +1,45 @@
+name: Manager eval (Phase 4)
+
+on:
+  push:
+    branches: [main, huan, develop, tuananh-dev-rieng]
+  pull_request:
+    branches: [main, huan, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  manager-eval:
+    name: Deterministic Manager + Phase3 eval
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install minimal deps for eval
+        run: |
+          python -m pip install -U pip
+          python -m pip install pydantic pyyaml pydantic-settings python-dotenv
+
+      - name: Manager mock (deterministic)
+        run: python eval/scripts/run_manager_mock.py --deterministic
+
+      - name: Phase 3 smoke
+        run: python eval/scripts/run_phase3_smoke.py
+
+      - name: Phase 3 eval
+        run: python eval/scripts/run_phase3_eval.py
+
+      - name: Upload eval artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manager-eval-results
+          path: |
+            eval/results/
+          if-no-files-found: ignore

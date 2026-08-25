@@ -113,7 +113,8 @@ class Settings(BaseSettings):
     # Phase 2 — Bank Risk Manager overlay (default OFF; backend vẫn enforce)
     risk_manager_enabled: bool = True
     risk_manager_use_llm: bool = True
-
+    risk_manager_phase3: bool = True
+    manager_prompt_version: str = "0.2"
     # ---- Vector store (pgvector, dùng chung DB với Postgres) ----
     embedding_model: str = "text-embedding-3-small"
     embedding_dim: int = Field(default=1536, ge=1)
