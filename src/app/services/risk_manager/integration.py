@@ -10,6 +10,7 @@ Never grants LLM execution tools. Fail-closed + safety floor inside orchestrator
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import replace
 from typing import Any
 
@@ -94,6 +95,7 @@ def maybe_apply_manager_to_guardian(
     if not _manager_enabled():
         return result
 
+    t0 = time.perf_counter()
     try:
         from src.app.services.risk_manager.orchestrator import (
             build_request_from_objects,
@@ -131,6 +133,16 @@ def maybe_apply_manager_to_guardian(
         base_expl = str(getattr(result, "explanation", "") or "")
         explanation = f"{base_expl} [Manager: {rationale}]".strip()[:1000]
 
+        try:
+            from src.app.services.risk_manager.metrics import record_manager_call
+            record_manager_call(
+                action=action,
+                latency_ms=(time.perf_counter() - t0) * 1000,
+                source="phase3" if _phase3_enabled() else "phase2",
+            )
+        except Exception:
+            pass
+
         if isinstance(result, GuardianRiskResult):
             return replace(
                 result,
@@ -142,6 +154,11 @@ def maybe_apply_manager_to_guardian(
         return result
     except Exception as exc:
         logger.warning("risk_manager overlay skipped (guardian): %s", exc)
+        try:
+            from src.app.services.risk_manager.metrics import record_manager_call
+            record_manager_call(action="SKIP", latency_ms=0, skipped=True, error=True)
+        except Exception:
+            pass
         return result
 
 
@@ -161,6 +178,7 @@ def maybe_apply_manager_to_transaction(
     if not _manager_enabled():
         return score, level, explanation
 
+    t0 = time.perf_counter()
     try:
         from src.app.services.risk_manager.orchestrator import (
             build_request_from_objects,
@@ -219,7 +237,21 @@ def maybe_apply_manager_to_transaction(
             new_score = min(1.0, float(new_score) / 100.0)
 
         new_expl = f"{explanation} [Manager: {checked.output.rationale}]".strip()[:2000]
+        try:
+            from src.app.services.risk_manager.metrics import record_manager_call
+            record_manager_call(
+                action=action,
+                latency_ms=(time.perf_counter() - t0) * 1000,
+                source="phase3" if _phase3_enabled() else "phase2",
+            )
+        except Exception:
+            pass
         return float(new_score), new_level, new_expl
     except Exception as exc:
         logger.warning("risk_manager overlay skipped (tx): %s", exc)
+        try:
+            from src.app.services.risk_manager.metrics import record_manager_call
+            record_manager_call(action="SKIP", latency_ms=0, skipped=True, error=True)
+        except Exception:
+            pass
         return score, level, explanation

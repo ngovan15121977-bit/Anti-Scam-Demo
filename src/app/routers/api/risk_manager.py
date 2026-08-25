@@ -72,11 +72,17 @@ def risk_manager_status(
     store = get_memory_store()
     uid = str(current_user.id)
     prof = store.get_profile(uid)
+    try:
+        from src.app.services.risk_manager.metrics import snapshot as metrics_snapshot
+        metrics = metrics_snapshot()
+    except Exception:
+        metrics = {}
+
     return {
         "risk_manager_enabled": bool(settings.risk_manager_enabled),
         "risk_manager_use_llm": bool(settings.risk_manager_use_llm),
         "risk_manager_phase3": bool(getattr(settings, "risk_manager_phase3", True)),
-        "manager_prompt_version": getattr(settings, "manager_prompt_version", "0.2"),
+        "manager_prompt_version": str(getattr(settings, "manager_prompt_version", "0.2")),
         "user_risk_tier": prof.risk_tier,
         "user_profile_summary": prof.summary_text(),
         "hitl_feedback": {
@@ -84,4 +90,5 @@ def risk_manager_status(
             "agree_rate": hints.get("agree_rate"),
             "hint": hints.get("hint"),
         },
+        "metrics": metrics,
     }
