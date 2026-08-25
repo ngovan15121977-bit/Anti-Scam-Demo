@@ -110,6 +110,10 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     llm_explanation_enabled: bool = False
 
+    # Phase 2 — Bank Risk Manager overlay (default OFF; backend vẫn enforce)
+    risk_manager_enabled: bool = False
+    risk_manager_use_llm: bool = True
+
     # ---- Vector store (pgvector, dùng chung DB với Postgres) ----
     embedding_model: str = "text-embedding-3-small"
     embedding_dim: int = Field(default=1536, ge=1)
