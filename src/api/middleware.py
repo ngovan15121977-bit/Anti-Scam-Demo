@@ -1,3 +1,4 @@
+# LEGACY: prefer src.app — see src/api/LEGACY.md
 """Audit Middleware — tự động ghi log mọi request tới các route nhạy cảm.
 
 Cách hoạt động:

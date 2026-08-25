@@ -1,3 +1,4 @@
+# LEGACY: prefer src.app — see src/api/LEGACY.md
 """REST and WebSocket gateway for the realtime Scam Call Guardian MVP."""
 
 from __future__ import annotations

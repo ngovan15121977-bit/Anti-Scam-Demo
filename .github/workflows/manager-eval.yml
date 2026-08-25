@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   manager-eval:
-    name: Deterministic Manager + Phase3 eval
+    name: Deterministic Manager + Phase3 eval (gate 100%)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,20 +26,25 @@ jobs:
           python -m pip install -U pip
           python -m pip install pydantic pyyaml pydantic-settings python-dotenv
 
-      - name: Manager mock (deterministic)
-        run: python eval/scripts/run_manager_mock.py --deterministic
+      - name: Manager mock (deterministic) — must be 8/8
+        run: |
+          out=$(python eval/scripts/run_manager_mock.py --deterministic)
+          echo "$out"
+          echo "$out" | grep -q "Summary: 8/8 passed"
 
       - name: Phase 3 smoke
         run: python eval/scripts/run_phase3_smoke.py
 
-      - name: Phase 3 eval
-        run: python eval/scripts/run_phase3_eval.py
+      - name: Phase 3 eval — must be 18/18
+        run: |
+          out=$(python eval/scripts/run_phase3_eval.py)
+          echo "$out"
+          echo "$out" | grep -E -q "18/18|100\.0%"
 
       - name: Upload eval artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: manager-eval-results
-          path: |
-            eval/results/
+          path: eval/results/
           if-no-files-found: ignore

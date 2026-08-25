@@ -1,3 +1,4 @@
+# LEGACY: prefer src.app — see src/api/LEGACY.md
 """Transaction flow: assess -> warning -> human decision -> final status."""
 
 from __future__ import annotations

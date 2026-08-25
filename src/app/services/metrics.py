@@ -1,8 +1,4 @@
-"""In-process Manager observability (Phase 4 foundation).
-
-Tracks latency, action distribution, overlay skips. Not a full Prometheus stack —
-enough for demo + ops dashboard via GET /api/v1/risk-manager/status.
-"""
+"""In-process Manager observability (Phase 4 foundation)."""
 
 from __future__ import annotations
 
@@ -20,7 +16,7 @@ class _MetricsState:
     skips: int = 0
     errors: int = 0
     actions: Counter = field(default_factory=Counter)
-    sources: Counter = field(default_factory=Counter)  # phase3 | phase2 | deterministic | fail_closed
+    sources: Counter = field(default_factory=Counter)
     latency_ms_sum: float = 0.0
     latency_ms_max: float = 0.0
     schema_ok: int = 0
@@ -47,8 +43,7 @@ def record_manager_call(
         _STATE.calls += 1
         if error:
             _STATE.errors += 1
-        act = str(action or "UNKNOWN").upper()
-        _STATE.actions[act] += 1
+        _STATE.actions[str(action or "UNKNOWN").upper()] += 1
         _STATE.sources[str(source)] += 1
         _STATE.latency_ms_sum += max(0.0, float(latency_ms))
         _STATE.latency_ms_max = max(_STATE.latency_ms_max, float(latency_ms))
@@ -68,7 +63,9 @@ def snapshot() -> dict[str, Any]:
             "errors": _STATE.errors,
             "schema_ok": _STATE.schema_ok,
             "schema_fail": _STATE.schema_fail,
-            "schema_ok_rate": round(_STATE.schema_ok / max(1, _STATE.schema_ok + _STATE.schema_fail), 4),
+            "schema_ok_rate": round(
+                _STATE.schema_ok / max(1, _STATE.schema_ok + _STATE.schema_fail), 4
+            ),
             "latency_ms_avg": round(_STATE.latency_ms_sum / n, 2) if _STATE.calls else 0.0,
             "latency_ms_max": round(_STATE.latency_ms_max, 2),
             "action_distribution": dict(_STATE.actions),

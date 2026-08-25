@@ -135,14 +135,9 @@ def maybe_apply_manager_to_guardian(
 
         try:
             from src.app.services.risk_manager.metrics import record_manager_call
-            record_manager_call(
-                action=action,
-                latency_ms=(time.perf_counter() - t0) * 1000,
-                source="phase3" if _phase3_enabled() else "phase2",
-            )
+            record_manager_call(action=action, latency_ms=(time.perf_counter()-t0)*1000, source="phase3" if _phase3_enabled() else "phase2")
         except Exception:
             pass
-
         if isinstance(result, GuardianRiskResult):
             return replace(
                 result,
@@ -239,11 +234,7 @@ def maybe_apply_manager_to_transaction(
         new_expl = f"{explanation} [Manager: {checked.output.rationale}]".strip()[:2000]
         try:
             from src.app.services.risk_manager.metrics import record_manager_call
-            record_manager_call(
-                action=action,
-                latency_ms=(time.perf_counter() - t0) * 1000,
-                source="phase3" if _phase3_enabled() else "phase2",
-            )
+            record_manager_call(action=action, latency_ms=(time.perf_counter()-t0)*1000, source="phase3" if _phase3_enabled() else "phase2")
         except Exception:
             pass
         return float(new_score), new_level, new_expl

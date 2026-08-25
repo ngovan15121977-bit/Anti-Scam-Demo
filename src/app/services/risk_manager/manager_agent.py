@@ -120,6 +120,23 @@ def run_manager_llm(req: ManagerRequest, *, version: str | None = None) -> Manag
             raw = resp.choices[0].message.content or "{}"
             data = _extract_json(raw)
             output = validate_manager_output(data)
+            # Phase 4: token / A/B observability (best-effort)
+            try:
+                usage = getattr(resp, "usage", None)
+                pt = int(getattr(usage, "prompt_tokens", 0) or 0) if usage else 0
+                ct = int(getattr(usage, "completion_tokens", 0) or 0) if usage else 0
+                from src.app.services.risk_manager.metrics import record_manager_call
+                record_manager_call(
+                    action=str(output.recommended_action),
+                    latency_ms=0.0,
+                    source="llm",
+                    model=model,
+                    prompt_version=version,
+                    prompt_tokens=pt,
+                    completion_tokens=ct,
+                )
+            except Exception:
+                pass
             return apply_safety_floor(
                 output,
                 req.specialists,

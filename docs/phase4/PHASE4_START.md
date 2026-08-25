@@ -1,32 +1,23 @@
-# Phase 4 — Tối ưu & Production-ready (kickoff)
+# Phase 4 — Tối ưu & Production-ready
 
-**Date:** 2026-08-25 · **After:** Phase 3 DONE
+**After:** Phase 3 DONE
 
-## Đã giao trong kickoff này
+## Đã có
 
-| Hạng mục | Path |
-|----------|------|
-| CI eval mỗi PR/push | `.github/workflows/manager-eval.yml` |
-| Manager metrics | `src/app/services/risk_manager/metrics.py` |
-| Metrics trên status API | `GET /api/v1/risk-manager/status` → `metrics` |
-| Load probe health | `scripts/load_test_health.py` |
-| Runbook sự cố | `docs/phase4/RUNBOOK.md` |
+- [x] CI eval mỗi PR (`manager-eval.yml`, gate 100%)
+- [x] Manager metrics + latency + token/cost estimate + log alert
+- [x] Status API `metrics`
+- [x] A/B prompt/model guide (`AB_TESTING.md`)
+- [x] Load probe health / assess / WS
+- [x] Runbook
+- [x] Legacy path documented (`src/api/LEGACY.md`)
+- [x] Face passive liveness (có sẵn từ trước)
 
-## Việc còn lại (liên tục)
+## Backlog liên tục
 
-- [ ] Dọn dual path `src/api/*` vs `src/app/*` (legacy)
-- [ ] A/B prompt/model (`MANAGER_PROMPT_VERSION`, `MANAGER_MODEL`)
-- [ ] Cost tracking token (log provider usage)
-- [ ] Alerting (Prometheus/Grafana hoặc log-based)
-- [ ] Load test WebSocket + STT thật
-- [ ] Memory Redis; RAG pgvector
-- [ ] CI gate fail PR nếu eval < 100% deterministic
+- [ ] Redis memory / pgvector RAG  
+- [ ] Prometheus exporter  
+- [ ] Xóa legacy `src/api` sau khi zero import  
+- [ ] Load test STT + WebSocket có audio thật  
 
-## Flags
-
-```bash
-RISK_MANAGER_ENABLED=true
-RISK_MANAGER_USE_LLM=true
-RISK_MANAGER_PHASE3=true
-MANAGER_PROMPT_VERSION=0.2
-```
+Xem `PHASE4_COMPLETION.md`.

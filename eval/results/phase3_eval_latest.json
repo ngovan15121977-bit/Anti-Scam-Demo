@@ -2,58 +2,58 @@
   "total": 18,
   "passed": 18,
   "pass_rate": 1.0,
-  "use_llm": true,
-  "elapsed_s": 284.987,
+  "use_llm": false,
+  "elapsed_s": 0.121,
   "results": [
     {
       "id": "p3-001-otp-stop",
       "ok": true,
       "action": "STOP",
-      "confidence": 0.92,
+      "confidence": 0.75,
       "escalate": false,
-      "rationale": "Cuộc gọi có tín hiệu đòi OTP giả danh ngân hàng với độ tin cậy cao và mức rủi ro được đánh giá là critical. Dù không có dữ liệu giao dịch, mức rủi ro từ cuộc gọi đủ để chặn ngay để ngăn chặn kịch bản social engineering.",
+      "rationale": "Đòi OTP giả danh ngân hàng [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Giả danh ngân hàng — đòi OTP]",
       "errors": [],
       "rag": [
         "otp_bank_impersonation"
       ],
-      "memory": "Phiên s-otp-1: gần đây [call_only:STOP(c=0.92)]; signals tích lũy: otp_request, bank_impersonation"
+      "memory": "Phiên s-otp-1: gần đây [call_only:STOP(c=0.75)]; signals tích lũy: otp_request, bank_impersonation"
     },
     {
       "id": "p3-002-blacklist-tx",
       "ok": true,
       "action": "STOP",
-      "confidence": 0.92,
+      "confidence": 0.75,
       "escalate": true,
-      "rationale": "Giao dịch có mức rủi ro cao, khớp blacklist exact và yêu cầu HITL, đây là tín hiệu rủi ro nghiêm trọng. Không cần dựa vào Call Guardian vì session chỉ là tx_only. Để ngăn chặn chuyển tiền vào tài khoản đen, ưu tiên chặn ngay.",
+      "rationale": "Khớp blacklist exact",
       "errors": [],
       "rag": [
         "blacklist_payee"
       ],
-      "memory": "Phiên s-bl-1: gần đây [tx_only:STOP(c=0.92)]; signals tích lũy: blacklist_exact_match"
+      "memory": "Phiên s-bl-1: gần đây [tx_only:STOP(c=0.75)]; signals tích lũy: blacklist_exact_match"
     },
     {
       "id": "p3-003-conflict-max-severity",
       "ok": true,
       "action": "STOP",
-      "confidence": 0.9,
+      "confidence": 0.75,
       "escalate": true,
-      "rationale": "Cuộc gọi có tín hiệu yêu cầu OTP và đánh giá mức rủi ro critical, nên ưu tiên chặn ngay. Giao dịch hiện tại có mức rủi ro thấp nhưng không đủ để phủ nhận nguy cơ chuyển tiền sau cuộc gọi. Theo quy tắc ưu tiên STOP, hành động là dừng ngay.",
+      "rationale": "OTP [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Giả danh ngân hàng — đòi OTP] GD nhỏ",
       "errors": [],
       "rag": [
         "otp_bank_impersonation"
       ],
-      "memory": "Phiên s-conf-1: gần đây [call_and_tx:STOP(c=0.90)]; signals tích lũy: otp_request"
+      "memory": "Phiên s-conf-1: gần đây [call_and_tx:STOP(c=0.75)]; signals tích lũy: otp_request"
     },
     {
       "id": "p3-004-safe-both",
       "ok": true,
       "action": "CONTINUE",
-      "confidence": 0.85,
+      "confidence": 0.75,
       "escalate": false,
-      "rationale": "Cuộc gọi và giao dịch đều được đánh giá là an toàn, không có tín hiệu rủi ro nào. Mặc dù không có dữ liệu từ Behavior Profiler, điều này không làm tăng rủi ro hiện tại nên cho phép tiếp tục với giám sát thông thường.",
+      "rationale": "Cuộc gọi bình thường [Memory: Chưa có sự kiện rủi ro trong phiên.] GD nhỏ",
       "errors": [],
       "rag": [],
-      "memory": "Phiên s-safe-1: gần đây [call_and_tx:CONTINUE(c=0.85)]; signals tích lũy: —"
+      "memory": "Phiên s-safe-1: gần đây [call_and_tx:CONTINUE(c=0.75)]; signals tích lũy: —"
     },
     {
       "id": "p3-005-guardian-unavailable",
@@ -61,7 +61,7 @@
       "action": "PAUSE",
       "confidence": 0.4,
       "escalate": true,
-      "rationale": "Call Guardian không sẵn sàng trong phiên call_only, nên theo fail‑closed nên tạm dừng. Giao dịch và profiler cũng không có dữ liệu, nên không thể đánh giá rủi ro. Cần chuyển sang xử lý thủ công.",
+      "rationale": "Thiếu đánh giá cuộc gọi (fail-closed).",
       "errors": [],
       "rag": [],
       "memory": "Phiên s-unavail-1: gần đây [call_only:PAUSE(c=0.40)]; signals tích lũy: —"
@@ -69,13 +69,15 @@
     {
       "id": "p3-006-progressive-step1",
       "ok": true,
-      "action": "PAUSE",
+      "action": "MONITOR",
       "confidence": 0.7,
-      "escalate": true,
-      "rationale": "Cuộc gọi chỉ báo mức cảnh báo với tín hiệu urgency, nhưng không có dữ liệu giao dịch hay hành vi để đánh giá rủi ro. Việc tạm dừng giúp thu thập thêm thông tin và tránh bỏ lỡ kịch bản tiềm ẩn.",
+      "escalate": false,
+      "rationale": "Thúc giục nhẹ [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Ép thời gian quyết định]",
       "errors": [],
-      "rag": [],
-      "memory": "Phiên s-prog-1: gần đây [call_only:PAUSE(c=0.70)]; signals tích lũy: urgency"
+      "rag": [
+        "urgency_pressure"
+      ],
+      "memory": "Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70)]; signals tích lũy: urgency"
     },
     {
       "id": "p3-007-progressive-step2",
@@ -83,25 +85,27 @@
       "action": "PAUSE",
       "confidence": 0.75,
       "escalate": true,
-      "rationale": "Call Guardian đánh giá mức rủi ro cao với tín hiệu urgency và authority_claim, đồng thời khuyến nghị PAUSE. Giao dịch không được đánh giá do thiếu dữ liệu, nhưng không có dấu hiệu tăng rủi ro. Vì vậy, giữ trạng thái PAUSE để kiểm tra thêm v",
+      "rationale": "Giả danh công an + urgency [Memory: Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70)]; signals tích lũy: urgency] [RAG: Giả danh công an / cơ quan điều tra]",
       "errors": [],
       "rag": [
-        "cong_an_scam"
+        "cong_an_scam",
+        "urgency_pressure"
       ],
-      "memory": "Phiên s-prog-1: gần đây [call_only:PAUSE(c=0.70); call_only:PAUSE(c=0.75)]; signals tích lũy: urgency, authority_claim"
+      "memory": "Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70); call_only:PAUSE(c=0.75)]; signals tích lũy: urgency, authority_claim"
     },
     {
       "id": "p3-008-progressive-step3-otp",
       "ok": true,
       "action": "STOP",
-      "confidence": 0.95,
+      "confidence": 0.75,
       "escalate": true,
-      "rationale": "Cuộc gọi có tín hiệu đòi OTP, giả danh ngân hàng và sự khẩn cấp cao, đánh giá mức rủi ro critical. Khuyến nghị STOP là biện pháp bảo vệ khách hàng khỏi lừa đảo. Không cần tiếp tục giao dịch vì rủi ro cao.",
+      "rationale": "Đòi OTP sau khi xây dựng niềm tin [Memory: Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70); call_only:PAUSE(c=0.75)]; signals tích lũy: urgency, authority_claim] [RAG: Giả danh ngân hàng — đòi OTP]",
       "errors": [],
       "rag": [
-        "otp_bank_impersonation"
+        "otp_bank_impersonation",
+        "urgency_pressure"
       ],
-      "memory": "Phiên s-prog-1: gần đây [call_only:PAUSE(c=0.70); call_only:PAUSE(c=0.75); call_only:STOP(c=0.95)]; signals tích lũy: urgency, authority_claim, otp_request, ban"
+      "memory": "Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70); call_only:PAUSE(c=0.75); call_only:STOP(c=0.75)]; signals tích lũy: urgency, authority_claim, otp_request, b"
     },
     {
       "id": "p3-009-safe-account-rag",
@@ -109,9 +113,10 @@
       "action": "PAUSE",
       "confidence": 0.7,
       "escalate": true,
-      "rationale": "Cuộc gọi có tín hiệu dọa khóa tài khoản và mức rủi ro cao, chuyên gia Call Guardian khuyến nghị tạm dừng. Giao dịch và hành vi hiện không có dữ liệu, không có dấu hiệu rủi ro cao từ các nguồn khác. Vì vậy, hành động an toàn nhất là PAUSE để",
+      "rationale": "Dọa khóa tài khoản, yêu cầu chuyển tài khoản an toàn [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Dọa khóa / phong tỏa tài khoản]",
       "errors": [],
       "rag": [
+        "account_lock_threat",
         "safe_account"
       ],
       "memory": "Phiên s-safeacc-1: gần đây [call_only:PAUSE(c=0.70)]; signals tích lũy: account_lock_threat"
@@ -120,36 +125,41 @@
       "id": "p3-010-remote-access",
       "ok": true,
       "action": "STOP",
-      "confidence": 0.9,
+      "confidence": 0.75,
       "escalate": true,
-      "rationale": "Cuộc gọi yêu cầu cài AnyDesk để điều khiển máy, đây là dấu hiệu rõ ràng của credential social engineering. Call Guardian đánh giá mức rủi ro critical và khuyến nghị STOP với độ tin cậy 0.9. Dù không có dữ liệu giao dịch hay hành vi, rủi ro ",
+      "rationale": "Yêu cầu cài AnyDesk điều khiển máy [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Yêu cầu remote access]",
       "errors": [],
       "rag": [
-        "remote_access"
+        "remote_access",
+        "credential_harvest"
       ],
-      "memory": "Phiên s-remote-1: gần đây [call_only:STOP(c=0.90)]; signals tích lũy: credential_social_engineering"
+      "memory": "Phiên s-remote-1: gần đây [call_only:STOP(c=0.75)]; signals tích lũy: credential_social_engineering"
     },
     {
       "id": "p3-011-medium-unusual-amount",
       "ok": true,
       "action": "PAUSE",
-      "confidence": 0.5,
+      "confidence": 0.75,
       "escalate": true,
-      "rationale": "Giao dịch có mức rủi ro trung bình với số tiền bất thường và người nhận mới, đồng thời yêu cầu can thiệp người thực hiện (requires_hitl). Thiếu đánh giá từ Call Guardian và Behavior Profiler làm tăng độ không chắc chắn. Vì vậy, nên tạm dừng",
+      "rationale": "Số tiền cao người nhận mới",
       "errors": [],
-      "rag": [],
-      "memory": "Phiên s-amt-1: gần đây [tx_only:PAUSE(c=0.50)]; signals tích lũy: unusual_amount, new_payee"
+      "rag": [
+        "new_payee_high_amount"
+      ],
+      "memory": "Phiên s-amt-1: gần đây [tx_only:PAUSE(c=0.75)]; signals tích lũy: unusual_amount, new_payee"
     },
     {
       "id": "p3-012-behavior-velocity",
       "ok": true,
       "action": "PAUSE",
-      "confidence": 0.45,
+      "confidence": 0.75,
       "escalate": true,
-      "rationale": "Giao dịch có mức rủi ro trung bình, yêu cầu HITL và nhiều payee mới trong thời gian ngắn, kèm theo anomaly velocity từ behavior profiler. Không có đánh giá cuộc gọi do call_guardian unavailable, nên fail‑closed và tạm dừng để xác minh thêm.",
+      "rationale": "Nhiều payee trong thời gian ngắn Phát hiện anomaly hành vi: velocity, many_new_payees",
       "errors": [],
-      "rag": [],
-      "memory": "Phiên s-vel-1: gần đây [tx_only:PAUSE(c=0.45)]; signals tích lũy: transaction_velocity, velocity, many_new_payees"
+      "rag": [
+        "new_payee_high_amount"
+      ],
+      "memory": "Phiên s-vel-1: gần đây [tx_only:PAUSE(c=0.75)]; signals tích lũy: transaction_velocity, velocity, many_new_payees"
     },
     {
       "id": "p3-013-low-confidence",
@@ -157,34 +167,39 @@
       "action": "PAUSE",
       "confidence": 0.4,
       "escalate": true,
-      "rationale": "Call Guardian chỉ đưa ra cảnh báo với độ tin cậy thấp (0.4) và khuyến nghị PAUSE. Không có đánh giá giao dịch hay dữ liệu hành vi nên rủi ro không được xác định đầy đủ. Việc tạm dừng giúp tránh bỏ lỡ kịch bản tiềm ẩn và cho phép kiểm tra th",
+      "rationale": "Tín hiệu mơ hồ [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Ép thời gian quyết định]",
       "errors": [],
-      "rag": [],
+      "rag": [
+        "urgency_pressure"
+      ],
       "memory": "Phiên s-lowc-1: gần đây [call_only:PAUSE(c=0.40)]; signals tích lũy: urgency"
     },
     {
       "id": "p3-014-call-and-tx-both-high",
       "ok": true,
       "action": "PAUSE",
-      "confidence": 0.78,
+      "confidence": 0.75,
       "escalate": true,
-      "rationale": "Cả cuộc gọi và giao dịch đều đánh giá mức rủi ro cao. Cuộc gọi có dấu hiệu giả danh công an (authority_claim) và được đánh giá high risk, trong khi giao dịch có số tiền bất thường, từ khóa scam và yêu cầu HITL. Việc tạm dừng giúp ngăn chặn ",
+      "rationale": "Giả danh công an [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Giả danh công an / cơ quan điều tra] GD lớn note đáng ngờ",
       "errors": [],
       "rag": [
-        "cong_an_scam"
+        "cong_an_scam",
+        "new_payee_high_amount"
       ],
-      "memory": "Phiên s-both-1: gần đây [call_and_tx:PAUSE(c=0.78)]; signals tích lũy: authority_claim, unusual_amount, scam_keyword"
+      "memory": "Phiên s-both-1: gần đây [call_and_tx:PAUSE(c=0.75)]; signals tích lũy: authority_claim, unusual_amount, scam_keyword"
     },
     {
       "id": "p3-015-secrecy",
       "ok": true,
       "action": "PAUSE",
-      "confidence": 0.78,
+      "confidence": 0.75,
       "escalate": true,
-      "rationale": "Cuộc gọi có tín hiệu \"secrecy_request\" và \"prevent_external_verification\" với mức rủi ro cao, do đó chuyên gia Call Guardian khuyến nghị PAUSE. Giao dịch không được đánh giá (transaction_risk unavailable) nên không có tín hiệu STOP, nhưng t",
+      "rationale": "Cấm nói với ai, tắt máy [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Ép giữ bí mật / cô lập nạn nhân]",
       "errors": [],
-      "rag": [],
-      "memory": "Phiên s-sec-1: gần đây [call_only:PAUSE(c=0.78)]; signals tích lũy: prevent_external_verification, secrecy_request"
+      "rag": [
+        "secrecy_isolation"
+      ],
+      "memory": "Phiên s-sec-1: gần đây [call_only:PAUSE(c=0.75)]; signals tích lũy: prevent_external_verification, secrecy_request"
     },
     {
       "id": "p3-016-investment",
@@ -192,34 +207,39 @@
       "action": "PAUSE",
       "confidence": 0.65,
       "escalate": true,
-      "rationale": "Cuộc gọi có tín hiệu urgency và mức rủi ro warning, trong khi giao dịch có số tiền bất thường, payee mới và yêu cầu HITL. Dù không có cảnh báo STOP, yêu cầu HITL làm tăng rủi ro và cần xác minh thêm. Tạm dừng để tránh rủi ro chuyển tiền sai",
+      "rationale": "Mời đầu tư sinh lời gấp [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Lừa đảo đầu tư / cam kết lãi cao] Chuyển lớn cho payee mới",
       "errors": [],
-      "rag": [],
+      "rag": [
+        "investment_scam",
+        "urgency_pressure",
+        "new_payee_high_amount"
+      ],
       "memory": "Phiên s-inv-1: gần đây [call_and_tx:PAUSE(c=0.65)]; signals tích lũy: urgency, unusual_amount, new_payee"
     },
     {
       "id": "p3-017-tx-only-safe",
       "ok": true,
       "action": "CONTINUE",
-      "confidence": 0.85,
+      "confidence": 0.75,
       "escalate": false,
-      "rationale": "Giao dịch được đánh giá mức rủi ro thấp, không có tín hiệu bất thường nào từ các chuyên gia. Không có cuộc gọi nên thiếu Call Guardian không ảnh hưởng đến quyết định. Cho phép tiếp tục với giám sát thông thường.",
+      "rationale": "GD nhỏ trusted Đánh giá theo policy max-severity và fail-closed của Timi.",
       "errors": [],
       "rag": [],
-      "memory": "Phiên s-txsafe-1: gần đây [tx_only:CONTINUE(c=0.85)]; signals tích lũy: —"
+      "memory": "Phiên s-txsafe-1: gần đây [tx_only:CONTINUE(c=0.75)]; signals tích lũy: —"
     },
     {
       "id": "p3-018-guardian-pause-tx-high",
       "ok": true,
       "action": "STOP",
-      "confidence": 0.8,
+      "confidence": 0.7,
       "escalate": true,
-      "rationale": "Cả cuộc gọi và giao dịch đều đánh giá rủi ro cao, với tín hiệu dọa khóa tài khoản và khớp blacklist chính xác. Giao dịch yêu cầu HITL, nên cần xác minh thêm. Việc tạm dừng giúp ngăn chặn kịch bản chuyển tiền giả mạo mà không làm mất dữ liệu",
+      "rationale": "Dọa khóa TK [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Người nhận trong blacklist] Blacklist",
       "errors": [],
       "rag": [
-        "blacklist_payee"
+        "blacklist_payee",
+        "account_lock_threat"
       ],
-      "memory": "Phiên s-gtx-1: gần đây [call_and_tx:STOP(c=0.80)]; signals tích lũy: account_lock_threat, blacklist_exact_match"
+      "memory": "Phiên s-gtx-1: gần đây [call_and_tx:STOP(c=0.70)]; signals tích lũy: account_lock_threat, blacklist_exact_match"
     }
   ]
 }

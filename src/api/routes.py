@@ -1,3 +1,4 @@
+# LEGACY: prefer src.app — see src/api/LEGACY.md
 """API Routes.
 
 Nguyên tắc error handling (PDPA):
