@@ -1,0 +1,328 @@
+[
+  {
+    "id": "mgr-001-guardian-stop-otp",
+    "description": "Guardian STOP otp_request vs Tx low — max severity phải STOP",
+    "session_type": "call_and_tx",
+    "specialists": {
+      "call_guardian": {
+        "available": true,
+        "risk_score": 92,
+        "risk_level": "critical",
+        "recommended_action": "STOP",
+        "signals": [
+          "otp_request",
+          "bank_impersonation"
+        ],
+        "decision_confidence": 0.92,
+        "summary": "Cuộc gọi tự xưng ngân hàng và yêu cầu cung cấp OTP rõ ràng."
+      },
+      "transaction_risk": {
+        "available": true,
+        "risk_score": 12,
+        "risk_level": "low",
+        "signals": [],
+        "requires_hitl": false,
+        "summary": "Giao dịch số tiền nhỏ, người nhận không blacklist."
+      },
+      "behavior_profiler": {
+        "available": false,
+        "anomalies": [],
+        "summary": ""
+      }
+    },
+    "expected": {
+      "recommended_action": "STOP",
+      "escalate_to_human_max": false,
+      "must_not_action": [
+        "CONTINUE",
+        "MONITOR"
+      ]
+    }
+  },
+  {
+    "id": "mgr-002-tx-blacklist",
+    "description": "Guardian CONTINUE, Tx blacklist exact + HITL → STOP/PAUSE + escalate",
+    "session_type": "call_and_tx",
+    "specialists": {
+      "call_guardian": {
+        "available": true,
+        "risk_score": 8,
+        "risk_level": "safe",
+        "recommended_action": "CONTINUE",
+        "signals": [],
+        "decision_confidence": 0.9,
+        "summary": "Không có tín hiệu scam trên transcript."
+      },
+      "transaction_risk": {
+        "available": true,
+        "risk_score": 95,
+        "risk_level": "high",
+        "signals": [
+          "blacklist_exact_match"
+        ],
+        "requires_hitl": true,
+        "summary": "Tài khoản nhận khớp blacklist chính xác."
+      },
+      "behavior_profiler": {
+        "available": true,
+        "anomalies": [],
+        "summary": "Không anomaly hành vi."
+      }
+    },
+    "expected": {
+      "recommended_action_in": [
+        "STOP",
+        "PAUSE"
+      ],
+      "must_not_action": [
+        "CONTINUE"
+      ]
+    }
+  },
+  {
+    "id": "mgr-003-multi-medium",
+    "description": "Ba nguồn tín hiệu trung bình → PAUSE, không CONTINUE",
+    "session_type": "call_and_tx",
+    "specialists": {
+      "call_guardian": {
+        "available": true,
+        "risk_score": 45,
+        "risk_level": "warning",
+        "recommended_action": "MONITOR",
+        "signals": [
+          "urgency"
+        ],
+        "decision_confidence": 0.7,
+        "summary": "Có giọng điệu thúc giục nhẹ, chưa yêu cầu OTP."
+      },
+      "transaction_risk": {
+        "available": true,
+        "risk_score": 55,
+        "risk_level": "medium",
+        "signals": [
+          "unusual_amount",
+          "new_payee"
+        ],
+        "requires_hitl": true,
+        "summary": "Số tiền cao hơn thói quen, người nhận mới."
+      },
+      "behavior_profiler": {
+        "available": true,
+        "anomalies": [
+          "transaction_velocity"
+        ],
+        "summary": "Nhiều giao dịch tới nhiều người nhận trong thời gian ngắn."
+      }
+    },
+    "expected": {
+      "recommended_action_in": [
+        "PAUSE",
+        "STOP"
+      ],
+      "must_not_action": [
+        "CONTINUE"
+      ]
+    }
+  },
+  {
+    "id": "mgr-004-all-safe",
+    "description": "Cả hai specialist an toàn → CONTINUE",
+    "session_type": "call_and_tx",
+    "specialists": {
+      "call_guardian": {
+        "available": true,
+        "risk_score": 5,
+        "risk_level": "safe",
+        "recommended_action": "CONTINUE",
+        "signals": [],
+        "decision_confidence": 0.95,
+        "summary": "Cuộc gọi giao hàng / hỏi thăm bình thường."
+      },
+      "transaction_risk": {
+        "available": true,
+        "risk_score": 10,
+        "risk_level": "low",
+        "signals": [],
+        "requires_hitl": false,
+        "summary": "Chuyển nhỏ cho người nhận đã biết."
+      },
+      "behavior_profiler": {
+        "available": false,
+        "anomalies": [],
+        "summary": ""
+      }
+    },
+    "expected": {
+      "recommended_action": "CONTINUE",
+      "must_not_action": [
+        "STOP"
+      ]
+    }
+  },
+  {
+    "id": "mgr-005-guardian-unavailable",
+    "description": "STT/Guardian fail + Tx medium → fail-closed PAUSE + escalate",
+    "session_type": "call_and_tx",
+    "specialists": {
+      "call_guardian": {
+        "available": false,
+        "risk_score": 0,
+        "risk_level": "safe",
+        "recommended_action": "CONTINUE",
+        "signals": [],
+        "decision_confidence": 0.0,
+        "summary": ""
+      },
+      "transaction_risk": {
+        "available": true,
+        "risk_score": 50,
+        "risk_level": "medium",
+        "signals": [
+          "unusual_amount"
+        ],
+        "requires_hitl": true,
+        "summary": "Số tiền cao hơn trung bình lịch sử."
+      },
+      "behavior_profiler": {
+        "available": false,
+        "anomalies": [],
+        "summary": ""
+      }
+    },
+    "expected": {
+      "recommended_action_in": [
+        "PAUSE",
+        "STOP"
+      ],
+      "escalate_to_human": true,
+      "must_not_action": [
+        "CONTINUE"
+      ]
+    }
+  },
+  {
+    "id": "mgr-006-call-only-stop",
+    "description": "Chỉ cuộc gọi, Guardian STOP — không có Tx",
+    "session_type": "call_only",
+    "specialists": {
+      "call_guardian": {
+        "available": true,
+        "risk_score": 88,
+        "risk_level": "critical",
+        "recommended_action": "STOP",
+        "signals": [
+          "authority_impersonation",
+          "legal_threat",
+          "money_transfer_request"
+        ],
+        "decision_confidence": 0.9,
+        "summary": "Tự xưng công an, đe dọa khởi tố và yêu cầu chuyển tiền."
+      },
+      "transaction_risk": {
+        "available": false,
+        "risk_score": 0,
+        "risk_level": "low",
+        "signals": [],
+        "requires_hitl": false,
+        "summary": ""
+      },
+      "behavior_profiler": {
+        "available": false,
+        "anomalies": [],
+        "summary": ""
+      }
+    },
+    "expected": {
+      "recommended_action": "STOP",
+      "must_not_action": [
+        "CONTINUE",
+        "MONITOR"
+      ]
+    }
+  },
+  {
+    "id": "mgr-007-tx-only-high",
+    "description": "Chỉ giao dịch high + HITL",
+    "session_type": "tx_only",
+    "specialists": {
+      "call_guardian": {
+        "available": false,
+        "risk_score": 0,
+        "risk_level": "safe",
+        "recommended_action": "CONTINUE",
+        "signals": [],
+        "decision_confidence": 0.0,
+        "summary": ""
+      },
+      "transaction_risk": {
+        "available": true,
+        "risk_score": 80,
+        "risk_level": "high",
+        "signals": [
+          "behavioral_amount_anomaly",
+          "new_payee"
+        ],
+        "requires_hitl": true,
+        "summary": "Chuyển 50 triệu cho người nhận mới, lệch mạnh so với lịch sử."
+      },
+      "behavior_profiler": {
+        "available": true,
+        "anomalies": [
+          "behavioral_amount_anomaly"
+        ],
+        "summary": "Amount anomaly so với 90 ngày."
+      }
+    },
+    "expected": {
+      "recommended_action_in": [
+        "PAUSE",
+        "STOP"
+      ],
+      "escalate_to_human": true,
+      "must_not_action": [
+        "CONTINUE"
+      ]
+    }
+  },
+  {
+    "id": "mgr-008-ambiguous-pause",
+    "description": "Guardian PAUSE mơ hồ, Tx low — giữ PAUSE không CONTINUE",
+    "session_type": "call_and_tx",
+    "specialists": {
+      "call_guardian": {
+        "available": true,
+        "risk_score": 55,
+        "risk_level": "warning",
+        "recommended_action": "PAUSE",
+        "signals": [
+          "account_lock_threat"
+        ],
+        "decision_confidence": 0.58,
+        "summary": "Có nhắc khóa tài khoản nhưng ngữ cảnh chưa đủ rõ OTP."
+      },
+      "transaction_risk": {
+        "available": true,
+        "risk_score": 15,
+        "risk_level": "low",
+        "signals": [],
+        "requires_hitl": false,
+        "summary": "Giao dịch bình thường."
+      },
+      "behavior_profiler": {
+        "available": false,
+        "anomalies": [],
+        "summary": ""
+      }
+    },
+    "expected": {
+      "recommended_action_in": [
+        "PAUSE",
+        "STOP",
+        "MONITOR"
+      ],
+      "must_not_action": [
+        "CONTINUE"
+      ]
+    }
+  }
+]
