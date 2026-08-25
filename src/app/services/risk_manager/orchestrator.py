@@ -292,3 +292,35 @@ def enforce_action_allowed(
     if backend_policy_max:
         return max_severity_action(manager_action, backend_policy_max)
     return str(manager_action).upper()
+
+
+def run_manager_with_evidence(
+    req: ManagerRequest,
+    *,
+    use_llm: bool = True,
+    deterministic_fallback: bool = True,
+    extra_signals: list | None = None,
+    telemetry: dict | None = None,
+) -> tuple[ManagerGateResult, dict]:
+    """Phase 2 close-out: Manager + optional 1x self-ask + evidence pack."""
+    from .self_ask import run_with_optional_self_ask
+
+    try:
+        out, evidence = run_with_optional_self_ask(
+            req,
+            use_llm=use_llm,
+            extra_signals=extra_signals,
+            telemetry=telemetry,
+        )
+        return (
+            ManagerGateResult(ok=True, output=out, request_id=req.request_id, source="manager"),
+            evidence,
+        )
+    except Exception as exc:
+        logger.warning("run_manager_with_evidence failed: %s", exc)
+        gate = run_manager(req, use_llm=False, deterministic_fallback=True)
+        from .specialists.evidence import build_evidence_pack
+        ev = build_evidence_pack(req.specialists, gate.output)
+        ev["self_ask_used"] = False
+        ev["error"] = str(exc)
+        return gate, ev
