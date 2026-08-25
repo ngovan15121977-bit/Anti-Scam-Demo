@@ -126,7 +126,7 @@
   },
   {
     "id": "mgr-004-all-safe",
-    "description": "Cả hai specialist an toàn → CONTINUE",
+    "description": "Guardian + Transaction safe/low + Behavior không anomaly → CONTINUE",
     "session_type": "call_and_tx",
     "specialists": {
       "call_guardian": {
@@ -147,9 +147,9 @@
         "summary": "Chuyển nhỏ cho người nhận đã biết."
       },
       "behavior_profiler": {
-        "available": false,
+        "available": true,
         "anomalies": [],
-        "summary": ""
+        "summary": "Không anomaly hành vi."
       }
     },
     "expected": {

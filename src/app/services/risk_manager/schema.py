@@ -134,6 +134,8 @@ def apply_safety_floor(
     escalate = bool(output.escalate_to_human)
     if output.confidence < 0.55:
         escalate = True
+    if tx.available and (tx.requires_hitl or str(tx.risk_level).lower() in ("high", "critical")):
+        escalate = True
     if session_type in ("call_only", "call_and_tx") and not cg.available:
         escalate = True
         if tx.available and tx.risk_score >= 40:
