@@ -3,20 +3,20 @@
   "passed": 18,
   "pass_rate": 1.0,
   "use_llm": false,
-  "elapsed_s": 0.121,
+  "elapsed_s": 0.051,
   "results": [
     {
       "id": "p3-001-otp-stop",
       "ok": true,
       "action": "STOP",
       "confidence": 0.75,
-      "escalate": false,
-      "rationale": "Đòi OTP giả danh ngân hàng [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Giả danh ngân hàng — đòi OTP]",
+      "escalate": true,
+      "rationale": "Đòi OTP giả danh ngân hàng [Memory: Phiên s-otp-1: gần đây [call_only:STOP(c=0.75)]; signals tích lũy: otp_request, bank_impersonation] [RAG: Giả danh ngân hàng — đòi OTP]",
       "errors": [],
       "rag": [
         "otp_bank_impersonation"
       ],
-      "memory": "Phiên s-otp-1: gần đây [call_only:STOP(c=0.75)]; signals tích lũy: otp_request, bank_impersonation"
+      "memory": "Phiên s-otp-1: gần đây [call_only:STOP(c=0.75); call_only:STOP(c=0.75)]; signals tích lũy: otp_request, bank_impersonation"
     },
     {
       "id": "p3-002-blacklist-tx",
@@ -29,7 +29,7 @@
       "rag": [
         "blacklist_payee"
       ],
-      "memory": "Phiên s-bl-1: gần đây [tx_only:STOP(c=0.75)]; signals tích lũy: blacklist_exact_match"
+      "memory": "Phiên s-bl-1: gần đây [tx_only:STOP(c=0.75); tx_only:STOP(c=0.75)]; signals tích lũy: blacklist_exact_match"
     },
     {
       "id": "p3-003-conflict-max-severity",
@@ -37,12 +37,12 @@
       "action": "STOP",
       "confidence": 0.75,
       "escalate": true,
-      "rationale": "OTP [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Giả danh ngân hàng — đòi OTP] GD nhỏ",
+      "rationale": "OTP [Memory: Phiên s-conf-1: gần đây [call_and_tx:STOP(c=0.75)]; signals tích lũy: otp_request] [RAG: Giả danh ngân hàng — đòi OTP] GD nhỏ",
       "errors": [],
       "rag": [
         "otp_bank_impersonation"
       ],
-      "memory": "Phiên s-conf-1: gần đây [call_and_tx:STOP(c=0.75)]; signals tích lũy: otp_request"
+      "memory": "Phiên s-conf-1: gần đây [call_and_tx:STOP(c=0.75); call_and_tx:STOP(c=0.75)]; signals tích lũy: otp_request"
     },
     {
       "id": "p3-004-safe-both",
@@ -50,10 +50,10 @@
       "action": "CONTINUE",
       "confidence": 0.75,
       "escalate": false,
-      "rationale": "Cuộc gọi bình thường [Memory: Chưa có sự kiện rủi ro trong phiên.] GD nhỏ",
+      "rationale": "Cuộc gọi bình thường [Memory: Phiên s-safe-1: gần đây [call_and_tx:CONTINUE(c=0.75)]; signals tích lũy: —] GD nhỏ",
       "errors": [],
       "rag": [],
-      "memory": "Phiên s-safe-1: gần đây [call_and_tx:CONTINUE(c=0.75)]; signals tích lũy: —"
+      "memory": "Phiên s-safe-1: gần đây [call_and_tx:CONTINUE(c=0.75); call_and_tx:CONTINUE(c=0.75)]; signals tích lũy: —"
     },
     {
       "id": "p3-005-guardian-unavailable",
@@ -64,7 +64,7 @@
       "rationale": "Thiếu đánh giá cuộc gọi (fail-closed).",
       "errors": [],
       "rag": [],
-      "memory": "Phiên s-unavail-1: gần đây [call_only:PAUSE(c=0.40)]; signals tích lũy: —"
+      "memory": "Phiên s-unavail-1: gần đây [call_only:PAUSE(c=0.40); call_only:PAUSE(c=0.40)]; signals tích lũy: —"
     },
     {
       "id": "p3-006-progressive-step1",
@@ -72,12 +72,12 @@
       "action": "MONITOR",
       "confidence": 0.7,
       "escalate": false,
-      "rationale": "Thúc giục nhẹ [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Ép thời gian quyết định]",
+      "rationale": "Thúc giục nhẹ [Memory: Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70); call_only:PAUSE(c=0.75); call_only:STOP(c=0.75)]; signals tích lũy: ] [RAG: Ép thời gian quyết định]",
       "errors": [],
       "rag": [
         "urgency_pressure"
       ],
-      "memory": "Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70)]; signals tích lũy: urgency"
+      "memory": "Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70); call_only:PAUSE(c=0.75); call_only:STOP(c=0.75); call_only:MONITOR(c=0.70)]; signals tích lũy: urgency, auth"
     },
     {
       "id": "p3-007-progressive-step2",
@@ -85,13 +85,13 @@
       "action": "PAUSE",
       "confidence": 0.75,
       "escalate": true,
-      "rationale": "Giả danh công an + urgency [Memory: Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70)]; signals tích lũy: urgency] [RAG: Giả danh công an / cơ quan điều tra]",
+      "rationale": "Giả danh công an + urgency [Memory: Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70); call_only:PAUSE(c=0.75); call_only:STOP(c=0.75); call_only:MONITOR(c] [RAG: Giả danh công an / cơ quan điều tra]",
       "errors": [],
       "rag": [
         "cong_an_scam",
         "urgency_pressure"
       ],
-      "memory": "Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70); call_only:PAUSE(c=0.75)]; signals tích lũy: urgency, authority_claim"
+      "memory": "Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70); call_only:PAUSE(c=0.75); call_only:STOP(c=0.75); call_only:MONITOR(c=0.70); call_only:PAUSE(c=0.75)]; signal"
     },
     {
       "id": "p3-008-progressive-step3-otp",
@@ -99,13 +99,13 @@
       "action": "STOP",
       "confidence": 0.75,
       "escalate": true,
-      "rationale": "Đòi OTP sau khi xây dựng niềm tin [Memory: Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70); call_only:PAUSE(c=0.75)]; signals tích lũy: urgency, authority_claim] [RAG: Giả danh ngân hàng — đòi OTP]",
+      "rationale": "Đòi OTP sau khi xây dựng niềm tin [Memory: Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70); call_only:PAUSE(c=0.75); call_only:STOP(c=0.75); call_only:MONITOR(c] [RAG: Giả danh ngân hàng — đòi OTP]",
       "errors": [],
       "rag": [
         "otp_bank_impersonation",
         "urgency_pressure"
       ],
-      "memory": "Phiên s-prog-1: gần đây [call_only:MONITOR(c=0.70); call_only:PAUSE(c=0.75); call_only:STOP(c=0.75)]; signals tích lũy: urgency, authority_claim, otp_request, b"
+      "memory": "Phiên s-prog-1: gần đây [call_only:PAUSE(c=0.75); call_only:STOP(c=0.75); call_only:MONITOR(c=0.70); call_only:PAUSE(c=0.75); call_only:STOP(c=0.75)]; signals t"
     },
     {
       "id": "p3-009-safe-account-rag",
@@ -113,13 +113,13 @@
       "action": "PAUSE",
       "confidence": 0.7,
       "escalate": true,
-      "rationale": "Dọa khóa tài khoản, yêu cầu chuyển tài khoản an toàn [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Dọa khóa / phong tỏa tài khoản]",
+      "rationale": "Dọa khóa tài khoản, yêu cầu chuyển tài khoản an toàn [Memory: Phiên s-safeacc-1: gần đây [call_only:PAUSE(c=0.70)]; signals tích lũy: account_lock_threat] [RAG: Dọa khóa / phong tỏa tài khoản]",
       "errors": [],
       "rag": [
         "account_lock_threat",
         "safe_account"
       ],
-      "memory": "Phiên s-safeacc-1: gần đây [call_only:PAUSE(c=0.70)]; signals tích lũy: account_lock_threat"
+      "memory": "Phiên s-safeacc-1: gần đây [call_only:PAUSE(c=0.70); call_only:PAUSE(c=0.70)]; signals tích lũy: account_lock_threat"
     },
     {
       "id": "p3-010-remote-access",
@@ -127,13 +127,13 @@
       "action": "STOP",
       "confidence": 0.75,
       "escalate": true,
-      "rationale": "Yêu cầu cài AnyDesk điều khiển máy [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Yêu cầu remote access]",
+      "rationale": "Yêu cầu cài AnyDesk điều khiển máy [Memory: Phiên s-remote-1: gần đây [call_only:STOP(c=0.75)]; signals tích lũy: credential_social_engineering] [RAG: Yêu cầu remote access]",
       "errors": [],
       "rag": [
         "remote_access",
         "credential_harvest"
       ],
-      "memory": "Phiên s-remote-1: gần đây [call_only:STOP(c=0.75)]; signals tích lũy: credential_social_engineering"
+      "memory": "Phiên s-remote-1: gần đây [call_only:STOP(c=0.75); call_only:STOP(c=0.75)]; signals tích lũy: credential_social_engineering"
     },
     {
       "id": "p3-011-medium-unusual-amount",
@@ -146,7 +146,7 @@
       "rag": [
         "new_payee_high_amount"
       ],
-      "memory": "Phiên s-amt-1: gần đây [tx_only:PAUSE(c=0.75)]; signals tích lũy: unusual_amount, new_payee"
+      "memory": "Phiên s-amt-1: gần đây [tx_only:PAUSE(c=0.75); tx_only:PAUSE(c=0.75)]; signals tích lũy: unusual_amount, new_payee"
     },
     {
       "id": "p3-012-behavior-velocity",
@@ -159,7 +159,7 @@
       "rag": [
         "new_payee_high_amount"
       ],
-      "memory": "Phiên s-vel-1: gần đây [tx_only:PAUSE(c=0.75)]; signals tích lũy: transaction_velocity, velocity, many_new_payees"
+      "memory": "Phiên s-vel-1: gần đây [tx_only:PAUSE(c=0.75); tx_only:PAUSE(c=0.75)]; signals tích lũy: transaction_velocity, velocity, many_new_payees"
     },
     {
       "id": "p3-013-low-confidence",
@@ -167,12 +167,12 @@
       "action": "PAUSE",
       "confidence": 0.4,
       "escalate": true,
-      "rationale": "Tín hiệu mơ hồ [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Ép thời gian quyết định]",
+      "rationale": "Tín hiệu mơ hồ [Memory: Phiên s-lowc-1: gần đây [call_only:PAUSE(c=0.40)]; signals tích lũy: urgency] [RAG: Ép thời gian quyết định]",
       "errors": [],
       "rag": [
         "urgency_pressure"
       ],
-      "memory": "Phiên s-lowc-1: gần đây [call_only:PAUSE(c=0.40)]; signals tích lũy: urgency"
+      "memory": "Phiên s-lowc-1: gần đây [call_only:PAUSE(c=0.40); call_only:PAUSE(c=0.40)]; signals tích lũy: urgency"
     },
     {
       "id": "p3-014-call-and-tx-both-high",
@@ -180,13 +180,13 @@
       "action": "PAUSE",
       "confidence": 0.75,
       "escalate": true,
-      "rationale": "Giả danh công an [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Giả danh công an / cơ quan điều tra] GD lớn note đáng ngờ",
+      "rationale": "Giả danh công an [Memory: Phiên s-both-1: gần đây [call_and_tx:PAUSE(c=0.75)]; signals tích lũy: authority_claim, unusual_amount, scam_keyword] [RAG: Giả danh công an / cơ quan điều tra] GD lớn note đáng ngờ",
       "errors": [],
       "rag": [
         "cong_an_scam",
         "new_payee_high_amount"
       ],
-      "memory": "Phiên s-both-1: gần đây [call_and_tx:PAUSE(c=0.75)]; signals tích lũy: authority_claim, unusual_amount, scam_keyword"
+      "memory": "Phiên s-both-1: gần đây [call_and_tx:PAUSE(c=0.75); call_and_tx:PAUSE(c=0.75)]; signals tích lũy: authority_claim, unusual_amount, scam_keyword"
     },
     {
       "id": "p3-015-secrecy",
@@ -194,12 +194,12 @@
       "action": "PAUSE",
       "confidence": 0.75,
       "escalate": true,
-      "rationale": "Cấm nói với ai, tắt máy [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Ép giữ bí mật / cô lập nạn nhân]",
+      "rationale": "Cấm nói với ai, tắt máy [Memory: Phiên s-sec-1: gần đây [call_only:PAUSE(c=0.75)]; signals tích lũy: prevent_external_verification, secrecy_request] [RAG: Ép giữ bí mật / cô lập nạn nhân]",
       "errors": [],
       "rag": [
         "secrecy_isolation"
       ],
-      "memory": "Phiên s-sec-1: gần đây [call_only:PAUSE(c=0.75)]; signals tích lũy: prevent_external_verification, secrecy_request"
+      "memory": "Phiên s-sec-1: gần đây [call_only:PAUSE(c=0.75); call_only:PAUSE(c=0.75)]; signals tích lũy: prevent_external_verification, secrecy_request"
     },
     {
       "id": "p3-016-investment",
@@ -207,14 +207,14 @@
       "action": "PAUSE",
       "confidence": 0.65,
       "escalate": true,
-      "rationale": "Mời đầu tư sinh lời gấp [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Lừa đảo đầu tư / cam kết lãi cao] Chuyển lớn cho payee mới",
+      "rationale": "Mời đầu tư sinh lời gấp [Memory: Phiên s-inv-1: gần đây [call_and_tx:PAUSE(c=0.65)]; signals tích lũy: urgency, unusual_amount, new_payee] [RAG: Lừa đảo đầu tư / cam kết lãi cao] Chuyển lớn cho payee mới",
       "errors": [],
       "rag": [
         "investment_scam",
         "urgency_pressure",
         "new_payee_high_amount"
       ],
-      "memory": "Phiên s-inv-1: gần đây [call_and_tx:PAUSE(c=0.65)]; signals tích lũy: urgency, unusual_amount, new_payee"
+      "memory": "Phiên s-inv-1: gần đây [call_and_tx:PAUSE(c=0.65); call_and_tx:PAUSE(c=0.65)]; signals tích lũy: urgency, unusual_amount, new_payee"
     },
     {
       "id": "p3-017-tx-only-safe",
@@ -225,7 +225,7 @@
       "rationale": "GD nhỏ trusted Đánh giá theo policy max-severity và fail-closed của Timi.",
       "errors": [],
       "rag": [],
-      "memory": "Phiên s-txsafe-1: gần đây [tx_only:CONTINUE(c=0.75)]; signals tích lũy: —"
+      "memory": "Phiên s-txsafe-1: gần đây [tx_only:CONTINUE(c=0.75); tx_only:CONTINUE(c=0.75)]; signals tích lũy: —"
     },
     {
       "id": "p3-018-guardian-pause-tx-high",
@@ -233,13 +233,13 @@
       "action": "STOP",
       "confidence": 0.7,
       "escalate": true,
-      "rationale": "Dọa khóa TK [Memory: Chưa có sự kiện rủi ro trong phiên.] [RAG: Người nhận trong blacklist] Blacklist",
+      "rationale": "Dọa khóa TK [Memory: Phiên s-gtx-1: gần đây [call_and_tx:STOP(c=0.70)]; signals tích lũy: account_lock_threat, blacklist_exact_match] [RAG: Người nhận trong blacklist] Blacklist",
       "errors": [],
       "rag": [
         "blacklist_payee",
         "account_lock_threat"
       ],
-      "memory": "Phiên s-gtx-1: gần đây [call_and_tx:STOP(c=0.70)]; signals tích lũy: account_lock_threat, blacklist_exact_match"
+      "memory": "Phiên s-gtx-1: gần đây [call_and_tx:STOP(c=0.70); call_and_tx:STOP(c=0.70)]; signals tích lũy: account_lock_threat, blacklist_exact_match"
     }
   ]
 }
