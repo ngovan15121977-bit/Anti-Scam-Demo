@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import {
   Shield,
@@ -20,7 +20,15 @@ import {
   Instagram,
 } from "lucide-react";
 import { useState, useEffect, useRef, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import axiosInstance from "@/services/api/axios";
+
+type ManagedContent = {
+  id: string;
+  title: string | null;
+  body: string | null;
+  image_url: string | null;
+};
 
 const stats = [
   { value: "4,2T+", label: "Tài sản quản lý" },
@@ -175,6 +183,10 @@ export default function HomePage() {
   const [newsletterStatus, setNewsletterStatus] = useState<string | null>(null);
   const [newsletterError, setNewsletterError] = useState<string | null>(null);
   const [newsletterSubmitting, setNewsletterSubmitting] = useState(false);
+  const managedQuery = useQuery({
+    queryKey: ["public-content", "dashboard"],
+    queryFn: async () => (await axiosInstance.get<ManagedContent[]>("/v1/content/dashboard")).data,
+  });
 
   const handleNewsletterSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -309,6 +321,31 @@ export default function HomePage() {
         </div>
       </section>
 
+      {managedQuery.data?.length ? (
+        <section className="bg-[#F3F5FF] px-6 py-16 lg:px-12 xl:px-20">
+          <div className="mx-auto max-w-6xl">
+            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-widest text-violet-600">Cập nhật từ Timi</p>
+                <h2 className="mt-3 text-3xl font-bold text-slate-950">Thông tin dành cho bạn</h2>
+              </div>
+              <span className="text-sm text-slate-500">Nội dung được quản lý từ Admin</span>
+            </div>
+            <div className="mt-8 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+              {managedQuery.data.map((item) => (
+                <article key={item.id} className="overflow-hidden rounded-3xl border border-violet-100 bg-white shadow-sm">
+                  {item.image_url && <img src={item.image_url} alt={item.title || "Thông tin từ Timi"} className="h-40 w-full object-contain" />}
+                  <div className="p-5">
+                    <h3 className="font-bold text-slate-900">{item.title || "Thông tin từ Timi"}</h3>
+                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-500">{item.body}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {/* ===== SERVICES SECTION ===== */}
       <section className="py-24 bg-white w-full">
         <div className="w-full px-6 lg:px-12 xl:px-20">
@@ -403,7 +440,7 @@ export default function HomePage() {
               </div>
 
               <button
-                onClick={() => navigate("/dashboard")}
+                onClick={() => navigate("/services")}
                 className="mt-10 px-8 py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 flex items-center gap-2 group"
               >
                 Khám phá Timi
@@ -520,9 +557,9 @@ export default function HomePage() {
               </p>
               <div className="flex gap-3">
                 {[Facebook, Twitter, Linkedin, Instagram].map((Icon, i) => (
-                  <button key={i} className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all">
+                  <span key={i} aria-hidden="true" className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-slate-400">
                     <Icon className="w-4 h-4" />
-                  </button>
+                  </span>
                 ))}
               </div>
             </div>
@@ -566,11 +603,11 @@ export default function HomePage() {
 
           <div className="border-t border-slate-900 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
             <p className="text-sm">© 2026 Timi. Bảo lưu mọi quyền.</p>
-            <div className="flex gap-6 text-sm">
+            <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm md:justify-end">
               <button onClick={() => navigate("/help")} className="hover:text-blue-400 transition-colors">Help Center</button>
               <button onClick={() => navigate("/privacy")} className="hover:text-blue-400 transition-colors">Chính sách bảo mật</button>
               <button onClick={() => navigate("/terms")} className="hover:text-blue-400 transition-colors">Điều khoản sử dụng</button>
-              <a href="#" className="hover:text-blue-400 transition-colors">Cookie</a>
+              <Link to="/cookies" className="hover:text-blue-400 transition-colors">Cookie</Link>
             </div>
           </div>
         </div>

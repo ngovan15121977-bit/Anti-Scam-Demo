@@ -860,7 +860,7 @@ export default function TransferPage() {
                       </button>
                     </div>
 
-                    <div className="flex items-start gap-4 overflow-x-clip pb-1">
+                    <div className="scrollbar-hide flex items-start gap-4 overflow-x-auto pb-1">
                       {/* Loading skeleton */}
                       {recentContactsQuery.isLoading &&
                         Array.from({ length: 4 }).map((_, i) => (
@@ -1445,7 +1445,7 @@ export default function TransferPage() {
           {/* Footer */}
           <footer className="relative z-10 px-4 sm:px-6 lg:px-8 pb-8 pt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
             <p>© 2024 Timi. All rights reserved.</p>
-            <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
               <button onClick={() => navigate("/privacy")} className="hover:text-slate-600 transition-colors">
                 Privacy Policy
               </button>
@@ -1479,7 +1479,7 @@ export default function TransferPage() {
   /* ===================== REVIEW STEP ===================== */
   if (step === "review") {
     return (
-      <div className="min-h-screen bg-[#f5f3ff] w-full relative overflow-hidden">
+      <div className="min-h-screen w-full relative overflow-x-clip bg-[#f5f3ff]">
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
           <div className="absolute -top-32 -left-32 w-[420px] h-[420px] bg-violet-200/40 rounded-full blur-3xl" />
           <div className="absolute bottom-0 right-0 w-[380px] h-[380px] bg-fuchsia-200/30 rounded-full blur-3xl" />
@@ -1731,7 +1731,7 @@ export default function TransferPage() {
   /* ===================== SUCCESS ===================== */
   if (step === "success") {
     return (
-      <div className="min-h-screen bg-[#f5f3ff] w-full flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="min-h-screen w-full flex items-center justify-center p-4 relative overflow-x-clip bg-[#f5f3ff]">
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
           <div className="absolute top-1/3 left-1/3 w-[400px] h-[400px] bg-emerald-200/30 rounded-full blur-3xl" />
           <div className="absolute bottom-1/3 right-1/3 w-[350px] h-[350px] bg-violet-200/25 rounded-full blur-3xl" />
