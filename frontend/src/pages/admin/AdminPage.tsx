@@ -8,13 +8,14 @@ import FaceVerificationModal, { type FaceMatchResult } from "@/components/auth/F
 import ContentManagementTab from "@/pages/admin/ContentManagementTab";
 import { ProfileNotificationBell } from "@/pages/account/ProfilePage";
 import { useNavigate } from "react-router-dom";
+import AgentsManagementTab from "@/pages/admin/AgentsManagementTab";
 //Đã check admin page
 import {
   ArrowLeft,
   ArrowRightLeft,
   ShieldAlert,
   BarChart3,
-  Settings,
+  Bot,
   Search,
   Ban,
   CheckCircle2,
@@ -410,7 +411,7 @@ export default function AdminPage() {
     { key: "audit" as TabType, label: "Audit log", icon: FileClock },
     { key: "email" as TabType, label: "Email", icon: Mail },
     { key: "content" as TabType, label: "Nội dung", icon: Files },
-    { key: "settings" as TabType, label: "Cài đặt AI", icon: Settings },
+    { key: "settings" as TabType, label: "Agents", icon: Bot },
   ];
 
   const activeTabMeta = tabs.find((tab) => tab.key === activeTab)!;
@@ -542,7 +543,7 @@ export default function AdminPage() {
           {activeTab === "audit" && <AuditTab />}
           {activeTab === "email" && <EmailTab />}
           {activeTab === "content" && <ContentManagementTab />}
-          {activeTab === "settings" && <SettingsTab />}
+          {activeTab === "settings" && <AgentsManagementTab />}
         </div>
       </main>
       </div>
@@ -1950,117 +1951,6 @@ function EmailTab() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ===== SETTINGS TAB =====
-function SettingsTab() {
-  const [settings, setSettings] = useState({
-    autoBlock: true,
-    aiIntervention: true,
-    notifyAdmin: true,
-    riskThreshold: 0.7,
-    dailyLimit: 50000000,
-  });
-
-  return (
-    <div className="space-y-4">
-      <FalconCard title="Cấu hình AI Anti-Scam" subtitle="Bật/tắt các cơ chế can thiệp tự động">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-semibold text-slate-800">Tự động chặn giao dịch</p>
-              <p className="text-xs text-slate-400">Chặn ngay khi phát hiện rủi ro cao</p>
-            </div>
-            <button
-              onClick={() => setSettings({ ...settings, autoBlock: !settings.autoBlock })}
-              className={`w-12 h-7 rounded-full transition-colors relative ${
-                settings.autoBlock ? "bg-blue-600" : "bg-gray-300"
-              }`}
-            >
-              <div className={`w-5 h-5 bg-white rounded-full absolute top-1 transition-transform ${
-                settings.autoBlock ? "translate-x-6" : "translate-x-1"
-              }`} />
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-semibold text-slate-800">Can thiệp AI thông minh</p>
-              <p className="text-xs text-slate-400">Hiển thị cảnh báo chi tiết cho người dùng</p>
-            </div>
-            <button
-              onClick={() => setSettings({ ...settings, aiIntervention: !settings.aiIntervention })}
-              className={`w-12 h-7 rounded-full transition-colors relative ${
-                settings.aiIntervention ? "bg-blue-600" : "bg-gray-300"
-              }`}
-            >
-              <div className={`w-5 h-5 bg-white rounded-full absolute top-1 transition-transform ${
-                settings.aiIntervention ? "translate-x-6" : "translate-x-1"
-              }`} />
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-semibold text-slate-800">Thông báo admin</p>
-              <p className="text-xs text-slate-400">Gửi alert khi có giao dịch bị chặn</p>
-            </div>
-            <button
-              onClick={() => setSettings({ ...settings, notifyAdmin: !settings.notifyAdmin })}
-              className={`w-12 h-7 rounded-full transition-colors relative ${
-                settings.notifyAdmin ? "bg-blue-600" : "bg-gray-300"
-              }`}
-            >
-              <div className={`w-5 h-5 bg-white rounded-full absolute top-1 transition-transform ${
-                settings.notifyAdmin ? "translate-x-6" : "translate-x-1"
-              }`} />
-            </button>
-          </div>
-        </div>
-      </FalconCard>
-
-      <FalconCard title="Ngưỡng rủi ro" subtitle="Điều chỉnh giới hạn cảnh báo và giao dịch">
-        <div className="space-y-4">
-          <div>
-            <div className="flex justify-between text-sm mb-2">
-              <span className="text-gray-600">Ngưỡng cảnh báo</span>
-              <span className="font-bold text-blue-600">{(settings.riskThreshold * 100).toFixed(0)}%</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={settings.riskThreshold}
-              onChange={(e) => setSettings({ ...settings, riskThreshold: parseFloat(e.target.value) })}
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-            />
-            <div className="flex justify-between text-xs text-gray-400 mt-1">
-              <span>0%</span>
-              <span>50%</span>
-              <span>100%</span>
-            </div>
-          </div>
-
-          <div>
-            <div className="flex justify-between text-sm mb-2">
-              <span className="text-gray-600">Giới hạn giao dịch/ngày</span>
-              <span className="font-bold text-blue-600">{new Intl.NumberFormat("vi-VN").format(settings.dailyLimit)} đ</span>
-            </div>
-            <input
-              type="range"
-              min="1000000"
-              max="500000000"
-              step="1000000"
-              value={settings.dailyLimit}
-              onChange={(e) => setSettings({ ...settings, dailyLimit: parseInt(e.target.value) })}
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-            />
-          </div>
-        </div>
-      </FalconCard>
     </div>
   );
 }

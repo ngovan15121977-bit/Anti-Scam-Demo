@@ -23,7 +23,7 @@ from src.app.routers.api.admin import emails as admin_emails, routes as admin
 from src.app.config import get_settings
 from src.app.services.face_verification import warm_face_model
 from src.app.services.passive_liveness import warm_passive_liveness_model
-
+from src.app.routers.api.admin import agents as admin_agents
 settings = get_settings()
 settings.validate_production_secrets()
 
@@ -55,7 +55,7 @@ app.include_router(guardian.router, prefix="/api/v1")
 app.include_router(risk_manager.router, prefix="/api/v1")  # Phase 2/3 Bank Risk Manager
 app.include_router(admin_emails.notifications_router, prefix="/api/v1")
 app.include_router(password_reset.router, prefix="/api/v1")
-
+app.include_router(admin_agents.router, prefix="/api/v1")
 
 @app.on_event("startup")
 def preload_face_ai() -> None:

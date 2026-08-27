@@ -1,5 +1,5 @@
 """Import all active ORM models so Alembic sees one metadata registry."""
-
+from src.app.models.agent_setting import AgentSetting
 from src.app.db.base import Base
 from src.app.models.assistant_chat_exchange import AssistantChatExchange
 from src.app.models.audit_log import AuditLog
@@ -13,6 +13,7 @@ from src.app.models.email_change_verification import EmailChangeVerification
 from src.app.models.intervention_log import InterventionLog
 from src.app.models.newsletter_subscriber import NewsletterSubscriber
 from src.app.models.registration_verification import RegistrationVerification
+
 from src.app.models.model_registry import IntelligenceSource, ModelVersion
 from src.app.models.recipient_directory import RecipientDirectory
 from src.app.models.risk_assessment import (
@@ -80,4 +81,5 @@ __all__ = [
     "UserCard",
     "WarningDecision",
     "WarningFeedback",
+    "AgentSetting",
 ]
