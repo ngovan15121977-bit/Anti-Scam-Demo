@@ -292,6 +292,41 @@ VITE_GOOGLE_CLIENT_ID=<Google OAuth 2.0 Web client ID>
 URL frontend thật, khai báo URL này trong Google Cloud Console, cập nhật lại
 `CORS_ORIGINS` ở backend rồi chọn `Save, rebuild, and deploy`.
 
+#### Google Login trên Render
+
+Lưu ý: `server.headers` trong `frontend/vite.config.ts` chỉ áp dụng cho Vite
+dev server, không áp dụng cho Render Static Site. Trong Render Dashboard, mở
+frontend Static Site → **Settings → Headers** và thêm:
+
+```text
+Path: /*
+Name: Cross-Origin-Opener-Policy
+Value: same-origin-allow-popups
+
+Path: /*
+Name: Referrer-Policy
+Value: no-referrer-when-downgrade
+```
+
+Trong Google Cloud Console → **APIs & Services → Credentials** → Google OAuth
+2.0 Web client → **Authorized JavaScript origins**, thêm đúng origin frontend
+Render, ví dụ:
+
+```text
+https://<frontend-service>.onrender.com
+```
+
+Không thêm `/login`, `/dashboard` hoặc dấu `/` cuối URL. Nếu có custom domain,
+thêm cả origin custom domain. Origin được khai báo phải là URL người dùng mở
+trang đăng nhập, không phải URL backend API.
+
+Sau đó kiểm tra Environment của frontend có `VITE_GOOGLE_CLIENT_ID`, backend có
+`GOOGLE_OAUTH_CLIENT_ID` và hai giá trị là cùng một Web client ID; chọn **Save,
+rebuild, and deploy** để Vite đóng gói lại biến môi trường.
+
+Nếu deploy bằng root `Dockerfile` hoặc `frontend/Dockerfile` thay vì Static
+Site, hai response header trên đã được thêm tương ứng vào FastAPI/Nginx.
+
 ### Kiểm tra end-to-end
 
 1. Mở frontend Render.
