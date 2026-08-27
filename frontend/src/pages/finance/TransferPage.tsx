@@ -46,7 +46,11 @@ interface TransferForm {
 type RecipientLookupState =
   | { status: "idle"; message?: string }
   | { status: "loading" }
-  | { status: "success" }
+  | {
+      status: "success";
+      riskStatus: "clear" | "caution";
+      riskMessage?: string;
+    }
   | { status: "error"; message: string };
 
 const banks = [
@@ -211,6 +215,7 @@ export default function TransferPage() {
   const [txId, setTxId] = useState<string>("");
   const [recipientLookupState, setRecipientLookupState] =
     useState<RecipientLookupState>({ status: "idle" });
+  const [isRecipientRiskInfoOpen, setRecipientRiskInfoOpen] = useState(false);
   const [isBankPickerOpen, setBankPickerOpen] = useState(false);
   const [bankSearch, setBankSearch] = useState("");
   const [bankActiveIndex, setBankActiveIndex] = useState(0);
@@ -459,7 +464,11 @@ export default function TransferPage() {
                 }
               : current,
           );
-          setRecipientLookupState({ status: "success" });
+          setRecipientLookupState({
+            status: "success",
+            riskStatus: result.risk_status,
+            riskMessage: result.risk_message ?? undefined,
+          });
         })
         .catch((error: any) => {
           if (cancelled) return;
@@ -479,6 +488,7 @@ export default function TransferPage() {
   }, [form.recipient_account, form.bank_code]);
 
   const handleAccountChange = (recipient_account: string) => {
+    setRecipientRiskInfoOpen(false);
     setSelectedRecentId(null);
     setForm((current) => ({
       ...current,
@@ -505,6 +515,7 @@ export default function TransferPage() {
   };
 
   const handleBankChange = (bank_code: string) => {
+    setRecipientRiskInfoOpen(false);
     setSelectedRecentId(null);
     setForm((current) => ({
       ...current,
@@ -517,6 +528,7 @@ export default function TransferPage() {
   };
 
   const handleBankSearchChange = (value: string) => {
+    setRecipientRiskInfoOpen(false);
     setBankSearch(value);
     setBankActiveIndex(0);
     setBankPickerOpen(true);
@@ -631,6 +643,9 @@ export default function TransferPage() {
     form.amount &&
     form.bank_code,
   );
+  const recipientNeedsCaution =
+    recipientLookupState.status === "success" &&
+    recipientLookupState.riskStatus === "caution";
   const amountRequiresFaceVerification = Number(form.amount || 0) >= 10_000_000;
   const blacklistRequiresFaceVerification = Boolean(
     riskData?.risk_level === "high"
@@ -1025,7 +1040,13 @@ export default function TransferPage() {
                     <label className="text-sm font-medium text-slate-700 mb-1.5 block">
                       Tên chủ tài khoản
                     </label>
-                    <div className="relative min-h-[42px] flex items-center pl-10 pr-10 py-2.5 bg-slate-50 rounded-xl text-slate-800">
+                    <div
+                      className={`relative min-h-[42px] flex items-center pl-10 pr-10 py-2.5 rounded-xl text-slate-800 transition-colors ${
+                        recipientNeedsCaution
+                          ? "border border-amber-200 bg-amber-50/70"
+                          : "bg-slate-50"
+                      }`}
+                    >
                       <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                       {recipientLookupState.status === "loading" ? (
                         <span className="flex items-center gap-2 text-sm text-slate-500">
@@ -1038,9 +1059,33 @@ export default function TransferPage() {
                         <span className="text-sm text-slate-400">Tên tài khoản</span>
                       )}
                       {recipientLookupState.status === "success" && (
-                        <CheckCircle2 className="absolute right-3.5 w-5 h-5 text-emerald-500" />
+                        recipientNeedsCaution ? (
+                          <AlertTriangle
+                            aria-label="Người nhận cần thận trọng"
+                            className="absolute right-3.5 h-5 w-5 text-amber-500"
+                          />
+                        ) : (
+                          <CheckCircle2 className="absolute right-3.5 w-5 h-5 text-emerald-500" />
+                        )
                       )}
                     </div>
+                    {recipientNeedsCaution && (
+                      <button
+                        type="button"
+                        onClick={() => setRecipientRiskInfoOpen(true)}
+                        aria-haspopup="dialog"
+                        className="mt-2 flex w-full items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs transition-colors hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                      >
+                        <span className="flex min-w-0 items-center gap-1.5 font-medium text-amber-800">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                          <span>{recipientLookupState.riskMessage || "Người nhận có dấu hiệu rủi ro."}</span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1 text-[10px] font-semibold text-violet-600">
+                          <Shield className="h-3 w-3" />
+                          Bảo mật bởi AI
+                        </span>
+                      </button>
+                    )}
                     {recipientLookupState.status === "error" && (
                       <p className="mt-1.5 text-xs text-rose-600">
                         {recipientLookupState.message}
@@ -1340,6 +1385,61 @@ export default function TransferPage() {
                 </p>
               )}
             </div>
+          </Modal>
+
+          <Modal
+            open={isRecipientRiskInfoOpen}
+            onClose={() => setRecipientRiskInfoOpen(false)}
+            ariaLabel="Thông tin cảnh báo rủi ro người nhận"
+            className="max-w-md"
+            showCloseButton
+          >
+            <div className="pr-8">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100">
+                <AlertTriangle className="h-6 w-6 text-amber-600" />
+              </div>
+              <p className="mt-4 text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">
+                Cảnh báo rủi ro
+              </p>
+              <h2 className="mt-1 text-xl font-bold text-slate-900">
+                Timi dựa vào đâu để cảnh báo?
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Số tài khoản và ngân hàng này trùng với một cảnh báo trong dữ liệu đối chiếu của Timi.
+              </p>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              <div className="rounded-2xl border border-violet-100 bg-violet-50/70 p-3.5">
+                <div className="flex items-center gap-2 text-sm font-semibold text-violet-900">
+                  <Shield className="h-4 w-4 text-violet-600" />
+                  Báo cáo từ cộng đồng
+                </div>
+                <p className="mt-1.5 text-xs leading-5 text-violet-800">
+                  Timi tổng hợp các báo cáo cần thận trọng để phát hiện sớm những tài khoản có dấu hiệu bất thường.
+                </p>
+              </div>
+              <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-3.5">
+                <div className="flex items-center gap-2 text-sm font-semibold text-sky-900">
+                  <Shield className="h-4 w-4 text-sky-600" />
+                  Nguồn đối chiếu công khai
+                </div>
+                <p className="mt-1.5 text-xs leading-5 text-sky-800">
+                  Dữ liệu đối chiếu có thể bao gồm các cảnh báo công khai từ chongluadao.vn.
+                </p>
+              </div>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3.5 text-sm leading-6 text-amber-900">
+                Hãy gọi hoặc liên hệ người nhận qua một kênh độc lập và xem xét kỹ trước khi giao dịch.
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setRecipientRiskInfoOpen(false)}
+              className="mt-5 w-full rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              Đã hiểu, tôi sẽ kiểm tra kỹ
+            </button>
           </Modal>
 
           {/* Footer */}
