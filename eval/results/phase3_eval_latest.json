@@ -3,7 +3,7 @@
   "passed": 18,
   "pass_rate": 1.0,
   "use_llm": false,
-  "elapsed_s": 0.051,
+  "elapsed_s": 0.067,
   "results": [
     {
       "id": "p3-001-otp-stop",
