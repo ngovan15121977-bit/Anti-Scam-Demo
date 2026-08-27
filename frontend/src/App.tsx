@@ -25,6 +25,9 @@ const FaceEnrollmentPage = lazy(() => import("@/pages/onboarding/FaceEnrollmentP
 const QrPaymentPage = lazy(() => import("@/pages/finance/QrPaymentPage"));
 const NotificationSettingsPage = lazy(() => import("@/pages/account/NotificationSettingsPage"));
 const HelpPage = lazy(() => import("@/pages/support/HelpPage"));
+const ServicesPage = lazy(() => import("@/pages/public/ServicesPage"));
+const DownloadPage = lazy(() => import("@/pages/public/DownloadPage"));
+const DemoPage = lazy(() => import("@/pages/public/DemoPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -77,6 +80,10 @@ function App() {
                 <Route path="/privacy" element={<LegalPage type="privacy" />} />
                 <Route path="/mission" element={<MissionPage />} />
                 <Route path="/help" element={<HelpPage />} />
+                <Route path="/services" element={<ServicesPage />} />
+                <Route path="/download" element={<DownloadPage />} />
+                <Route path="/demo" element={<DemoPage />} />
+                <Route path="/cookies" element={<LegalPage type="cookies" />} />
                 <Route
                   path="/login"
                   element={

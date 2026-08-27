@@ -247,6 +247,26 @@ _NAVIGATION_INTENTS: tuple[tuple[str, tuple[str, ...], str], ...] = (
         ),
         "Đã mở Trung tâm trợ giúp. Bạn có thể xem câu hỏi thường gặp hoặc thông tin liên hệ hỗ trợ.",
     ),
+    (
+        "/services",
+        ("dich vu", "cac dich vu", "thanh toan hoa don", "nap dien thoai", "quan ly chi tieu"),
+        "Đã mở trang Dịch vụ để bạn xem các tính năng Timi.",
+    ),
+    (
+        "/download",
+        ("tai app", "tai ung dung", "cai app", "mo app"),
+        "Đã mở trang tải ứng dụng Timi.",
+    ),
+    (
+        "/demo",
+        ("xem demo", "demo ai", "ai anti scam", "cach bao ve"),
+        "Đã mở demo Timi Guard để bạn xem cách Timi phát hiện rủi ro.",
+    ),
+    (
+        "/cookies",
+        ("cookie", "chinh sach cookie"),
+        "Đã mở Chính sách cookie của Timi.",
+    ),
 )
 _NAVIGATION_RESPONSE_OVERRIDES: tuple[tuple[str, tuple[str, ...], str], ...] = (
     (

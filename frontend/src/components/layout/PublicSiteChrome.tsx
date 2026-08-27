@@ -1,6 +1,15 @@
 import { type ReactNode, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { LogOut, Menu, User as UserIcon, X } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import {
+  Download,
+  House,
+  LogOut,
+  Menu,
+  PlayCircle,
+  Sparkles,
+  User as UserIcon,
+  X,
+} from "lucide-react";
 
 import TimiLogo from "@/components/brand/TimiLogo";
 import { useAuthStore } from "@/stores/authStore";
@@ -10,15 +19,15 @@ type PublicSiteChromeProps = {
 };
 
 const navLinks = [
-  { href: "/#features", label: "Dịch vụ" },
-  { href: "/terms", label: "Điều khoản" },
-  { href: "/privacy", label: "Bảo mật dữ liệu" },
-  { href: "/mission", label: "Sứ mệnh" },
-  { href: "/#app", label: "Tải app" },
+  { href: "/", label: "Trang chủ", icon: House },
+  { href: "/services", label: "Dịch vụ", icon: Sparkles },
+  { href: "/demo", label: "Demo AI Anti-Scam", icon: PlayCircle },
+  { href: "/download", label: "Tải app", icon: Download },
 ];
 
 export default function PublicSiteChrome({ children }: PublicSiteChromeProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { isAuthenticated, user, logout } = useAuthStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -29,8 +38,11 @@ export default function PublicSiteChrome({ children }: PublicSiteChromeProps) {
 
   const displayName = user?.full_name || user?.email || "Tài khoản";
 
+  const isActive = (href: string) =>
+    href === "/" ? location.pathname === "/" : location.pathname.startsWith(href);
+
   return (
-    <div className="min-h-screen w-full bg-white font-[Inter] text-[#0B0B0B]">
+    <div className="min-h-screen w-full overflow-x-clip bg-white font-[Inter] text-[#0B0B0B]">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap');
         .font-display { font-family: 'Space Grotesk', sans-serif; }
@@ -53,19 +65,23 @@ export default function PublicSiteChrome({ children }: PublicSiteChromeProps) {
               </span>
             </button>
 
-            <div className="hidden items-center gap-8 md:flex">
+            <div className="hidden items-center gap-1 xl:flex">
               {navLinks.map((link) => (
-                <a
+                <Link
                   key={link.href}
-                  href={link.href}
-                  className="font-medium text-slate-700 transition-colors hover:text-[#4F6BFF]"
+                  to={link.href}
+                  className={`rounded-full px-3 py-2 text-sm font-semibold transition-colors ${
+                    isActive(link.href)
+                      ? "bg-blue-50 text-[#4F6BFF]"
+                      : "text-slate-600 hover:bg-slate-50 hover:text-[#4F6BFF]"
+                  }`}
                 >
                   {link.label}
-                </a>
+                </Link>
               ))}
             </div>
 
-            <div className="hidden items-center gap-2 md:flex">
+            <div className="hidden items-center gap-2 xl:flex">
               {isAuthenticated ? (
                 <>
                   <button
@@ -108,7 +124,7 @@ export default function PublicSiteChrome({ children }: PublicSiteChromeProps) {
 
             <button
               type="button"
-              className="p-2 text-slate-700 md:hidden"
+              className="p-2 text-slate-700 xl:hidden"
               onClick={() => setMobileMenuOpen((open) => !open)}
               aria-label={mobileMenuOpen ? "Đóng menu" : "Mở menu"}
               aria-expanded={mobileMenuOpen}
@@ -119,17 +135,27 @@ export default function PublicSiteChrome({ children }: PublicSiteChromeProps) {
         </div>
 
         {mobileMenuOpen && (
-          <div className="space-y-3 border-t border-slate-100 bg-white px-6 py-4 md:hidden">
-            {navLinks.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                onClick={() => setMobileMenuOpen(false)}
-                className="block py-2 font-medium text-slate-700"
-              >
-                {link.label}
-              </a>
-            ))}
+          <div className="border-t border-slate-100 bg-white px-4 py-4 shadow-xl shadow-slate-900/5 xl:hidden">
+            <div className="grid gap-1">
+              {navLinks.map((link) => {
+                const Icon = link.icon;
+                return (
+                  <Link
+                    key={link.href}
+                    to={link.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`flex items-center gap-3 rounded-2xl px-4 py-3 font-semibold transition-colors ${
+                      isActive(link.href)
+                        ? "bg-blue-50 text-[#4F6BFF]"
+                        : "text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <Icon className="h-5 w-5 shrink-0" />
+                    {link.label}
+                  </Link>
+                );
+              })}
+            </div>
             <hr className="border-slate-100" />
             {isAuthenticated ? (
               <>
@@ -176,8 +202,8 @@ export default function PublicSiteChrome({ children }: PublicSiteChromeProps) {
 
       <footer className="w-full bg-[#0B0B0B] py-12 text-slate-400">
         <div className="w-full px-6 lg:px-12 xl:px-20">
-          <div className="mb-8 grid gap-8 md:grid-cols-4">
-            <div className="col-span-2">
+          <div className="mb-8 grid gap-8 md:grid-cols-5">
+            <div className="md:col-span-2">
               <Link to="/" className="mb-4 flex items-center gap-2">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl">
                   <TimiLogo className="h-full w-full rounded-xl" />
@@ -193,10 +219,18 @@ export default function PublicSiteChrome({ children }: PublicSiteChromeProps) {
             <div>
               <h4 className="mb-4 font-semibold text-white">Dịch vụ</h4>
               <ul className="space-y-2 text-sm">
-                <li><a href="/#features" className="transition-colors hover:text-[#4F6BFF]">Chuyển tiền</a></li>
-                <li><a href="/#features" className="transition-colors hover:text-[#4F6BFF]">Thanh toán hóa đơn</a></li>
-                <li><a href="/#features" className="transition-colors hover:text-[#4F6BFF]">Nạp điện thoại</a></li>
-                <li><a href="/#features" className="transition-colors hover:text-[#4F6BFF]">Quản lý chi tiêu</a></li>
+                <li><Link to="/services#transfer" className="transition-colors hover:text-[#4F6BFF]">Chuyển tiền</Link></li>
+                <li><Link to="/services#bill-payment" className="transition-colors hover:text-[#4F6BFF]">Thanh toán hóa đơn</Link></li>
+                <li><Link to="/services#mobile-topup" className="transition-colors hover:text-[#4F6BFF]">Nạp điện thoại</Link></li>
+                <li><Link to="/services#spending" className="transition-colors hover:text-[#4F6BFF]">Quản lý chi tiêu</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="mb-4 font-semibold text-white">Khám phá</h4>
+              <ul className="space-y-2 text-sm">
+                <li><Link to="/demo" className="transition-colors hover:text-[#4F6BFF]">Demo AI Anti-Scam</Link></li>
+                <li><Link to="/mission" className="transition-colors hover:text-[#4F6BFF]">Sứ mệnh Timi</Link></li>
+                <li><Link to="/download" className="transition-colors hover:text-[#4F6BFF]">Tải ứng dụng</Link></li>
               </ul>
             </div>
             <div>
@@ -206,6 +240,7 @@ export default function PublicSiteChrome({ children }: PublicSiteChromeProps) {
                 <li><Link to="/privacy" className="transition-colors hover:text-[#4F6BFF]">Chính sách bảo mật</Link></li>
                 <li><Link to="/terms" className="transition-colors hover:text-[#4F6BFF]">Điều khoản sử dụng</Link></li>
                 <li><Link to="/mission" className="transition-colors hover:text-[#4F6BFF]">Sứ mệnh Timi</Link></li>
+                <li><Link to="/cookies" className="transition-colors hover:text-[#4F6BFF]">Chính sách Cookie</Link></li>
               </ul>
             </div>
           </div>

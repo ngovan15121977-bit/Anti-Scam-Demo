@@ -333,6 +333,7 @@ export default function LoginPage() {
               {hasGoogleSignInConfig() && (
                 <GoogleSignInButton
                   disabled={googleLoginMutation.isPending || completeGooglePhoneMutation.isPending}
+                  isLoading={googleLoginMutation.isPending || completeGooglePhoneMutation.isPending}
                   onCredential={handleGoogleCredential}
                   onLoadError={handleGoogleLoadError}
                 />

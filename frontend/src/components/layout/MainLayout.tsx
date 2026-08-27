@@ -44,7 +44,7 @@ export default function MainLayout() {
   return (
     <ScamGuardianProvider>
       <PinSetupEnforcer />
-      <div className="min-h-screen bg-[#f5f3ff] w-full">
+      <div className="min-h-screen w-full overflow-x-clip bg-[#f5f3ff]">
         {/* Top Navbar */}
         <header className="sticky top-0 z-50 w-full bg-white/80 backdrop-blur-lg border-b border-violet-100/80 shadow-sm shadow-violet-50/40">
           <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 h-16 flex items-center justify-between">
@@ -65,7 +65,7 @@ export default function MainLayout() {
             </button>
 
             {/* Desktop nav */}
-            <nav className="hidden sm:flex items-center gap-1">
+            <nav className="hidden lg:flex items-center gap-1">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.path);
@@ -73,7 +73,7 @@ export default function MainLayout() {
                   <button
                     key={item.path}
                     onClick={() => navigate(item.path)}
-                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold transition-all ${
+                    className={`flex items-center gap-2 px-2 py-2 rounded-xl text-sm font-semibold transition-all xl:px-3.5 ${
                       active
                         ? "bg-violet-50 text-violet-700 shadow-sm"
                         : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
@@ -103,12 +103,12 @@ export default function MainLayout() {
         </header>
 
         {/* Content */}
-        <main className="w-full pb-20 sm:pb-0">
+        <main className="w-full pb-20 lg:pb-0">
           <Outlet />
         </main>
 
         {/* Mobile Bottom Nav */}
-        <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-lg border-t border-violet-100/80 px-2 py-2 flex items-center justify-around shadow-[0_-4px_20px_rgba(139,92,246,0.06)]">
+        <nav className="mobile-bottom-nav lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-lg border-t border-violet-100/80 px-2 py-2 flex items-center justify-around shadow-[0_-4px_20px_rgba(139,92,246,0.06)]">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.path);
@@ -116,7 +116,7 @@ export default function MainLayout() {
               <button
                 key={item.path}
                 onClick={() => navigate(item.path)}
-                className={`flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-xl transition-all min-w-[56px] ${
+                className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-1.5 rounded-xl transition-all ${
                   active ? "text-violet-600" : "text-slate-400"
                 }`}
               >
@@ -130,7 +130,7 @@ export default function MainLayout() {
                     strokeWidth={active ? 2.5 : 2}
                   />
                 </div>
-                <span className="text-[10px] font-semibold">{item.label}</span>
+                <span className="max-w-full truncate text-[10px] font-semibold">{item.label}</span>
               </button>
             );
           })}
