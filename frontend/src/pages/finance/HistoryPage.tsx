@@ -457,7 +457,7 @@ export default function HistoryPage() {
 
       <div className="relative z-10 max-w-[1400px] mx-auto">
         {/* ===== HEADER ===== */}
-        <header className="px-4 sm:px-6 lg:px-8 pt-5 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <header style={{ marginLeft: "calc((100% - 100vw) / 2)" }} className="sticky top-16 z-40 flex w-screen max-w-none flex-col gap-2 border-b border-violet-100/60 bg-[#f5f3ff]/75 px-4 py-2 shadow-sm shadow-violet-100/20 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate("/dashboard")}

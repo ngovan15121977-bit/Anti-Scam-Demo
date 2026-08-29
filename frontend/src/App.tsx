@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, lazy, Suspense } from "react";
 import { useAuthStore } from "@/stores/authStore";
@@ -13,6 +13,7 @@ import MissionPage from "@/pages/public/MissionPage";
 import MainLayout from "@/components/layout/MainLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import LocationRequiredRoute from "@/components/auth/LocationRequiredRoute";
+import { parsePaymentQrSearch } from "@/utils/paymentQr";
 
 const DashboardPage = lazy(() => import("@/pages/finance/DashboardPage"));
 const TransferPage = lazy(() => import("@/pages/finance/TransferPage"));
@@ -54,6 +55,16 @@ function PublicOnlyRoute({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Start valid public QR links at / so static hosts never need a deep-link rewrite. */
+function PaymentQrEntryRoute() {
+  const location = useLocation();
+  return parsePaymentQrSearch(location.search) ? (
+    <Navigate to={{ pathname: "/transfer", search: location.search }} replace />
+  ) : (
+    <HomePage />
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -75,7 +86,7 @@ function App() {
               }
             >
               <Routes>
-                <Route path="/" element={<HomePage />} />
+                <Route path="/" element={<PaymentQrEntryRoute />} />
                 <Route path="/terms" element={<LegalPage type="terms" />} />
                 <Route path="/privacy" element={<LegalPage type="privacy" />} />
                 <Route path="/mission" element={<MissionPage />} />

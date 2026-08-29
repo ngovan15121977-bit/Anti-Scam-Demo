@@ -118,42 +118,42 @@ export default function ServicesPage() {
   return (
     <PublicSiteChrome>
       <main className="w-full bg-white">
-        <section className="relative overflow-hidden bg-slate-950 px-6 py-20 text-white sm:py-28 lg:px-12 xl:px-20">
-          <div className="absolute -right-24 -top-40 h-[32rem] w-[32rem] rounded-full bg-violet-600/30 blur-3xl" />
-          <div className="absolute -bottom-48 left-1/3 h-[28rem] w-[28rem] rounded-full bg-blue-600/20 blur-3xl" />
-          <div className="relative mx-auto grid max-w-6xl gap-12 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
+        <section className="relative overflow-hidden bg-[#F3F5FF] px-6 py-10 sm:py-12 lg:px-12 xl:px-20">
+          <div className="absolute -right-24 -top-40 h-[28rem] w-[28rem] rounded-full bg-violet-300/30 blur-3xl" />
+          <div className="absolute -bottom-48 left-1/3 h-[24rem] w-[24rem] rounded-full bg-blue-300/25 blur-3xl" />
+          <div className="relative mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
             <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#4F6BFF]">
                 <WalletCards className="h-4 w-4" /> Dịch vụ Timi
               </div>
-              <h1 className="font-display mt-6 max-w-3xl text-4xl font-bold leading-tight tracking-tight sm:text-6xl">
+              <h1 className="font-display mt-4 max-w-3xl text-3xl font-bold leading-tight tracking-tight text-[#0B0B0B] sm:text-4xl">
                 Mọi công cụ tài chính, trong một trải nghiệm an tâm.
               </h1>
-              <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
+              <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
                 Timi kết nối giao dịch, thanh toán, quản lý chi tiêu và bảo vệ chống lừa đảo để bạn luôn biết điều gì đang xảy ra với tiền của mình.
               </p>
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                <Link to={isAuthenticated ? "/dashboard" : "/register"} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-6 py-3.5 font-bold text-slate-950 transition hover:bg-blue-50">
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <Link to={isAuthenticated ? "/dashboard" : "/register"} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#4F6BFF] px-6 py-3.5 font-bold text-white transition hover:bg-[#3D53E8]">
                   Bắt đầu với Timi <ArrowRight className="h-5 w-5" />
                 </Link>
-                <Link to="/help" className="inline-flex items-center justify-center rounded-2xl border border-white/20 px-6 py-3.5 font-semibold text-white transition hover:bg-white/10">
+                <Link to="/help" className="inline-flex items-center justify-center rounded-2xl border border-blue-200 bg-white/70 px-6 py-3.5 font-semibold text-slate-700 transition hover:bg-white hover:text-[#4F6BFF]">
                   Cần được tư vấn?
                 </Link>
               </div>
             </div>
-            <div className="rounded-[2rem] border border-white/10 bg-white/10 p-5 shadow-2xl backdrop-blur-sm sm:p-7">
-              <div className="flex items-center justify-between border-b border-white/10 pb-5">
+            <div className="rounded-[2rem] border border-white/80 bg-white/75 p-5 shadow-lg shadow-violet-200/40 backdrop-blur-sm sm:p-6">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div>
-                  <p className="text-xs uppercase tracking-widest text-slate-400">Timi Guard</p>
-                  <p className="mt-1 text-xl font-bold">Lớp bảo vệ chủ động</p>
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Timi Guard</p>
+                  <p className="mt-1 text-lg font-bold text-slate-900">Lớp bảo vệ chủ động</p>
                 </div>
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-400/15 text-emerald-300"><ShieldCheck className="h-6 w-6" /></div>
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600"><ShieldCheck className="h-5 w-5" /></div>
               </div>
-              <div className="mt-5 space-y-3">
+              <div className="mt-4 space-y-2.5">
                 {["Kiểm tra người nhận", "Phân tích dấu hiệu bất thường", "Xác nhận trước khi chuyển"].map((item, index) => (
-                  <div key={item} className="flex items-center gap-3 rounded-2xl bg-black/15 px-4 py-3">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-xs font-bold text-blue-200">0{index + 1}</span>
-                    <span className="text-sm font-medium text-slate-200">{item}</span>
+                  <div key={item} className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-[#4F6BFF]">0{index + 1}</span>
+                    <span className="text-sm font-medium text-slate-700">{item}</span>
                   </div>
                 ))}
               </div>

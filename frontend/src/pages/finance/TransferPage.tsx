@@ -33,6 +33,7 @@ import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 import { useAuthStore } from "@/stores/authStore";
 import { useTimiAssistantStore } from "@/stores/timiAssistantStore";
 import { ProfileNotificationBell } from "@/pages/account/ProfilePage";
+import { parsePaymentQrSearch } from "@/utils/paymentQr";
 
 interface TransferForm {
   recipient_account: string;
@@ -262,7 +263,9 @@ export default function TransferPage() {
       } | null
     );
     const assistantTransfer = incomingState?.AssistantTransfer;
-    const payment = assistantTransfer ?? incomingState?.QrPayment;
+    const payment = assistantTransfer
+      ?? incomingState?.QrPayment
+      ?? parsePaymentQrSearch(location.search);
     if (
       !payment ||
       typeof payment.accountNumber !== "string" ||
@@ -304,7 +307,7 @@ export default function TransferPage() {
     setSelectedRecentId(null);
     setAssistantReviewRequested(Boolean(assistantTransfer));
     navigate("/transfer", { replace: true, state: null });
-  }, [location.state, navigate]);
+  }, [location.search, location.state, navigate]);
 
   const decisionMutation = useMutation({
     mutationFn: async ({
@@ -715,7 +718,7 @@ export default function TransferPage() {
 
         <div className="relative z-10 max-w-[1400px] mx-auto">
           {/* ===== TOP HEADER ===== */}
-          <header className="px-4 sm:px-6 lg:px-8 pt-5 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <header style={{ marginLeft: "calc((100% - 100vw) / 2)" }} className="sticky top-16 z-40 flex w-screen max-w-none flex-col gap-2 border-b border-violet-100/60 bg-[#f5f3ff]/75 px-4 py-2 shadow-sm shadow-violet-100/20 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => navigate("/dashboard")}
@@ -728,7 +731,7 @@ export default function TransferPage() {
                 <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
                   Chuyển tiền
                 </h1>
-                <p className="text-sm text-slate-500 mt-0.5">
+                <p className="sr-only">
                   Gửi tiền an toàn đến người nhận của bạn
                 </p>
               </div>
@@ -1485,7 +1488,7 @@ export default function TransferPage() {
           <div className="absolute bottom-0 right-0 w-[380px] h-[380px] bg-fuchsia-200/30 rounded-full blur-3xl" />
         </div>
         <div className="relative z-10 max-w-3xl mx-auto">
-          <header className="px-4 sm:px-6 pt-5 pb-4 flex items-center gap-3">
+          <header style={{ marginLeft: "calc((100% - 100vw) / 2)" }} className="sticky top-16 z-40 flex w-screen max-w-none items-center gap-3 border-b border-violet-100/60 bg-[#f5f3ff]/75 px-4 py-2 shadow-sm shadow-violet-100/20 backdrop-blur-md sm:px-6">
             <button
               onClick={() => setStep("form")}
               className="p-2 hover:bg-white/70 rounded-full transition-colors"
@@ -1494,7 +1497,7 @@ export default function TransferPage() {
             </button>
             <div>
               <h1 className="text-xl font-bold text-slate-900">Xác nhận giao dịch</h1>
-              <p className="text-sm text-slate-500">Kiểm tra lại thông tin trước khi tiếp tục</p>
+              <p className="sr-only">Kiểm tra lại thông tin trước khi tiếp tục</p>
             </div>
           </header>
 

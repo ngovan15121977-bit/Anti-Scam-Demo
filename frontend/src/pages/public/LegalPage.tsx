@@ -28,7 +28,6 @@ type LegalContent = {
   title: string;
   intro: string;
   icon: LucideIcon;
-  gradient: string;
   points: readonly string[];
   sections: readonly LegalSection[];
 };
@@ -39,7 +38,6 @@ const content: Record<LegalPageType, LegalContent> = {
     title: "Điều khoản sử dụng",
     intro: "Các nguyên tắc rõ ràng để bạn sử dụng Timi an toàn, minh bạch và chủ động trong mọi giao dịch.",
     icon: FileText,
-    gradient: "from-slate-950 via-indigo-950 to-blue-900",
     points: [
       "Đọc kỹ thông tin trước khi xác nhận giao dịch",
       "Bảo vệ tài khoản và thông tin đăng nhập",
@@ -77,7 +75,6 @@ const content: Record<LegalPageType, LegalContent> = {
     title: "Chính sách bảo mật dữ liệu",
     intro: "Timi tôn trọng quyền riêng tư và giải thích rõ dữ liệu nào được sử dụng để vận hành, bảo vệ và cải thiện dịch vụ.",
     icon: ShieldCheck,
-    gradient: "from-slate-950 via-blue-950 to-cyan-900",
     points: [
       "Chỉ xử lý dữ liệu cho mục đích phù hợp",
       "Bảo vệ thông tin bằng kiểm soát truy cập",
@@ -115,7 +112,6 @@ const content: Record<LegalPageType, LegalContent> = {
     title: "Chính sách Cookie",
     intro: "Cookie giúp Timi ghi nhớ lựa chọn, duy trì phiên đăng nhập và hiểu cách cải thiện trải nghiệm trên website.",
     icon: Cookie,
-    gradient: "from-slate-950 via-violet-950 to-fuchsia-900",
     points: [
       "Cookie cần thiết giúp website hoạt động ổn định",
       "Cookie phân tích chỉ dùng để cải thiện dịch vụ",
@@ -175,20 +171,20 @@ export default function LegalPage({ type }: LegalPageProps) {
   return (
     <PublicSiteChrome>
       <main className="bg-slate-50">
-        <section className={`relative overflow-hidden bg-gradient-to-br ${page.gradient} text-white`}>
-          <div className="absolute -right-24 -top-36 h-80 w-80 rounded-full bg-white/10 blur-3xl" />
-          <div className="absolute -bottom-40 left-1/3 h-96 w-96 rounded-full bg-blue-500/10 blur-3xl" />
-          <div className="relative mx-auto max-w-6xl px-6 py-12 sm:py-16 lg:px-12 xl:px-20">
-            <div className="flex max-w-4xl flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl border border-white/15 bg-white/10 shadow-xl shadow-black/10 backdrop-blur-sm">
-                <PageIcon className="h-8 w-8 text-blue-200" />
+        <section className="relative overflow-hidden bg-[#F3F5FF]">
+          <div className="absolute -right-24 -top-36 h-72 w-72 rounded-full bg-violet-300/25 blur-3xl" />
+          <div className="absolute -bottom-40 left-1/3 h-80 w-80 rounded-full bg-blue-300/25 blur-3xl" />
+          <div className="relative mx-auto max-w-6xl px-6 py-10 sm:py-12 lg:px-12 xl:px-20">
+            <div className="flex max-w-4xl flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-blue-100 bg-white/75 shadow-lg shadow-violet-200/40 backdrop-blur-sm">
+                <PageIcon className="h-7 w-7 text-[#4F6BFF]" />
               </div>
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-200">{page.eyebrow}</p>
-                <h1 className="font-display mt-3 text-4xl font-bold leading-tight tracking-tight sm:text-5xl">{page.title}</h1>
-                <p className="mt-5 max-w-3xl text-base leading-8 text-slate-300 sm:text-lg">{page.intro}</p>
-                <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm text-slate-200">
-                  <CalendarDays className="h-4 w-4 text-blue-200" />
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#4F6BFF]">{page.eyebrow}</p>
+                <h1 className="font-display mt-3 text-3xl font-bold leading-tight tracking-tight text-[#0B0B0B] sm:text-4xl">{page.title}</h1>
+                <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg">{page.intro}</p>
+                <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white/70 px-4 py-2 text-sm text-slate-600">
+                  <CalendarDays className="h-4 w-4 text-[#4F6BFF]" />
                   Cập nhật lần cuối: 27/08/2026
                 </div>
               </div>

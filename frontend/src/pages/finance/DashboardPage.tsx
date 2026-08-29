@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Target,
   CheckCircle2,
+  BookOpen,
   Star,
   Mail,
   Phone,
@@ -321,6 +322,32 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ===== GETTING STARTED ===== */}
+      <section className="bg-[#F3F5FF] py-10 sm:py-12">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 lg:flex-row lg:items-center lg:justify-between lg:px-12 xl:px-20">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-blue-100 bg-white text-blue-600 shadow-sm">
+              <BookOpen className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-sm font-bold uppercase tracking-widest text-blue-600">Hướng dẫn nhanh</p>
+              <h2 className="mt-1 text-xl font-bold text-slate-900 sm:text-2xl">Chưa biết bắt đầu từ đâu?</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
+                Xem hướng dẫn từng bước để đăng nhập, chuyển tiền an toàn, quét QR và sử dụng các lớp bảo vệ của Timi.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate("/demo")}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700"
+          >
+            Xem hướng dẫn sử dụng
+            <ArrowRight className="h-5 w-5" />
+          </button>
+        </div>
+      </section>
+
       {managedQuery.data?.length ? (
         <section className="bg-[#F3F5FF] px-6 py-16 lg:px-12 xl:px-20">
           <div className="mx-auto max-w-6xl">
@@ -581,7 +608,7 @@ export default function HomePage() {
                 <li><button onClick={() => navigate("/dashboard")} className="hover:text-blue-400 transition-colors">Tổng quan</button></li>
                 <li><button onClick={() => navigate("/me")} className="hover:text-blue-400 transition-colors">Tài khoản</button></li>
                 <li><button onClick={() => navigate("/history")} className="hover:text-blue-400 transition-colors">Lịch sử hoạt động</button></li>
-                <li><button onClick={() => navigate("/setup-face")} className="hover:text-blue-400 transition-colors">Bảo mật khuôn mặt</button></li>
+                <li><button onClick={() => navigate("/dashboard")} className="hover:text-blue-400 transition-colors">Bảo mật khuôn mặt</button></li>
               </ul>
             </div>
 
