@@ -82,11 +82,6 @@ const MAX_QR_LENGTH = 2048;
 const MAX_GENERIC_QR_LENGTH = 4096;
 const TIMI_BANK_CODE = "TIMI";
 
-// A generated QR opens the site root so it also works on static hosts that do
-// not rewrite deep links such as /transfer to index.html. The app redirects a
-// valid request to /transfer after it has loaded.
-export const PAYMENT_QR_QUERY_PARAMETER = "timi_payment";
-
 const SUSPICIOUS_TLDS = new Set([
   "click", "country", "gdn", "help", "icu", "link", "live", "monster",
   "online", "quest", "rest", "sbs", "shop", "site", "support", "top", "vip", "xyz",
@@ -148,7 +143,10 @@ function normalizePayment(input: PaymentQrData): EncodedPayment | null {
   };
 }
 
-/** Creates a local, non-payment QR payload for the Timi  flow. */
+/**
+ * Legacy compact payload (scanned only inside the Timi app camera).
+ * Prefer createPaymentDeepLink for QR images that external cameras should open.
+ */
 export function createPaymentQr(input: PaymentQrData): string | null {
   const payment = normalizePayment(input);
   if (!payment) return null;
@@ -156,21 +154,49 @@ export function createPaymentQr(input: PaymentQrData): string | null {
   return payload.length <= MAX_QR_LENGTH ? payload : null;
 }
 
-/** Build a shareable Timi web link that carries a validated payment QR payload. */
-export function createPaymentQrLink(input: PaymentQrData, origin: string): string | null {
-  const payload = createPaymentQr(input);
-  if (!payload) return null;
+/**
+ * Public deep-link QR: opens https://…/transfer?token=… so any phone camera
+ * lands on Timi. After login the transfer form is prefilled with account + bank.
+ */
+export function createPaymentDeepLink(
+  input: PaymentQrData,
+  baseUrl: string = "https://timi-du0u.onrender.com",
+): string | null {
+  const payment = normalizePayment(input);
+  if (!payment) return null;
 
-  try {
-    const url = new URL("/", origin);
-    url.searchParams.set(PAYMENT_QR_QUERY_PARAMETER, payload);
-    return url.toString();
-  } catch {
-    return null;
-  }
+  const token = toBase64Url(JSON.stringify(payment));
+  const origin = baseUrl.replace(/\/$/, "");
+  const url = `${origin}/transfer?token=${token}`;
+  return url.length <= MAX_GENERIC_QR_LENGTH ? url : null;
 }
 
-/** Rejects every QR type other than the documented Timi  payment payload. */
+function paymentFromEncodedCandidate(candidate: Partial<EncodedPayment>): PaymentQrData | null {
+  if (candidate.version !== 1 || typeof candidate.accountNumber !== "string" || typeof candidate.bankCode !== "string") {
+    return null;
+  }
+
+  const bank = paymentBanks.find((item) => item.code === candidate.bankCode);
+  const amount = candidate.amount;
+  const note = candidate.note;
+  const accountName = candidate.accountName;
+  if (!bank || !/^\d{6,19}$/.test(candidate.accountNumber)) return null;
+  if (bank.code === TIMI_BANK_CODE && !/^\d{10}$/.test(candidate.accountNumber)) return null;
+  if (amount !== undefined && (!Number.isSafeInteger(amount) || amount <= 0 || amount > 10_000_000_000)) return null;
+  if (note !== undefined && (typeof note !== "string" || note.length > 500)) return null;
+  if (accountName !== undefined && (typeof accountName !== "string" || accountName.length > 255)) return null;
+
+  return {
+    accountNumber: candidate.accountNumber,
+    bankCode: bank.code,
+    bankName: bank.name,
+    ...(amount ? { amount } : {}),
+    ...(note ? { note } : {}),
+    ...(accountName ? { accountName } : {}),
+  };
+}
+
+/** Rejects every QR type other than the documented Timi payment payload. */
 export function parsePaymentQr(rawValue: string): PaymentQrData | null {
   const raw = rawValue.trim();
   if (!raw.startsWith(PREFIX) || raw.length > MAX_QR_LENGTH) return null;
@@ -181,53 +207,58 @@ export function parsePaymentQr(rawValue: string): PaymentQrData | null {
   try {
     const value: unknown = JSON.parse(decoded);
     if (!value || typeof value !== "object") return null;
-    const candidate = value as Partial<EncodedPayment>;
-    if (candidate.version !== 1 || typeof candidate.accountNumber !== "string" || typeof candidate.bankCode !== "string") {
-      return null;
-    }
-
-    const bank = paymentBanks.find((item) => item.code === candidate.bankCode);
-    const amount = candidate.amount;
-    const note = candidate.note;
-    const accountName = candidate.accountName;
-    if (!bank || !/^\d{6,19}$/.test(candidate.accountNumber)) return null;
-    if (bank.code === TIMI_BANK_CODE && !/^\d{10}$/.test(candidate.accountNumber)) return null;
-    if (amount !== undefined && (!Number.isSafeInteger(amount) || amount <= 0 || amount > 10_000_000_000)) return null;
-    if (note !== undefined && (typeof note !== "string" || note.length > 500)) return null;
-    if (accountName !== undefined && (typeof accountName !== "string" || accountName.length > 255)) return null;
-
-    return {
-      accountNumber: candidate.accountNumber,
-      bankCode: bank.code,
-      bankName: bank.name,
-      ...(amount ? { amount } : {}),
-      ...(note ? { note } : {}),
-      ...(accountName ? { accountName } : {}),
-    };
+    return paymentFromEncodedCandidate(value as Partial<EncodedPayment>);
   } catch {
     return null;
   }
-}
-
-/** Read a payment payload from the public Timi QR link query string. */
-export function parsePaymentQrSearch(search: string): PaymentQrData | null {
-  const payload = new URLSearchParams(search).get(PAYMENT_QR_QUERY_PARAMETER);
-  return payload ? parsePaymentQr(payload) : null;
 }
 
 /**
- * Recognize a Timi payment link while scanning it inside the app. Its payment
- * data is still treated as untrusted and the transfer page resolves the
- * recipient again before a transaction can be reviewed.
+ * Parse payment data from a Timi transfer deep-link
+ * (…/transfer?token=… or …/transfer?account=&bank=…).
  */
-export function parsePaymentQrLink(rawValue: string): PaymentQrData | null {
+export function parsePaymentDeepLink(rawValue: string): PaymentQrData | null {
+  const raw = rawValue.trim();
+  if (!raw || raw.length > MAX_GENERIC_QR_LENGTH) return null;
+
+  let url: URL;
   try {
-    const url = new URL(rawValue.trim());
-    if (url.pathname !== "/" && url.pathname !== "/transfer") return null;
-    return parsePaymentQrSearch(url.search);
+    url = new URL(raw.startsWith("http") ? raw : `https://dummy.local${raw.startsWith("/") ? raw : `/${raw}`}`);
   } catch {
     return null;
   }
+
+  const path = url.pathname.replace(/\/+$/, "") || "/";
+  if (!path.endsWith("/transfer")) return null;
+
+  const token = url.searchParams.get("token");
+  if (token) {
+    const decoded = fromBase64Url(token);
+    if (!decoded) return null;
+    try {
+      const value: unknown = JSON.parse(decoded);
+      if (!value || typeof value !== "object") return null;
+      return paymentFromEncodedCandidate(value as Partial<EncodedPayment>);
+    } catch {
+      return null;
+    }
+  }
+
+  const accountNumber = (url.searchParams.get("account") ?? "").replace(/\s+/g, "");
+  const bankCode = (url.searchParams.get("bank") ?? TIMI_BANK_CODE).toUpperCase();
+  const accountName = url.searchParams.get("name")?.trim() || undefined;
+  const amountRaw = url.searchParams.get("amount");
+  const note = url.searchParams.get("note")?.trim() || undefined;
+  const amount = amountRaw ? Number(amountRaw) : undefined;
+
+  return paymentFromEncodedCandidate({
+    version: 1,
+    accountNumber,
+    bankCode,
+    ...(amount !== undefined && Number.isFinite(amount) ? { amount } : {}),
+    ...(note ? { note } : {}),
+    ...(accountName ? { accountName } : {}),
+  });
 }
 
 function isIpAddress(hostname: string): boolean {
@@ -336,11 +367,8 @@ export function analyzeQrLink(rawValue: string): Extract<DecodedQrContent, { kin
 /** Classifies QR text so the scanner can safely handle common non-payment QR codes. */
 export function parseQrContent(rawValue: string): DecodedQrContent {
   const raw = rawValue.trim();
-  const payment = parsePaymentQr(raw);
+  const payment = parsePaymentQr(raw) ?? parsePaymentDeepLink(raw);
   if (payment) return { kind: "payment", rawValue: raw, payment };
-
-  const paymentLink = parsePaymentQrLink(raw);
-  if (paymentLink) return { kind: "payment", rawValue: raw, payment: paymentLink };
 
   const link = analyzeQrLink(raw);
   if (link) return link;

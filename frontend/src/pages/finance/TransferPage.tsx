@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   ShieldAlert,
-  AlertTriangle,
   CheckCircle2,
   User,
   Building2,
@@ -16,24 +16,24 @@ import {
   Star,
   QrCode,
   Search,
+  Plus,
   Home,
   CreditCard as CardIcon,
   HandCoins,
   ScanLine,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { transactionsApi, type RecentContact } from "@/services/api/transactions";
+import { transactionsApi } from "@/services/api/transactions";
 import { authApi } from "@/services/api/auth";
 import AIRiskModal, { type RiskAssessment } from "@/components/ai/AIRiskModal";
 import TransactionAnalysisScreen from "@/components/ai/TransactionAnalysisScreen";
 import FaceVerificationModal, { type FaceMatchResult } from "@/components/auth/FaceVerificationModal";
-import Modal from "@/components/ui/Modal";
 import { collectRiskClientContext } from "@/utils/riskTelemetry";
+import { parsePaymentDeepLink } from "@/utils/paymentQr";
 import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 import { useAuthStore } from "@/stores/authStore";
 import { useTimiAssistantStore } from "@/stores/timiAssistantStore";
 import { ProfileNotificationBell } from "@/pages/account/ProfilePage";
-import { parsePaymentQrSearch } from "@/utils/paymentQr";
 
 interface TransferForm {
   recipient_account: string;
@@ -47,11 +47,7 @@ interface TransferForm {
 type RecipientLookupState =
   | { status: "idle"; message?: string }
   | { status: "loading" }
-  | {
-      status: "success";
-      riskStatus: "clear" | "caution";
-      riskMessage?: string;
-    }
+  | { status: "success" }
   | { status: "error"; message: string };
 
 const banks = [
@@ -98,6 +94,16 @@ const banks = [
   { code: "WOORI", name: "Woori Bank Vietnam" },
 ];
 
+/** Recent contact from DB (avatar + name + account info) */
+interface RecentContact {
+  id: string;
+  full_name: string;
+  account_number: string;
+  bank_code: string;
+  avatar_url?: string | null;
+  last_transferred_at?: string;
+}
+
 const amountInputFormatter = new Intl.NumberFormat("vi-VN", {
   maximumFractionDigits: 0,
 });
@@ -107,33 +113,6 @@ function normalizeAmountInput(value: string): string {
   return digits.replace(/^0+(?=\d)/, "");
 }
 
-function formatProtectionCount(value: number): string {
-  if (value < 1_000) return String(value);
-  const thousands = Math.floor(value / 1_000);
-  const hundredPart = Math.floor((value % 1_000) / 100);
-  return hundredPart > 0 ? `${thousands}k${hundredPart}` : `${thousands}k`;
-}
-
-function maskRecipientAccount(value: string): string {
-  const digits = value.replace(/\D/g, "");
-  return digits.length > 4 ? `•••• ${digits.slice(-4)}` : "••••";
-}
-
-function formatVnd(value: number): string {
-  return `${new Intl.NumberFormat("vi-VN").format(Math.max(0, Math.round(value)))} đ`;
-}
-
-function getApiErrorDetail(error: unknown): string {
-  if (!error || typeof error !== "object") return "";
-  const response = (error as { response?: { data?: { detail?: unknown } } }).response;
-  return typeof response?.data?.detail === "string" ? response.data.detail : "";
-}
-
-function isInsufficientBalanceDetail(detail: string): boolean {
-  const normalized = detail.toLocaleLowerCase("vi-VN");
-  return normalized.includes("số dư không đủ") || normalized.includes("insufficient balance");
-}
-
 export default function TransferPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -141,52 +120,58 @@ export default function TransferPage() {
   const user = useAuthStore((state) => state.user);
   const fetchMe = useAuthStore((state) => state.fetchMe);
   const setAssistantActivity = useTimiAssistantStore((state) => state.setActivity);
-  const setRiskContext = useTimiAssistantStore((state) => state.setRiskContext);
-  const clearRiskContext = useTimiAssistantStore((state) => state.clearRiskContext);
   const dailySummaryQuery = useQuery({
     queryKey: ["transaction-history-summary"],
     queryFn: () => transactionsApi.getHistorySummary(),
     staleTime: 30_000,
   });
-  const securitySummaryQuery = useQuery({
-    queryKey: ["transaction-security-summary"],
-    queryFn: () => transactionsApi.getSecuritySummary(),
-    staleTime: 30_000,
-  });
-  const displayedBlockedTransactions =
-    (securitySummaryQuery.data?.blocked_transactions ?? 0) * 100;
-  const displayedBlockedTransactionsLabel = formatProtectionCount(
-    displayedBlockedTransactions,
-  );
   const pinStatus = useQuery({
     queryKey: ["transaction-pin-status"],
     queryFn: authApi.transactionPinStatus,
     staleTime: 0,
   });
 
-  // Chỉ hiển thị tài khoản người dùng hợp lệ; admin không phải người nhận.
+  // Recent contacts from DB (name + avatar_url + account)
   const recentContactsQuery = useQuery({
-    queryKey: ["recent-contacts", user?.id],
-    queryFn: () => transactionsApi.getRecentContacts(10),
-    select: (contacts) => {
-      const ownPhone = user?.phone?.replace(/\D/g, "");
-      const ownName = user?.full_name.trim().toLocaleLowerCase("vi-VN");
-      return contacts.filter((contact) => {
-        const account = contact.account_number.replace(/\D/g, "");
-        const name = contact.full_name.trim().toLocaleLowerCase("vi-VN");
-        return (
-          contact.id !== user?.id &&
-          contact.role !== "admin" &&
-          (!ownPhone || account !== ownPhone) &&
-          (!ownName || name !== ownName)
-        );
-      });
+    queryKey: ["recent-contacts"],
+    queryFn: async (): Promise<RecentContact[]> => {
+      // Primary: dedicated endpoint (recommended)
+      if (typeof (transactionsApi as any).getRecentContacts === "function") {
+        return (transactionsApi as any).getRecentContacts();
+      }
+      // Fallback: derive unique recipients from recent outgoing history
+      if (typeof (transactionsApi as any).getHistory === "function") {
+        const history = await (transactionsApi as any).getHistory({
+          limit: 30,
+          direction: "outgoing",
+        });
+        const items = Array.isArray(history) ? history : history?.items ?? history?.data ?? [];
+        const seen = new Set<string>();
+        const result: RecentContact[] = [];
+        for (const tx of items) {
+          const account = String(tx.payee_account ?? tx.recipient_account ?? "").replace(/\s/g, "");
+          const bank = String(tx.bank_code ?? tx.recipient_bank_code ?? "");
+          const name = String(tx.payee_name ?? tx.recipient_name ?? tx.account_name ?? "").trim();
+          if (!account || !bank || !name) continue;
+          const key = `${bank}:${account}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          result.push({
+            id: tx.id ?? key,
+            full_name: name,
+            account_number: account,
+            bank_code: bank,
+            avatar_url: tx.recipient_avatar_url ?? tx.avatar_url ?? null,
+            last_transferred_at: tx.created_at ?? tx.transferred_at,
+          });
+          if (result.length >= 8) break;
+        }
+        return result;
+      }
+      return [];
     },
     staleTime: 60_000,
   });
-  const [isRecentContactsOpen, setRecentContactsOpen] = useState(false);
-  const recentContacts = recentContactsQuery.data ?? [];
-  const visibleRecentContacts = recentContacts.slice(0, 4);
 
   const dailyTransferLimit = 100_000_000;
   const completedToday = dailySummaryQuery.data?.completed_outgoing_today ?? 0;
@@ -196,11 +181,10 @@ export default function TransferPage() {
     void fetchMe();
   }, [fetchMe]);
 
-  useEffect(() => () => clearRiskContext(), [clearRiskContext]);
-
   const [step, setStep] = useState<
     "form" | "review" | "analyzing" | "ai-check" | "pin" | "face" | "success"
   >("form");
+  const [faceVerificationStarted, setFaceVerificationStarted] = useState(false);
   const [pin, setPin] = useState("");
   const [isPinVisible, setIsPinVisible] = useState(false);
   const pinVisibilityTimer = useRef<number | null>(null);
@@ -216,28 +200,13 @@ export default function TransferPage() {
   const [txId, setTxId] = useState<string>("");
   const [recipientLookupState, setRecipientLookupState] =
     useState<RecipientLookupState>({ status: "idle" });
-  const [isRecipientRiskInfoOpen, setRecipientRiskInfoOpen] = useState(false);
   const [isBankPickerOpen, setBankPickerOpen] = useState(false);
   const [bankSearch, setBankSearch] = useState("");
   const [bankActiveIndex, setBankActiveIndex] = useState(0);
   const [selectedRecentId, setSelectedRecentId] = useState<string | null>(null);
   const [assistantReviewRequested, setAssistantReviewRequested] = useState(false);
-  const [transferError, setTransferError] = useState<string | null>(null);
-  const [balanceCheckAttempted, setBalanceCheckAttempted] = useState(false);
-  useBodyScrollLock(
-    step === "face"
-      || (step === "ai-check" && riskData !== null),
-    "transfer-modal",
-  );
+  useBodyScrollLock(step === "face" && !faceVerificationStarted);
   const selectedBank = banks.find((bank) => bank.code === form.bank_code);
-  const availableBalance = typeof user?.balance === "number" && Number.isFinite(user.balance)
-    ? user.balance
-    : null;
-  const requestedAmount = Number(form.amount || 0);
-  const isInsufficientBalance = availableBalance !== null && requestedAmount > availableBalance;
-  const balanceShortfall = isInsufficientBalance
-    ? requestedAmount - (availableBalance ?? 0)
-    : 0;
   const normalizedBankSearch = bankSearch.trim().toLocaleLowerCase("vi-VN");
   const filteredBanks = banks.filter((bank) =>
     `${bank.name} ${bank.code}`
@@ -263,9 +232,14 @@ export default function TransferPage() {
       } | null
     );
     const assistantTransfer = incomingState?.AssistantTransfer;
-    const payment = assistantTransfer
-      ?? incomingState?.QrPayment
-      ?? parsePaymentQrSearch(location.search);
+    // Prefer navigation state (in-app scan / assistant); else deep-link query.
+    const fromDeepLink =
+      !assistantTransfer && !incomingState?.QrPayment && location.search
+        ? parsePaymentDeepLink(
+            `${window.location.origin}/transfer${location.search}`,
+          )
+        : null;
+    const payment = assistantTransfer ?? incomingState?.QrPayment ?? fromDeepLink;
     if (
       !payment ||
       typeof payment.accountNumber !== "string" ||
@@ -278,15 +252,6 @@ export default function TransferPage() {
     const isKnownBank = banks.some((bank) => bank.code === bankCode);
     if (!/^\d{6,19}$/.test(accountNumber) || !isKnownBank) return;
 
-    // A chat/QR prefill can arrive while this component is still showing a
-    // previous review or risk step. Reset that stale flow first; the fresh
-    // recipient lookup below must complete before the review screen is shown.
-    setStep("form");
-    setRiskData(null);
-    setTxId("");
-    setPin("");
-    setTransferError(null);
-    setBalanceCheckAttempted(false);
     setForm((current) => ({
       ...current,
       recipient_account: accountNumber,
@@ -306,8 +271,9 @@ export default function TransferPage() {
     setRecipientLookupState({ status: "idle" });
     setSelectedRecentId(null);
     setAssistantReviewRequested(Boolean(assistantTransfer));
+    // Clear state + query so refresh does not re-apply; account stays in form.
     navigate("/transfer", { replace: true, state: null });
-  }, [location.search, location.state, navigate]);
+  }, [location.state, location.search, navigate]);
 
   const decisionMutation = useMutation({
     mutationFn: async ({
@@ -342,34 +308,19 @@ export default function TransferPage() {
       queryClient.invalidateQueries({ queryKey: ["recent-contacts"] });
       void fetchMe();
       if (data.transaction_status === "completed") {
-        clearRiskContext();
-        setTransferError(null);
         setAssistantActivity({ status: "complete", message: "Giao dịch đã hoàn tất. Timi vui vì có thể đồng hành cùng bạn!" });
         setStep("success");
       }
       else if (data.transaction_status === "cancelled") {
-        clearRiskContext();
-        setTransferError(null);
         setAssistantActivity({ status: "complete", message: "Bạn đã dừng giao dịch an toàn. Khi cần, Timi luôn ở đây nhé!" });
         setStep("review");
         setRiskData(null);
       }
     },
-    onError: (err: unknown) => {
-      const detail = getApiErrorDetail(err);
-      if (isInsufficientBalanceDetail(detail)) {
-        clearRiskContext();
-        setRiskData(null);
-        setTxId("");
-        setTransferError(
-          "Số dư hiện tại không đủ để hoàn tất giao dịch. Hãy giảm số tiền rồi thử lại.",
-        );
-        void fetchMe();
-        setStep("review");
-        return;
-      }
-      alert(detail || "Không thể ghi nhận quyết định giao dịch");
-    },
+    onError: (err: any) =>
+      alert(
+        err.response?.data?.detail || "Không thể ghi nhận quyết định giao dịch",
+      ),
   });
 
   const analyzeMutation = useMutation({
@@ -387,42 +338,22 @@ export default function TransferPage() {
       setTxId(data.transaction_id);
       setRiskData(data);
       if (data.should_warn && data.warning) {
-        setRiskContext({
-          transaction_id: data.transaction_id,
-          recipient_name: form.recipient_name || null,
-          recipient_account_masked: maskRecipientAccount(form.recipient_account),
-          bank_name: selectedBank?.name ?? form.bank_code,
-          amount: Math.round(Number(form.amount)),
-          note: form.note || null,
-          risk_level: data.risk_level === "high" ? "high" : data.risk_level === "low" ? "low" : "medium",
-          risk_score: data.risk_score,
-          signals: data.signals.filter((signal) => (signal.score ?? 0) > 0).map((signal) => signal.explanation).slice(0, 8),
-          warning_message: data.warning.message,
-        });
         setAssistantActivity({ status: "warning", riskLevel: data.risk_level });
         setStep("ai-check");
         return;
       }
-      clearRiskContext();
       setAssistantActivity({ status: "complete", message: "Timi đã kiểm tra xong. Bạn có thể tiếp tục xác thực giao dịch nhé!" });
       if (data.requires_face_verification) {
+        setFaceVerificationStarted(false);
         setStep("face");
       } else {
         setStep("pin");
       }
     },
-    onError: (err: unknown) => {
-      clearRiskContext();
+    onError: (err: any) => {
       setAssistantActivity({ status: "idle" });
       setStep("review");
-      const detail = getApiErrorDetail(err);
-      if (isInsufficientBalanceDetail(detail)) {
-        setTransferError(
-          "Số dư hiện tại không đủ để thực hiện giao dịch. Hãy giảm số tiền rồi thử lại.",
-        );
-        return;
-      }
-      alert(detail || "Có lỗi xảy ra khi phân tích rủi ro");
+      alert(err.response?.data?.detail || "Có lỗi xảy ra khi phân tích rủi ro");
     },
   });
 
@@ -467,11 +398,7 @@ export default function TransferPage() {
                 }
               : current,
           );
-          setRecipientLookupState({
-            status: "success",
-            riskStatus: result.risk_status,
-            riskMessage: result.risk_message ?? undefined,
-          });
+          setRecipientLookupState({ status: "success" });
         })
         .catch((error: any) => {
           if (cancelled) return;
@@ -491,7 +418,6 @@ export default function TransferPage() {
   }, [form.recipient_account, form.bank_code]);
 
   const handleAccountChange = (recipient_account: string) => {
-    setRecipientRiskInfoOpen(false);
     setSelectedRecentId(null);
     setForm((current) => ({
       ...current,
@@ -502,7 +428,6 @@ export default function TransferPage() {
   };
 
   const handleSelectRecentContact = (contact: RecentContact) => {
-    setRecentContactsOpen(false);
     setSelectedRecentId(contact.id);
     setForm((current) => ({
       ...current,
@@ -517,8 +442,20 @@ export default function TransferPage() {
     setBankPickerOpen(false);
   };
 
+  const handleAddNewContact = () => {
+    setSelectedRecentId(null);
+    setForm((current) => ({
+      ...current,
+      recipient_account: "",
+      recipient_name: "",
+      recipient_lookup_token: "",
+      bank_code: "",
+    }));
+    setBankSearch("");
+    setRecipientLookupState({ status: "idle" });
+  };
+
   const handleBankChange = (bank_code: string) => {
-    setRecipientRiskInfoOpen(false);
     setSelectedRecentId(null);
     setForm((current) => ({
       ...current,
@@ -531,7 +468,6 @@ export default function TransferPage() {
   };
 
   const handleBankSearchChange = (value: string) => {
-    setRecipientRiskInfoOpen(false);
     setBankSearch(value);
     setBankActiveIndex(0);
     setBankPickerOpen(true);
@@ -575,20 +511,9 @@ export default function TransferPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isFormValid) return;
-    setTransferError(null);
-    setBalanceCheckAttempted(false);
     setStep("review");
   };
   const handleRiskCheck = () => {
-    setBalanceCheckAttempted(true);
-    if (isInsufficientBalance) {
-      setTransferError(
-        "Số dư khả dụng không đủ cho số tiền đã nhập. Hãy giảm số tiền để tiếp tục.",
-      );
-      return;
-    }
-    setTransferError(null);
-    clearRiskContext();
     setAssistantActivity({ status: "analyzing" });
     setStep("analyzing");
     analyzeMutation.mutate(form);
@@ -596,6 +521,7 @@ export default function TransferPage() {
   const handleProceed = (transactionPin: string) => {
     if (!txId) return;
     if (requiresFaceVerification) {
+      setFaceVerificationStarted(false);
       setStep("face");
       return;
     }
@@ -646,19 +572,7 @@ export default function TransferPage() {
     form.amount &&
     form.bank_code,
   );
-  const recipientNeedsCaution =
-    recipientLookupState.status === "success" &&
-    recipientLookupState.riskStatus === "caution";
-  const amountRequiresFaceVerification = Number(form.amount || 0) >= 10_000_000;
-  const blacklistRequiresFaceVerification = Boolean(
-    riskData?.risk_level === "high"
-      && riskData.signals.some((signal) => signal.signal_type === "blacklist_exact_match"),
-  );
-  const requiresFaceVerification = Boolean(
-    riskData?.requires_face_verification
-      || amountRequiresFaceVerification
-      || blacklistRequiresFaceVerification,
-  );
+  const requiresFaceVerification = Boolean(riskData?.requires_face_verification);
 
   useEffect(() => {
     // The Task Navigation Agent is allowed to prefill only.  Wait until the
@@ -708,7 +622,7 @@ export default function TransferPage() {
   /* ===================== FORM STEP – UI khớp ảnh 1:1 ===================== */
   if (step === "form") {
     return (
-      <div className="min-h-screen bg-[#f5f3ff] w-full relative">
+      <div className="min-h-screen bg-[#f5f3ff] w-full relative overflow-x-hidden">
         {/* Soft background blobs matching the image mood */}
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
           <div className="absolute -top-32 -left-32 w-[480px] h-[480px] bg-violet-200/40 rounded-full blur-3xl" />
@@ -718,7 +632,7 @@ export default function TransferPage() {
 
         <div className="relative z-10 max-w-[1400px] mx-auto">
           {/* ===== TOP HEADER ===== */}
-          <header style={{ marginLeft: "calc((100% - 100vw) / 2)" }} className="sticky top-16 z-40 flex w-screen max-w-none flex-col gap-2 border-b border-violet-100/60 bg-[#f5f3ff]/75 px-4 py-2 shadow-sm shadow-violet-100/20 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+          <header className="px-4 sm:px-6 lg:px-8 pt-5 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => navigate("/dashboard")}
@@ -731,13 +645,22 @@ export default function TransferPage() {
                 <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
                   Chuyển tiền
                 </h1>
-                <p className="sr-only">
+                <p className="text-sm text-slate-500 mt-0.5">
                   Gửi tiền an toàn đến người nhận của bạn
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
+              <div className="hidden md:flex items-center gap-2 bg-white rounded-full px-4 py-2.5 shadow-sm border border-violet-100 w-64">
+                <Search className="w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Tìm giao dịch..."
+                  className="bg-transparent text-sm text-slate-700 outline-none w-full placeholder:text-slate-400"
+                  readOnly
+                />
+              </div>
               <ProfileNotificationBell />
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-white font-semibold text-sm shadow-md">
                 {user?.full_name?.charAt(0)?.toUpperCase() || "U"}
@@ -816,10 +739,9 @@ export default function TransferPage() {
 
           {/* ===== MAIN 3-COLUMN GRID ===== */}
           <div className="px-4 sm:px-6 lg:px-8 pb-10">
-            <div className="lg:sticky lg:top-[10rem] lg:z-20 lg:self-start">
-              <div className="grid grid-cols-1 items-start lg:grid-cols-12 gap-5 lg:gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6">
               {/* ---------- LEFT: Select Recipient ---------- */}
-              <div id="transfer-recipient" className="lg:col-span-4 space-y-4">
+              <div className="lg:col-span-4 space-y-4">
                 <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-violet-100/80">
                   <h2 className="text-base font-bold text-slate-900 mb-4">
                     Chọn người nhận
@@ -848,22 +770,36 @@ export default function TransferPage() {
                     Quét mã QR
                   </button>
 
-                  {/* ===== Người nhận gần đây ===== */}
+                  {/* ===== Recent Contacts (from DB) ===== */}
                   <div className="mb-5">
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-sm font-semibold text-slate-800">
-                        Người nhận gần đây
+                        Recent Contacts
                       </span>
                       <button
                         type="button"
-                        onClick={() => setRecentContactsOpen(true)}
+                        onClick={() => navigate("/contacts")}
                         className="text-xs font-semibold text-violet-600 hover:text-violet-700 transition-colors"
                       >
-                        Xem tất cả
+                        View All
                       </button>
                     </div>
 
-                    <div className="scrollbar-hide flex items-start gap-4 overflow-x-auto pb-1">
+                    <div className="flex items-start gap-4 overflow-x-auto pb-1 scrollbar-hide">
+                      {/* Add New */}
+                      <button
+                        type="button"
+                        onClick={handleAddNewContact}
+                        className="flex-shrink-0 flex flex-col items-center gap-1.5 group"
+                      >
+                        <div className="w-14 h-14 rounded-full border-2 border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-slate-400 group-hover:border-violet-400 group-hover:text-violet-500 group-hover:bg-violet-50 transition-all">
+                          <Plus className="w-5 h-5" strokeWidth={2.5} />
+                        </div>
+                        <span className="text-xs text-slate-500 font-medium">
+                          Add New
+                        </span>
+                      </button>
+
                       {/* Loading skeleton */}
                       {recentContactsQuery.isLoading &&
                         Array.from({ length: 4 }).map((_, i) => (
@@ -878,7 +814,7 @@ export default function TransferPage() {
 
                       {/* Real contacts from DB */}
                       {!recentContactsQuery.isLoading &&
-                        visibleRecentContacts.map((contact) => {
+                        (recentContactsQuery.data ?? []).map((contact) => {
                           const isSelected = selectedRecentId === contact.id;
                           const initials = contact.full_name
                             .split(" ")
@@ -1043,13 +979,7 @@ export default function TransferPage() {
                     <label className="text-sm font-medium text-slate-700 mb-1.5 block">
                       Tên chủ tài khoản
                     </label>
-                    <div
-                      className={`relative min-h-[42px] flex items-center pl-10 pr-10 py-2.5 rounded-xl text-slate-800 transition-colors ${
-                        recipientNeedsCaution
-                          ? "border border-amber-200 bg-amber-50/70"
-                          : "bg-slate-50"
-                      }`}
-                    >
+                    <div className="relative min-h-[42px] flex items-center pl-10 pr-10 py-2.5 bg-slate-50 rounded-xl text-slate-800">
                       <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                       {recipientLookupState.status === "loading" ? (
                         <span className="flex items-center gap-2 text-sm text-slate-500">
@@ -1062,33 +992,9 @@ export default function TransferPage() {
                         <span className="text-sm text-slate-400">Tên tài khoản</span>
                       )}
                       {recipientLookupState.status === "success" && (
-                        recipientNeedsCaution ? (
-                          <AlertTriangle
-                            aria-label="Người nhận cần thận trọng"
-                            className="absolute right-3.5 h-5 w-5 text-amber-500"
-                          />
-                        ) : (
-                          <CheckCircle2 className="absolute right-3.5 w-5 h-5 text-emerald-500" />
-                        )
+                        <CheckCircle2 className="absolute right-3.5 w-5 h-5 text-emerald-500" />
                       )}
                     </div>
-                    {recipientNeedsCaution && (
-                      <button
-                        type="button"
-                        onClick={() => setRecipientRiskInfoOpen(true)}
-                        aria-haspopup="dialog"
-                        className="mt-2 flex w-full items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs transition-colors hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-300"
-                      >
-                        <span className="flex min-w-0 items-center gap-1.5 font-medium text-amber-800">
-                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                          <span>{recipientLookupState.riskMessage || "Người nhận có dấu hiệu rủi ro."}</span>
-                        </span>
-                        <span className="flex shrink-0 items-center gap-1 text-[10px] font-semibold text-violet-600">
-                          <Shield className="h-3 w-3" />
-                          Bảo mật bởi AI
-                        </span>
-                      </button>
-                    )}
                     {recipientLookupState.status === "error" && (
                       <p className="mt-1.5 text-xs text-rose-600">
                         {recipientLookupState.message}
@@ -1123,8 +1029,6 @@ export default function TransferPage() {
                       }
                       onChange={(e) => {
                         const amount = normalizeAmountInput(e.target.value);
-                        setTransferError(null);
-                        setBalanceCheckAttempted(false);
                         setForm((current) => ({ ...current, amount }));
                       }}
                     />
@@ -1138,13 +1042,9 @@ export default function TransferPage() {
                     {["50000", "100000", "200000", "500000", "1000000", "10000000"].map(
                       (amount) => (
                         <button
-                      key={amount}
-                      type="button"
-                      onClick={() => {
-                        setTransferError(null);
-                        setBalanceCheckAttempted(false);
-                        setForm({ ...form, amount });
-                      }}
+                          key={amount}
+                          type="button"
+                          onClick={() => setForm({ ...form, amount })}
                           className="px-3.5 py-1.5 bg-slate-100 hover:bg-violet-100 hover:text-violet-700 rounded-full text-xs font-semibold text-slate-600 transition-colors"
                         >
                           {new Intl.NumberFormat("vi-VN").format(parseInt(amount))}
@@ -1167,6 +1067,49 @@ export default function TransferPage() {
                     />
                   </div>
 
+                  {/* Transfer type – visual only (Standard free) to match image */}
+                  <div className="mb-6">
+                    <p className="text-sm font-medium text-slate-700 mb-3">
+                      Loại chuyển khoản
+                    </p>
+                    <div className="space-y-2.5">
+                      <label className="flex items-center gap-3 p-3.5 rounded-xl border-2 border-violet-500 bg-violet-50/50 cursor-default">
+                        <div className="w-5 h-5 rounded-full border-2 border-violet-600 flex items-center justify-center">
+                          <div className="w-2.5 h-2.5 rounded-full bg-violet-600" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-900 text-sm">
+                              Tiêu chuẩn
+                            </span>
+                            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                              Miễn phí
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            1–2 ngày làm việc
+                          </p>
+                        </div>
+                      </label>
+                      <div className="flex items-center gap-3 p-3.5 rounded-xl border border-slate-200 opacity-60">
+                        <div className="w-5 h-5 rounded-full border-2 border-slate-300" />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-700 text-sm">
+                              Instant
+                            </span>
+                            <span className="text-xs font-medium text-slate-500">
+                              Phí 1.500đ
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Trong vòng 5 phút
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Continue button */}
                   <button
                     onClick={handleSubmit}
@@ -1180,30 +1123,6 @@ export default function TransferPage() {
                   <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-slate-500">
                     <Lock className="w-3.5 h-3.5 text-violet-500" />
                     Giao dịch của bạn được bảo vệ bởi Timi Security
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-violet-100/80 bg-white/85 p-5 shadow-sm">
-                  <div className="mb-3 flex items-center gap-2">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                    </div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Mẹo chuyển tiền an toàn
-                    </h3>
-                  </div>
-                  <div className="space-y-2.5 text-xs leading-relaxed text-slate-500">
-                    <p className="flex gap-2">
-                      <span className="font-bold text-violet-500">1.</span>
-                      Kiểm tra đúng tên người nhận trước khi tiếp tục.
-                    </p>
-                    <p className="flex gap-2">
-                      <span className="font-bold text-violet-500">2.</span>
-                      Không chia sẻ mã PIN hoặc mã OTP cho bất kỳ ai.
-                    </p>
-                    <p className="flex gap-2">
-                      <span className="font-bold text-violet-500">3.</span>
-                      Ghi nội dung rõ ràng để dễ đối chiếu giao dịch.
-                    </p>
                   </div>
                 </div>
               </div>
@@ -1223,12 +1142,8 @@ export default function TransferPage() {
                       <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                         Giao dịch của bạn được bảo vệ bằng công nghệ AI tiên tiến.
                       </p>
-                      <p className="mt-2 text-xs font-semibold text-emerald-600">
-                        Đã chặn {displayedBlockedTransactionsLabel} giao dịch rủi ro cao
-                      </p>
                       <button
                         type="button"
-                        onClick={() => navigate("/history")}
                         className="mt-2 text-xs font-semibold text-violet-600 hover:text-violet-700"
                       >
                         Tìm hiểu thêm
@@ -1265,19 +1180,19 @@ export default function TransferPage() {
                         icon: Home,
                         label: "Chuyển đến ngân hàng",
                         sub: "Chuyển khoản liên ngân hàng",
-                        action: () => document.getElementById("transfer-recipient")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                        action: () => {},
                       },
                       {
                         icon: CardIcon,
                         label: "Chuyển đến thẻ",
                         sub: "Thẻ ghi nợ / tín dụng",
-                        action: () => navigate("/me"),
+                        action: () => {},
                       },
                       {
                         icon: HandCoins,
                         label: "Yêu cầu tiền",
                         sub: "Yêu cầu từ danh bạ",
-                        action: () => navigate("/qr?mode=create"),
+                        action: () => {},
                       },
                       {
                         icon: ScanLine,
@@ -1316,146 +1231,24 @@ export default function TransferPage() {
                   <Star className="w-5 h-5 text-white/50 mb-2" />
                   <p className="text-sm font-bold mb-1">Timi bảo vệ bạn</p>
                   <p className="text-xs text-violet-100 leading-relaxed">
-                    Đã chặn {displayedBlockedTransactionsLabel} giao dịch rủi ro cao
+                    Đã chặn hơn 1.2K giao dịch lừa đảo trong tháng này
                   </p>
                 </div>
               </div>
             </div>
-            </div>
           </div>
-
-          <Modal
-            open={isRecentContactsOpen}
-            onClose={() => setRecentContactsOpen(false)}
-            ariaLabel="Tất cả người nhận gần đây"
-            className="max-w-xl"
-            showCloseButton
-          >
-            <div className="pr-8">
-              <p className="text-xs font-semibold uppercase tracking-wider text-violet-600">
-                Danh sách người nhận
-              </p>
-              <h2 className="mt-1 text-xl font-bold text-slate-900">
-                Tất cả người nhận gần đây
-              </h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Chọn người nhận để điền nhanh thông tin chuyển tiền.
-              </p>
-            </div>
-            <div className="mt-5 space-y-2 pr-1">
-              {recentContacts.map((contact) => {
-                const initials = contact.full_name
-                  .split(" ")
-                  .map((word) => word[0])
-                  .join("")
-                  .slice(0, 2)
-                  .toUpperCase();
-                return (
-                  <button
-                    key={contact.id}
-                    type="button"
-                    onClick={() => handleSelectRecentContact(contact)}
-                    className="flex w-full items-center gap-3 rounded-2xl p-3 text-left transition-colors hover:bg-violet-50"
-                  >
-                    <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-sm font-bold text-white">
-                      {contact.avatar_url ? (
-                        <img
-                          src={contact.avatar_url}
-                          alt={contact.full_name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <span className="flex h-full w-full items-center justify-center">
-                          {initials}
-                        </span>
-                      )}
-                    </div>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-slate-800">
-                        {contact.full_name}
-                      </span>
-                      <span className="mt-0.5 block truncate text-xs text-slate-500">
-                        {contact.account_number} · {banks.find((bank) => bank.code === contact.bank_code)?.name ?? contact.bank_code}
-                      </span>
-                    </span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
-                  </button>
-                );
-              })}
-              {!recentContactsQuery.isLoading && recentContacts.length === 0 && (
-                <p className="py-8 text-center text-sm text-slate-400">
-                  Chưa có người nhận gần đây.
-                </p>
-              )}
-            </div>
-          </Modal>
-
-          <Modal
-            open={isRecipientRiskInfoOpen}
-            onClose={() => setRecipientRiskInfoOpen(false)}
-            ariaLabel="Thông tin cảnh báo rủi ro người nhận"
-            className="max-w-md"
-            showCloseButton
-          >
-            <div className="pr-8">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100">
-                <AlertTriangle className="h-6 w-6 text-amber-600" />
-              </div>
-              <p className="mt-4 text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">
-                Cảnh báo rủi ro
-              </p>
-              <h2 className="mt-1 text-xl font-bold text-slate-900">
-                Timi dựa vào đâu để cảnh báo?
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Số tài khoản và ngân hàng này trùng với một cảnh báo trong dữ liệu đối chiếu của Timi.
-              </p>
-            </div>
-
-            <div className="mt-5 space-y-3">
-              <div className="rounded-2xl border border-violet-100 bg-violet-50/70 p-3.5">
-                <div className="flex items-center gap-2 text-sm font-semibold text-violet-900">
-                  <Shield className="h-4 w-4 text-violet-600" />
-                  Báo cáo từ cộng đồng
-                </div>
-                <p className="mt-1.5 text-xs leading-5 text-violet-800">
-                  Timi tổng hợp các báo cáo cần thận trọng để phát hiện sớm những tài khoản có dấu hiệu bất thường.
-                </p>
-              </div>
-              <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-3.5">
-                <div className="flex items-center gap-2 text-sm font-semibold text-sky-900">
-                  <Shield className="h-4 w-4 text-sky-600" />
-                  Nguồn đối chiếu công khai
-                </div>
-                <p className="mt-1.5 text-xs leading-5 text-sky-800">
-                  Dữ liệu đối chiếu có thể bao gồm các cảnh báo công khai từ chongluadao.vn.
-                </p>
-              </div>
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3.5 text-sm leading-6 text-amber-900">
-                Hãy gọi hoặc liên hệ người nhận qua một kênh độc lập và xem xét kỹ trước khi giao dịch.
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setRecipientRiskInfoOpen(false)}
-              className="mt-5 w-full rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              Đã hiểu, tôi sẽ kiểm tra kỹ
-            </button>
-          </Modal>
 
           {/* Footer */}
           <footer className="relative z-10 px-4 sm:px-6 lg:px-8 pb-8 pt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
             <p>© 2024 Timi. All rights reserved.</p>
-              <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-              <button onClick={() => navigate("/privacy")} className="hover:text-slate-600 transition-colors">
+            <div className="flex items-center gap-4">
+              <button className="hover:text-slate-600 transition-colors">
                 Privacy Policy
               </button>
-              <button onClick={() => navigate("/terms")} className="hover:text-slate-600 transition-colors">
+              <button className="hover:text-slate-600 transition-colors">
                 Terms of Service
               </button>
-              <button onClick={() => navigate("/help")} className="hover:text-slate-600 transition-colors">
+              <button className="hover:text-slate-600 transition-colors">
                 Help Center
               </button>
             </div>
@@ -1482,13 +1275,13 @@ export default function TransferPage() {
   /* ===================== REVIEW STEP ===================== */
   if (step === "review") {
     return (
-      <div className="min-h-screen w-full relative overflow-x-clip bg-[#f5f3ff]">
+      <div className="min-h-screen bg-[#f5f3ff] w-full relative overflow-hidden">
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
           <div className="absolute -top-32 -left-32 w-[420px] h-[420px] bg-violet-200/40 rounded-full blur-3xl" />
           <div className="absolute bottom-0 right-0 w-[380px] h-[380px] bg-fuchsia-200/30 rounded-full blur-3xl" />
         </div>
         <div className="relative z-10 max-w-3xl mx-auto">
-          <header style={{ marginLeft: "calc((100% - 100vw) / 2)" }} className="sticky top-16 z-40 flex w-screen max-w-none items-center gap-3 border-b border-violet-100/60 bg-[#f5f3ff]/75 px-4 py-2 shadow-sm shadow-violet-100/20 backdrop-blur-md sm:px-6">
+          <header className="px-4 sm:px-6 pt-5 pb-4 flex items-center gap-3">
             <button
               onClick={() => setStep("form")}
               className="p-2 hover:bg-white/70 rounded-full transition-colors"
@@ -1497,7 +1290,7 @@ export default function TransferPage() {
             </button>
             <div>
               <h1 className="text-xl font-bold text-slate-900">Xác nhận giao dịch</h1>
-              <p className="sr-only">Kiểm tra lại thông tin trước khi tiếp tục</p>
+              <p className="text-sm text-slate-500">Kiểm tra lại thông tin trước khi tiếp tục</p>
             </div>
           </header>
 
@@ -1548,8 +1341,8 @@ export default function TransferPage() {
                   </div>
                 ))}
               </div>
-              </div>
             </div>
+          </div>
 
           <div className="px-4 sm:px-6 pb-10">
             <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-violet-100/80 space-y-1">
@@ -1586,27 +1379,10 @@ export default function TransferPage() {
               )}
             </div>
 
-            {((balanceCheckAttempted && isInsufficientBalance) || transferError) && (
-              <div
-                role="alert"
-                aria-live="assertive"
-                className="mt-4 flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3.5 text-rose-700"
-              >
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-rose-500" />
-                <div className="min-w-0">
-                  <p className="text-sm font-bold">Không thể tiếp tục với số tiền này</p>
-                  <p className="mt-0.5 text-xs leading-relaxed text-rose-600">
-                    {transferError || `Bạn đang thiếu ${formatVnd(balanceShortfall)} so với số dư khả dụng.`}
-                  </p>
-                </div>
-              </div>
-            )}
-
             <button
               onClick={handleRiskCheck}
-              disabled={analyzeMutation.isPending || Boolean(transferError)}
-              title={transferError ? "Hãy giảm số tiền để tiếp tục" : undefined}
-              className="w-full mt-5 py-3.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white font-bold rounded-xl shadow-lg shadow-violet-200 hover:shadow-xl active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              disabled={analyzeMutation.isPending}
+              className="w-full mt-5 py-3.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white font-bold rounded-xl shadow-lg shadow-violet-200 hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2"
             >
               {analyzeMutation.isPending ? (
                 <>
@@ -1650,6 +1426,41 @@ export default function TransferPage() {
   }
 
   if (step === "face") {
+    if (!faceVerificationStarted) {
+      return createPortal(
+        <div className="fixed inset-0 z-[9998] flex min-h-screen items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-violet-100 bg-white p-8 text-center shadow-2xl shadow-violet-950/20">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-100 text-violet-600">
+              <ScanLine className="h-8 w-8" />
+            </div>
+            <h2 className="mt-5 text-2xl font-bold text-slate-900">
+              Cần xác thực khuôn mặt
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              Giao dịch này cần xác thực khuôn mặt để tiếp tục. Bạn có muốn bắt đầu xác thực ngay không?
+            </p>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => setFaceVerificationStarted(true)}
+                className="flex-1 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3.5 font-bold text-white shadow-lg shadow-violet-200 transition hover:shadow-xl"
+              >
+                Xác thực khuôn mặt
+              </button>
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={decisionMutation.isPending}
+                className="flex-1 rounded-xl bg-slate-100 px-4 py-3.5 font-semibold text-slate-700 transition hover:bg-slate-200 disabled:opacity-50"
+              >
+                Quay về
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      );
+    }
     return (
       <FaceVerificationModal
         onVerified={handleFaceVerified}
@@ -1689,7 +1500,6 @@ export default function TransferPage() {
             />
             <button
               type="button"
-              tabIndex={-1}
               aria-label={isPinVisible ? "Ẩn mã PIN" : "Hiện mã PIN"}
               onClick={() => {
                 if (pinVisibilityTimer.current !== null) {
@@ -1734,7 +1544,7 @@ export default function TransferPage() {
   /* ===================== SUCCESS ===================== */
   if (step === "success") {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center p-4 relative overflow-x-clip bg-[#f5f3ff]">
+      <div className="min-h-screen bg-[#f5f3ff] w-full flex items-center justify-center p-4 relative overflow-hidden">
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
           <div className="absolute top-1/3 left-1/3 w-[400px] h-[400px] bg-emerald-200/30 rounded-full blur-3xl" />
           <div className="absolute bottom-1/3 right-1/3 w-[350px] h-[350px] bg-violet-200/25 rounded-full blur-3xl" />
@@ -1789,8 +1599,6 @@ export default function TransferPage() {
             <button
               onClick={() => {
                 setStep("form");
-                setTransferError(null);
-                setBalanceCheckAttempted(false);
                 setForm({
                   recipient_account: "",
                   recipient_name: "",

@@ -8,7 +8,6 @@ import { useAuthStore } from "@/stores/authStore";
 import GooglePhoneModal from "@/components/auth/GooglePhoneModal";
 import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 import { hasGoogleSignInConfig } from "@/components/auth/googleIdentityConfig";
-import TimiLogo from "@/components/brand/TimiLogo";
 
 const floatingIcons = [
   { Icon: Shield, top: "10%", left: "8%", delay: "0s", size: 28 },
@@ -22,20 +21,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const setAuth = useAuthStore((s) => s.setAuth);
-  const loginState = location.state as {
-    registrationEmail?: string;
-    returnTo?: unknown;
-  } | null;
-  const registrationEmail = loginState?.registrationEmail;
-  const returnTo = typeof loginState?.returnTo === "string"
-    && loginState.returnTo.startsWith("/")
-    && !loginState.returnTo.startsWith("//")
-    && !loginState.returnTo.startsWith("/login")
-    ? loginState.returnTo
-    : null;
-  const destinationAfterLogin = useCallback((role: string) => (
-    role === "admin" ? "/admin" : returnTo ?? "/dashboard"
-  ), [returnTo]);
+  const registrationEmail = (location.state as { registrationEmail?: string } | null)?.registrationEmail;
   const [form, setForm] = useState({ email: registrationEmail ?? "", password: "" });
   const [showPass, setShowPass] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -44,16 +30,27 @@ export default function LoginPage() {
   const [googleCompletion, setGoogleCompletion] = useState<GooglePhoneCompletionResponse | null>(null);
   const rememberLoginRef = useRef<HTMLInputElement>(null);
 
+  const postLoginPath = useCallback(
+    (role?: string) => {
+      const from = (location.state as { from?: string } | null)?.from;
+      if (from && typeof from === "string" && from.startsWith("/") && !from.startsWith("//")) {
+        return from;
+      }
+      return role === "admin" ? "/admin" : "/dashboard";
+    },
+    [location.state],
+  );
+
   const finishGoogleLogin = useCallback((data: TokenResponse) => {
     setAuth(data.access_token, data.user, rememberLogin);
-    navigate(destinationAfterLogin(data.user.role), { replace: true });
-  }, [destinationAfterLogin, navigate, rememberLogin, setAuth]);
+    navigate(postLoginPath(data.user.role), { replace: true });
+  }, [navigate, postLoginPath, rememberLogin, setAuth]);
 
   const loginMutation = useMutation({
     mutationFn: authApi.login,
     onSuccess: async (data) => {
       setAuth(data.access_token, data.user, rememberLogin);
-      navigate(destinationAfterLogin(data.user.role), { replace: true });
+      navigate(postLoginPath(data.user.role), { replace: true });
     },
     onError: (err: any) => {
       setErrors({ password: err.response?.data?.detail || "Sai email hoặc mật khẩu" });
@@ -203,8 +200,8 @@ export default function LoginPage() {
           </Link>
           {/* Logo */}
           <div className="login-brand flex items-center gap-3 mb-8 lg:mb-4 justify-center lg:justify-start">
-            <div className="w-11 h-11 rounded-2xl flex items-center justify-center">
-              <TimiLogo className="h-full w-full rounded-2xl" />
+            <div className="w-11 h-11 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
+              <Shield className="w-6 h-6 text-white" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Timi</h1>
@@ -346,7 +343,6 @@ export default function LoginPage() {
               {hasGoogleSignInConfig() && (
                 <GoogleSignInButton
                   disabled={googleLoginMutation.isPending || completeGooglePhoneMutation.isPending}
-                  isLoading={googleLoginMutation.isPending || completeGooglePhoneMutation.isPending}
                   onCredential={handleGoogleCredential}
                   onLoadError={handleGoogleLoadError}
                 />
