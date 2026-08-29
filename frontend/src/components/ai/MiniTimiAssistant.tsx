@@ -1,14 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, MessageCircle, Mic, MicOff, Minimize2, Send, Shield, ShieldAlert, Sparkles, Trash2, X, Zap } from "lucide-react";
+import {
+  Loader2,
+  MessageCircle,
+  Mic,
+  MicOff,
+  Minimize2,
+  Send,
+  Shield,
+  ShieldAlert,
+  Sparkles,
+  Trash2,
+  X,
+  Zap,
+} from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { assistantApi, type AssistantChatTurn, type AssistantTaskState } from "@/services/api/assistant";
+import {
+  assistantApi,
+  type AssistantChatTurn,
+  type AssistantTaskState,
+} from "@/services/api/assistant";
 import TimiChibi from "@/components/ai/TimiChibi";
 import { useScamGuardian } from "@/components/guardian/ScamGuardianProvider";
 import { useAuthStore } from "@/stores/authStore";
 import { useTimiAssistantStore } from "@/stores/timiAssistantStore";
+import FeatureTour, {
+  hasCompletedFeatureTour,
+} from "@/components/onboarding/FeatureTour";
 
 type AssistantTip = {
   title: string;
@@ -55,12 +75,15 @@ function assistantErrorMessage(error: unknown): string {
   return "Timi chưa thể kết nối để trả lời lúc này. Bạn thử lại sau một chút nhé.";
 }
 
-const SENSITIVE_CREDENTIAL_PATTERN = /(?:mã\s*(?:otp|pin)|otp|pin|mật khẩu|password)\s*[:=-]?\s*\d{4,}/iu;
-const SENSITIVE_CREDENTIAL_MESSAGE = "Bạn đừng gửi OTP, PIN hoặc mật khẩu vào chat nhé. Timi không bao giờ yêu cầu các mã này qua hội thoại.";
+const SENSITIVE_CREDENTIAL_PATTERN =
+  /(?:mã\s*(?:otp|pin)|otp|pin|mật khẩu|password)\s*[:=-]?\s*\d{4,}/iu;
+const SENSITIVE_CREDENTIAL_MESSAGE =
+  "Bạn đừng gửi OTP, PIN hoặc mật khẩu vào chat nhé. Timi không bao giờ yêu cầu các mã này qua hội thoại.";
 const WELCOME_MESSAGE: ChatMessage = {
   id: "welcome",
   role: "assistant",
-  content: "Chào bạn! Mình có thể mở Chuyển tiền, QR, Lịch sử, Hồ sơ, đổi mật khẩu, PIN, Face ID và bật/tắt bảo vệ cuộc gọi của Timi.",
+  content:
+    "Chào bạn! Mình có thể mở Chuyển tiền, QR, Lịch sử, Hồ sơ, đổi mật khẩu, PIN, Face ID và bật/tắt bảo vệ cuộc gọi của Timi.",
 };
 const EMPTY_TASK_STATE: AssistantTaskState = {
   task: "none",
@@ -83,7 +106,11 @@ function speechRecognitionConstructor(): SpeechRecognitionConstructor | null {
     SpeechRecognition?: SpeechRecognitionConstructor;
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
   };
-  return browserWindow.SpeechRecognition ?? browserWindow.webkitSpeechRecognition ?? null;
+  return (
+    browserWindow.SpeechRecognition ??
+    browserWindow.webkitSpeechRecognition ??
+    null
+  );
 }
 
 function readTaskState(userId: string): AssistantTaskState {
@@ -92,14 +119,15 @@ function readTaskState(userId: string): AssistantTaskState {
     if (!stored) return EMPTY_TASK_STATE;
     const candidate = JSON.parse(stored) as Partial<AssistantTaskState>;
     const rawLastRecipient = candidate.last_recipient;
-    const lastRecipient = rawLastRecipient?.recipient_account && rawLastRecipient.bank_code
-      ? {
-          ...EMPTY_TASK_STATE.transfer,
-          ...rawLastRecipient,
-          amount: null,
-          note: null,
-        }
-      : null;
+    const lastRecipient =
+      rawLastRecipient?.recipient_account && rawLastRecipient.bank_code
+        ? {
+            ...EMPTY_TASK_STATE.transfer,
+            ...rawLastRecipient,
+            amount: null,
+            note: null,
+          }
+        : null;
     if (candidate.task === "transfer" && candidate.transfer) {
       return {
         task: "transfer",
@@ -132,36 +160,80 @@ function formatRiskAmount(value: number | null): string {
 function tipsForPath(pathname: string, name: string): AssistantTip[] {
   if (pathname === "/transfer") {
     return [
-      { title: `Chào ${name}!`, message: "Timi ở đây cùng bạn. Nhớ kiểm tra tên người nhận trước khi chuyển nhé." },
-      { title: "Mẹo nhỏ từ Timi", message: "Đừng chia sẻ OTP, mã PIN hay ảnh khuôn mặt cho bất kỳ ai." },
-      { title: "Đang cần hỗ trợ?", message: "Khi phân tích giao dịch, Timi sẽ báo rõ các dấu hiệu cần lưu ý." },
+      {
+        title: `Chào ${name}!`,
+        message:
+          "Timi ở đây cùng bạn. Nhớ kiểm tra tên người nhận trước khi chuyển nhé.",
+      },
+      {
+        title: "Mẹo nhỏ từ Timi",
+        message:
+          "Đừng chia sẻ OTP, mã PIN hay ảnh khuôn mặt cho bất kỳ ai.",
+      },
+      {
+        title: "Đang cần hỗ trợ?",
+        message:
+          "Khi phân tích giao dịch, Timi sẽ báo rõ các dấu hiệu cần lưu ý.",
+      },
     ];
   }
   if (pathname === "/qr") {
     return [
-      { title: "Timi cùng quét QR", message: "QR chứa đường dẫn sẽ được kiểm tra blacklist trước khi bạn mở." },
-      { title: "Nhắc bạn nè", message: "Chỉ quét QR từ nguồn bạn tin tưởng và xem kỹ nội dung trước khi tiếp tục." },
+      {
+        title: "Timi cùng quét QR",
+        message:
+          "QR chứa đường dẫn sẽ được kiểm tra blacklist trước khi bạn mở.",
+      },
+      {
+        title: "Nhắc bạn nè",
+        message:
+          "Chỉ quét QR từ nguồn bạn tin tưởng và xem kỹ nội dung trước khi tiếp tục.",
+      },
     ];
   }
   if (pathname === "/history") {
     return [
-      { title: "Lịch sử giao dịch", message: "Bạn có thể xem lại giao dịch gần đây để phát hiện điều bất thường." },
-      { title: "Timi luôn bên bạn", message: "Thấy giao dịch lạ? Hãy báo ngay để hệ thống hỗ trợ kiểm tra." },
+      {
+        title: "Lịch sử giao dịch",
+        message:
+          "Bạn có thể xem lại giao dịch gần đây để phát hiện điều bất thường.",
+      },
+      {
+        title: "Timi luôn bên bạn",
+        message:
+          "Thấy giao dịch lạ? Hãy báo ngay để hệ thống hỗ trợ kiểm tra.",
+      },
     ];
   }
   if (pathname === "/confirm-location") {
     return [
-      { title: `Chào ${name}!`, message: "Cấp vị trí gần đúng giúp Timi nhận ra đăng nhập bất thường và bảo vệ tài khoản tốt hơn." },
+      {
+        title: `Chào ${name}!`,
+        message:
+          "Cấp vị trí gần đúng giúp Timi nhận ra đăng nhập bất thường và bảo vệ tài khoản tốt hơn.",
+      },
     ];
   }
   if (pathname === "/setup-pin" || pathname === "/setup-face") {
     return [
-      { title: "Cùng hoàn thiện bảo mật nhé", message: "Thêm PIN và Face ID giúp Timi bảo vệ giao dịch của bạn tốt hơn." },
+      {
+        title: "Cùng hoàn thiện bảo mật nhé",
+        message:
+          "Thêm PIN và Face ID giúp Timi bảo vệ giao dịch của bạn tốt hơn.",
+      },
     ];
   }
   return [
-    { title: `Chào ${name}!`, message: "Timi đã online. Mình sẽ đồng hành để mỗi giao dịch của bạn an toàn hơn." },
-    { title: "Mẹo bảo mật", message: "Không chuyển tiền vội khi người lạ tạo cảm giác khẩn cấp hoặc thúc ép bạn." },
+    {
+      title: `Chào ${name}!`,
+      message:
+        "Timi đã online. Mình sẽ đồng hành để mỗi giao dịch của bạn an toàn hơn.",
+    },
+    {
+      title: "Mẹo bảo mật",
+      message:
+        "Không chuyển tiền vội khi người lạ tạo cảm giác khẩn cấp hoặc thúc ép bạn.",
+    },
   ];
 }
 
@@ -176,19 +248,33 @@ export default function MiniTimiAssistant() {
   const { criticalAlert, risk, setVoiceMonitoringEnabled } = useScamGuardian();
   const [isOpen, setOpen] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
   const [tipIndex, setTipIndex] = useState(0);
   const [draft, setDraft] = useState("");
-  const [widgetPosition, setWidgetPosition] = useState<{ x: number; y: number } | null>(null);
-  const dragRef = useRef<{ pointerId: number; offsetX: number; offsetY: number; moved: boolean } | null>(null);
+  const [widgetPosition, setWidgetPosition] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    offsetX: number;
+    offsetY: number;
+    moved: boolean;
+  } | null>(null);
   const suppressClickRef = useRef(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     WELCOME_MESSAGE,
   ]);
-  const [riskCoachMessages, setRiskCoachMessages] = useState<ChatMessage[]>([]);
+  const [riskCoachMessages, setRiskCoachMessages] = useState<ChatMessage[]>(
+    [],
+  );
   const [riskCoachQuestions, setRiskCoachQuestions] = useState<string[]>([]);
   const [riskCoachGuidedMode, setRiskCoachGuidedMode] = useState(false);
-  const [activeRiskCoachQuestion, setActiveRiskCoachQuestion] = useState<string | null>(null);
-  const [taskState, setTaskState] = useState<AssistantTaskState>(EMPTY_TASK_STATE);
+  const [activeRiskCoachQuestion, setActiveRiskCoachQuestion] = useState<
+    string | null
+  >(null);
+  const [taskState, setTaskState] =
+    useState<AssistantTaskState>(EMPTY_TASK_STATE);
   const [isListening, setListening] = useState(false);
   const [voiceInputAvailable, setVoiceInputAvailable] = useState(false);
   const [voiceError, setVoiceError] = useState("");
@@ -201,21 +287,35 @@ export default function MiniTimiAssistant() {
   const chatInputRef = useRef<HTMLInputElement>(null);
   const riskCoachRequestRef = useRef<string | null>(null);
   const name = firstName(user?.full_name);
-  const tips = useMemo(() => tipsForPath(location.pathname, name), [location.pathname, name]);
+  const tips = useMemo(
+    () => tipsForPath(location.pathname, name),
+    [location.pathname, name],
+  );
   const tip = tips[tipIndex % tips.length];
 
-  const activityTip: AssistantTip | null = activity.status === "analyzing"
-    ? { title: "Timi đang kiểm tra nè", message: "Ráng chờ mình một xíu nhé. Timi đang đối chiếu giao dịch để bảo vệ bạn." }
-    : activity.status === "warning"
+  const activityTip: AssistantTip | null =
+    activity.status === "analyzing"
       ? {
-          title: "Timi thấy điều cần lưu ý",
-          message: activity.riskLevel === "high"
-            ? "Đừng vội chuyển tiền nhé! Hãy dừng lại và kiểm tra kỹ cảnh báo của Timi."
-            : "Giao dịch này cần được kiểm tra thêm. Mình cùng xem kỹ trước khi tiếp tục nhé.",
+          title: "Timi đang kiểm tra nè",
+          message:
+            "Ráng chờ mình một xíu nhé. Timi đang đối chiếu giao dịch để bảo vệ bạn.",
         }
-      : activity.status === "complete"
-        ? { title: "Timi đã kiểm tra xong", message: activity.message ?? "Mình đã hoàn tất kiểm tra. Cảm ơn bạn đã kiên nhẫn nhé!" }
-        : null;
+      : activity.status === "warning"
+        ? {
+            title: "Timi thấy điều cần lưu ý",
+            message:
+              activity.riskLevel === "high"
+                ? "Đừng vội chuyển tiền nhé! Hãy dừng lại và kiểm tra kỹ cảnh báo của Timi."
+                : "Giao dịch này cần được kiểm tra thêm. Mình cùng xem kỹ trước khi tiếp tục nhé.",
+          }
+        : activity.status === "complete"
+          ? {
+              title: "Timi đã kiểm tra xong",
+              message:
+                activity.message ??
+                "Mình đã hoàn tất kiểm tra. Cảm ơn bạn đã kiên nhẫn nhé!",
+            }
+          : null;
 
   const displayedTip = activityTip ?? tip;
 
@@ -230,16 +330,29 @@ export default function MiniTimiAssistant() {
     mutationFn: assistantApi.chat,
     onSuccess: async (response) => {
       setTaskState(response.task_state);
-      setChatMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", content: response.answer }]);
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: response.answer,
+        },
+      ]);
       if (response.action?.type === "set_guardian_voice_monitoring") {
         try {
-          await setVoiceMonitoringEnabled(Boolean(response.action.voice_monitoring_enabled));
+          await setVoiceMonitoringEnabled(
+            Boolean(response.action.voice_monitoring_enabled),
+          );
         } catch {
-          setChatMessages((current) => [...current, {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: "Timi chưa thể thay đổi trạng thái bảo vệ cuộc gọi. Bạn hãy thử lại trong phần Hồ sơ.",
-          }]);
+          setChatMessages((current) => [
+            ...current,
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content:
+                "Timi chưa thể thay đổi trạng thái bảo vệ cuộc gọi. Bạn hãy thử lại trong phần Hồ sơ.",
+            },
+          ]);
         }
         return;
       }
@@ -250,7 +363,11 @@ export default function MiniTimiAssistant() {
       }
       if (response.action?.type === "navigate_transfer_review") {
         const transfer = response.action.transfer;
-        if (transfer?.recipient_account && transfer.bank_code && transfer.amount) {
+        if (
+          transfer?.recipient_account &&
+          transfer.bank_code &&
+          transfer.amount
+        ) {
           setTaskState({
             task: "none",
             transfer: { ...EMPTY_TASK_STATE.transfer },
@@ -278,11 +395,14 @@ export default function MiniTimiAssistant() {
       }
     },
     onError: (error) => {
-      setChatMessages((current) => [...current, {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: assistantErrorMessage(error),
-      }]);
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: assistantErrorMessage(error),
+        },
+      ]);
     },
   });
 
@@ -293,17 +413,26 @@ export default function MiniTimiAssistant() {
       if (!riskCoachGuidedMode) setRiskCoachQuestions(response.questions);
       setRiskCoachMessages((current) => [
         ...current,
-        { id: crypto.randomUUID(), role: "assistant", content: response.answer },
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: response.answer,
+        },
       ]);
     },
     onError: (error) => {
       setRiskCoachMessages((current) => [
         ...current,
-        { id: crypto.randomUUID(), role: "assistant", content: assistantErrorMessage(error) },
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: assistantErrorMessage(error),
+        },
       ]);
     },
   });
-  const isAssistantPending = chatMutation.isPending || riskCoachMutation.isPending;
+  const isAssistantPending =
+    chatMutation.isPending || riskCoachMutation.isPending;
   const requestRiskCoach = riskCoachMutation.mutate;
 
   const clearHistoryMutation = useMutation({
@@ -311,11 +440,24 @@ export default function MiniTimiAssistant() {
     onSuccess: () => {
       setChatMessages([WELCOME_MESSAGE]);
       setTaskState(EMPTY_TASK_STATE);
-      queryClient.setQueryData(["assistant-chat-history", user?.id], { items: [] });
+      queryClient.setQueryData(["assistant-chat-history", user?.id], {
+        items: [],
+      });
     },
   });
 
-  useEffect(() => { setTipIndex(0); }, [location.pathname]);
+  const openChatWithOptionalTour = () => {
+    setWidgetPosition(null);
+    setChatOpen(true);
+    setOpen(true);
+    if (user?.id && !hasCompletedFeatureTour(user.id)) {
+      setTourOpen(true);
+    }
+  };
+
+  useEffect(() => {
+    setTipIndex(0);
+  }, [location.pathname]);
 
   useEffect(() => {
     setVoiceInputAvailable(Boolean(speechRecognitionConstructor()));
@@ -350,7 +492,10 @@ export default function MiniTimiAssistant() {
       if (taskState.task === "none" && !taskState.last_recipient) {
         window.sessionStorage.removeItem(taskStorageKey(user.id));
       } else {
-        window.sessionStorage.setItem(taskStorageKey(user.id), JSON.stringify(taskState));
+        window.sessionStorage.setItem(
+          taskStorageKey(user.id),
+          JSON.stringify(taskState),
+        );
       }
     } catch {
       // The task is still usable during this browser session without storage.
@@ -359,33 +504,57 @@ export default function MiniTimiAssistant() {
 
   useEffect(() => {
     const userId = user?.id ?? null;
-    if (!userId || !historyQuery.data || hydratedHistoryUserRef.current === userId) return;
-    const storedMessages: ChatMessage[] = historyQuery.data.items.flatMap((item) => [
-      { id: `history-user-${item.id}`, role: "user" as const, content: item.question },
-      { id: `history-assistant-${item.id}`, role: "assistant" as const, content: item.answer },
-    ]);
+    if (
+      !userId ||
+      !historyQuery.data ||
+      hydratedHistoryUserRef.current === userId
+    )
+      return;
+    const storedMessages: ChatMessage[] = historyQuery.data.items.flatMap(
+      (item) => [
+        {
+          id: `history-user-${item.id}`,
+          role: "user" as const,
+          content: item.question,
+        },
+        {
+          id: `history-assistant-${item.id}`,
+          role: "assistant" as const,
+          content: item.answer,
+        },
+      ],
+    );
     setChatMessages([WELCOME_MESSAGE, ...storedMessages]);
     hydratedHistoryUserRef.current = userId;
   }, [historyQuery.data, user?.id]);
 
   useEffect(() => {
     if (!chatOpen) return undefined;
-    // The panel is conditionally rendered. Waiting for the next frame means
-    // its scroll height includes both restored history and the newest message.
     const frame = window.requestAnimationFrame(() => {
       const messages = messagesScrollRef.current;
       if (messages) messages.scrollTop = messages.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [chatOpen, chatMessages.length, riskCoachMessages.length, chatMutation.isPending, riskCoachMutation.isPending]);
+  }, [
+    chatOpen,
+    chatMessages.length,
+    riskCoachMessages.length,
+    chatMutation.isPending,
+    riskCoachMutation.isPending,
+  ]);
 
   useEffect(() => {
     if (!isOpen || tips.length <= 1) return undefined;
-    const timer = window.setInterval(() => setTipIndex((current) => (current + 1) % tips.length), 9000);
+    const timer = window.setInterval(
+      () => setTipIndex((current) => (current + 1) % tips.length),
+      9000,
+    );
     return () => window.clearInterval(timer);
   }, [isOpen, tips.length]);
 
-  useEffect(() => { if (activity.status !== "idle") setOpen(true); }, [activity.status]);
+  useEffect(() => {
+    if (activity.status !== "idle") setOpen(true);
+  }, [activity.status]);
 
   useEffect(() => {
     if (!riskContext) {
@@ -396,8 +565,6 @@ export default function MiniTimiAssistant() {
       riskCoachRequestRef.current = null;
       return;
     }
-    // A risk context represents one transaction. Keep the automatic coach
-    // request idempotent so React re-renders cannot send the same prompt again.
     if (riskCoachRequestRef.current === riskContext.transaction_id) return;
     riskCoachRequestRef.current = riskContext.transaction_id;
     setOpen(true);
@@ -408,7 +575,8 @@ export default function MiniTimiAssistant() {
     setRiskCoachGuidedMode(false);
     setActiveRiskCoachQuestion(null);
     requestRiskCoach({
-      message: "Hãy giải thích cảnh báo giao dịch này và giúp tôi tự kiểm tra an toàn.",
+      message:
+        "Hãy giải thích cảnh báo giao dịch này và giúp tôi tự kiểm tra an toàn.",
       context: riskContext,
       history: [],
       guided_question: null,
@@ -431,7 +599,14 @@ export default function MiniTimiAssistant() {
       risk.explanation,
       "Bạn hãy dừng cuộc gọi, không chuyển tiền và không cung cấp OTP/PIN. Nếu cần giao dịch, hãy tự gọi lại ngân hàng bằng số chính thức.",
     ].join("\n\n");
-    setChatMessages((current) => [...current, { id: `guardian-alert-${Date.now()}`, role: "assistant", content: message }]);
+    setChatMessages((current) => [
+      ...current,
+      {
+        id: `guardian-alert-${Date.now()}`,
+        role: "assistant",
+        content: message,
+      },
+    ]);
     setOpen(true);
     setWidgetPosition(null);
     setChatOpen(true);
@@ -444,13 +619,21 @@ export default function MiniTimiAssistant() {
     if (!message || isAssistantPending) return;
     setDraft("");
     if (SENSITIVE_CREDENTIAL_PATTERN.test(message)) {
-      const safeReply = { id: crypto.randomUUID(), role: "assistant" as const, content: SENSITIVE_CREDENTIAL_MESSAGE };
+      const safeReply = {
+        id: crypto.randomUUID(),
+        role: "assistant" as const,
+        content: SENSITIVE_CREDENTIAL_MESSAGE,
+      };
       if (riskContext) setRiskCoachMessages((current) => [...current, safeReply]);
       else setChatMessages((current) => [...current, safeReply]);
       return;
     }
     if (riskContext) {
-      const userMessage = { id: crypto.randomUUID(), role: "user" as const, content: message };
+      const userMessage = {
+        id: crypto.randomUUID(),
+        role: "user" as const,
+        content: message,
+      };
       const nextMessages = [...riskCoachMessages, userMessage];
       const guidedQuestion = activeRiskCoachQuestion;
       setRiskCoachMessages(nextMessages);
@@ -458,14 +641,20 @@ export default function MiniTimiAssistant() {
       requestRiskCoach({
         message,
         context: riskContext,
-        history: nextMessages.slice(-6).map(({ role, content }) => ({ role, content })),
+        history: nextMessages
+          .slice(-6)
+          .map(({ role, content }) => ({ role, content })),
         guided_question: guidedQuestion,
       });
       return;
     }
-    setChatMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: message }]);
+    setChatMessages((current) => [
+      ...current,
+      { id: crypto.randomUUID(), role: "user", content: message },
+    ]);
     chatMutation.mutate({ message, task_state: taskState });
   };
+
   const toggleVoiceInput = () => {
     if (isListening) {
       speechRecognitionRef.current?.stop();
@@ -473,7 +662,9 @@ export default function MiniTimiAssistant() {
     }
     const Recognition = speechRecognitionConstructor();
     if (!Recognition) {
-      setVoiceError("Trình duyệt này chưa hỗ trợ nhập bằng giọng nói. Hãy dùng Chrome hoặc Edge.");
+      setVoiceError(
+        "Trình duyệt này chưa hỗ trợ nhập bằng giọng nói. Hãy dùng Chrome hoặc Edge.",
+      );
       return;
     }
     if (isAssistantPending) return;
@@ -488,7 +679,11 @@ export default function MiniTimiAssistant() {
     recognition.onresult = (event) => {
       let finalText = speechTranscriptRef.current;
       let interimText = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      for (
+        let index = event.resultIndex;
+        index < event.results.length;
+        index += 1
+      ) {
         const result = event.results[index];
         const transcript = result[0]?.transcript ?? "";
         if (result.isFinal) finalText += transcript;
@@ -511,9 +706,8 @@ export default function MiniTimiAssistant() {
       const transcript = speechTranscriptRef.current.trim();
       speechRecognitionRef.current = null;
       setListening(false);
-      if (!submitSpeechOnEndRef.current || !transcript || isAssistantPending) return;
-      // Voice input never sends automatically: let the user inspect or amend
-      // the transcript, especially names and payment details, then tap Gửi.
+      if (!submitSpeechOnEndRef.current || !transcript || isAssistantPending)
+        return;
       setDraft(transcript);
     };
     speechRecognitionRef.current = recognition;
@@ -544,47 +738,59 @@ export default function MiniTimiAssistant() {
     window.requestAnimationFrame(() => chatInputRef.current?.focus());
   };
 
-  // Render via a portal straight onto <body>. This is the key fix: if any
-  // ancestor in the app tree has `transform`, `filter`, `perspective`, or
-  // `will-change`, `position: fixed` inside it stops being fixed to the
-  // viewport and instead "fixes" to that ancestor — which is what makes a
-  // fixed widget appear to drift while scrolling. Mounting outside the
-  // normal DOM tree (on document.body) guarantees the widget always stays
-  // pinned to the screen regardless of what any parent component does.
   const visibleMessages = riskContext ? riskCoachMessages : chatMessages;
 
   const widget = (
     <aside
       className={`fixed ${widgetPosition ? "" : "bottom-20 right-4 sm:bottom-6 sm:right-6"} ${riskContext ? "z-[10001]" : criticalAlert ? "z-[100]" : "z-40"}`}
-      style={widgetPosition ? { left: widgetPosition.x, top: widgetPosition.y } : undefined}
+      style={
+        widgetPosition
+          ? { left: widgetPosition.x, top: widgetPosition.y }
+          : undefined
+      }
       aria-label="Trợ lý Timi"
     >
       {/* Tip Card */}
       {isOpen && !chatOpen && !riskContext && (
         <div className="absolute bottom-24 right-0 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-blue-100/60 bg-white/80 backdrop-blur-xl shadow-2xl shadow-blue-200/30 animate-in fade-in slide-in-from-bottom-4 duration-300">
-          {/* Top glow line */}
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-400 via-indigo-500 to-violet-500" />
           <div className="relative flex gap-4 p-5">
             <TimiChibi compact walking />
             <div className="min-w-0 flex-1 pr-1">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex items-center gap-1.5">
-                  <p className="truncate text-sm font-extrabold text-slate-900">{displayedTip.title}</p>
+                  <p className="truncate text-sm font-extrabold text-slate-900">
+                    {displayedTip.title}
+                  </p>
                   <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-600 border border-blue-100">
-                    <Zap className="h-2.5 w-2.5" />AI
+                    <Zap className="h-2.5 w-2.5" />
+                    AI
                   </span>
                 </div>
-                <button type="button" onClick={() => setOpen(false)} className="-mr-1 -mt-1 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors" aria-label="Thu nhỏ trợ lý Timi">
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="-mr-1 -mt-1 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                  aria-label="Thu nhỏ trợ lý Timi"
+                >
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <p className="mt-2 text-xs leading-relaxed text-slate-600">{displayedTip.message}</p>
+              <p className="mt-2 text-xs leading-relaxed text-slate-600">
+                {displayedTip.message}
+              </p>
               <div className="mt-4 flex items-center justify-between gap-2">
                 <span className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-500">
-                  <Shield className="h-3.5 w-3.5" />Timi AI Anti-Scam
+                  <Shield className="h-3.5 w-3.5" />
+                  Timi AI Anti-Scam
                 </span>
-                <button type="button" onClick={() => { setWidgetPosition(null); setChatOpen(true); }} className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1.5 text-[11px] font-bold text-white shadow-md shadow-blue-200 hover:shadow-lg hover:shadow-blue-300 transition-all hover:-translate-y-0.5">
-                  <MessageCircle className="h-3.5 w-3.5" />Trò chuyện
+                <button
+                  type="button"
+                  onClick={openChatWithOptionalTour}
+                  className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1.5 text-[11px] font-bold text-white shadow-md shadow-blue-200 hover:shadow-lg hover:shadow-blue-300 transition-all hover:-translate-y-0.5"
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  Trò chuyện
                 </button>
               </div>
             </div>
@@ -594,26 +800,47 @@ export default function MiniTimiAssistant() {
 
       {/* Chat Panel */}
       {isOpen && chatOpen && (
-        <section className="absolute bottom-24 right-0 flex h-[min(34rem,calc(100dvh-8rem))] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-blue-100/60 bg-white/90 backdrop-blur-xl shadow-2xl shadow-blue-200/30 animate-in zoom-in-95 duration-200" aria-label="Trò chuyện với trợ lý Timi">
-          {/* Header */}
+        <section
+          className="absolute bottom-24 right-0 flex h-[min(34rem,calc(100dvh-8rem))] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-blue-100/60 bg-white/90 backdrop-blur-xl shadow-2xl shadow-blue-200/30 animate-in zoom-in-95 duration-200"
+          aria-label="Trò chuyện với trợ lý Timi"
+        >
           <div className="flex items-center gap-3 border-b border-blue-50 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 px-5 py-4">
             <TimiChibi compact walking />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <p className="text-sm font-extrabold text-slate-900">
-                  {riskContext ? "Timi cảnh báo giao dịch" : "Trò chuyện với Timi"}
+                  {riskContext
+                    ? "Timi cảnh báo giao dịch"
+                    : "Trò chuyện với Timi"}
                 </p>
                 <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
               </div>
-                <p className="truncate text-[11px] text-indigo-500 font-medium">
-                {riskContext ? "Timi đang đọc các dấu hiệu để giúp bạn tự kiểm tra" : "Lịch sử chỉ thuộc về tài khoản của bạn"}
+              <p className="truncate text-[11px] text-indigo-500 font-medium">
+                {riskContext
+                  ? "Timi đang đọc các dấu hiệu để giúp bạn tự kiểm tra"
+                  : "Lịch sử chỉ thuộc về tài khoản của bạn"}
               </p>
             </div>
             {!riskContext && (
               <button
                 type="button"
+                onClick={() => setTourOpen(true)}
+                className="rounded-xl px-2 py-1.5 text-[10px] font-bold text-indigo-600 hover:bg-white transition-colors"
+                title="Xem lại hướng dẫn"
+              >
+                Hướng dẫn
+              </button>
+            )}
+            {!riskContext && (
+              <button
+                type="button"
                 onClick={() => {
-                  if (window.confirm("Xóa toàn bộ lịch sử trò chuyện của bạn?")) clearHistoryMutation.mutate();
+                  if (
+                    window.confirm(
+                      "Xóa toàn bộ lịch sử trò chuyện của bạn?",
+                    )
+                  )
+                    clearHistoryMutation.mutate();
                 }}
                 disabled={clearHistoryMutation.isPending}
                 className="rounded-xl p-2 text-slate-400 hover:bg-white hover:text-rose-500 transition-colors disabled:opacity-40"
@@ -623,12 +850,16 @@ export default function MiniTimiAssistant() {
                 <Trash2 className="h-4 w-4" />
               </button>
             )}
-            <button type="button" onClick={() => setChatOpen(false)} className="rounded-xl p-2 text-slate-400 hover:bg-white hover:text-slate-600 transition-colors" aria-label="Quay lại trợ lý Timi">
+            <button
+              type="button"
+              onClick={() => setChatOpen(false)}
+              className="rounded-xl p-2 text-slate-400 hover:bg-white hover:text-slate-600 transition-colors"
+              aria-label="Quay lại trợ lý Timi"
+            >
               <Minimize2 className="h-4 w-4" />
             </button>
           </div>
 
-          {/* Messages */}
           <div
             ref={messagesScrollRef}
             className="flex-1 space-y-4 overflow-y-auto bg-slate-50/50 p-4"
@@ -640,25 +871,43 @@ export default function MiniTimiAssistant() {
                     <ShieldAlert className="h-4 w-4" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-extrabold uppercase tracking-wide text-rose-700">Đang phân tích giao dịch</p>
+                    <p className="text-[11px] font-extrabold uppercase tracking-wide text-rose-700">
+                      Đang phân tích giao dịch
+                    </p>
                     <p className="text-[11px] font-semibold text-rose-900">
-                      {riskContext.risk_level === "high" ? "Rủi ro cao" : riskContext.risk_level === "medium" ? "Cần kiểm tra thêm" : "Có dấu hiệu cần lưu ý"}
-                      {riskContext.risk_score > 0 ? ` · ${Math.round(riskContext.risk_score * 100)}%` : ""}
+                      {riskContext.risk_level === "high"
+                        ? "Rủi ro cao"
+                        : riskContext.risk_level === "medium"
+                          ? "Cần kiểm tra thêm"
+                          : "Có dấu hiệu cần lưu ý"}
+                      {riskContext.risk_score > 0
+                        ? ` · ${Math.round(riskContext.risk_score * 100)}%`
+                        : ""}
                     </p>
                   </div>
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-slate-700">
-                  {riskContext.recipient_name || "Người nhận chưa có tên"} · {riskContext.bank_name || "Chưa rõ ngân hàng"} · {formatRiskAmount(riskContext.amount)}
+                  {riskContext.recipient_name || "Người nhận chưa có tên"} ·{" "}
+                  {riskContext.bank_name || "Chưa rõ ngân hàng"} ·{" "}
+                  {formatRiskAmount(riskContext.amount)}
                 </p>
                 {riskContext.note ? (
-                  <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-slate-500">Nội dung: {riskContext.note}</p>
+                  <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-slate-500">
+                    Nội dung: {riskContext.note}
+                  </p>
                 ) : (
-                  <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Không có nội dung chuyển khoản; Timi dựa vào cảnh báo và các dấu hiệu khác.</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                    Không có nội dung chuyển khoản; Timi dựa vào cảnh báo và
+                    các dấu hiệu khác.
+                  </p>
                 )}
               </div>
             )}
             {visibleMessages.map((chatMessage) => (
-              <div key={chatMessage.id} className={`flex ${chatMessage.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div
+                key={chatMessage.id}
+                className={`flex ${chatMessage.role === "user" ? "justify-end" : "justify-start"}`}
+              >
                 {chatMessage.role === "assistant" && (
                   <div className="mr-2 mt-1 shrink-0">
                     <div className="h-6 w-6 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
@@ -666,54 +915,69 @@ export default function MiniTimiAssistant() {
                     </div>
                   </div>
                 )}
-                <p className={`max-w-[80%] break-words whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-xs leading-relaxed shadow-sm ${
-                  chatMessage.role === "user"
-                    ? "rounded-br-md bg-gradient-to-r from-blue-600 to-indigo-600 text-white"
-                    : "rounded-bl-md border border-slate-100 bg-white text-slate-700"
-                }`}>
+                <p
+                  className={`max-w-[80%] break-words whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-xs leading-relaxed shadow-sm ${
+                    chatMessage.role === "user"
+                      ? "rounded-br-md bg-gradient-to-r from-blue-600 to-indigo-600 text-white"
+                      : "rounded-bl-md border border-slate-100 bg-white text-slate-700"
+                  }`}
+                >
                   {chatMessage.content}
                 </p>
               </div>
             ))}
-            {riskContext && !riskCoachMutation.isPending && riskCoachQuestions.length > 0 && (
-              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/80 p-3">
-                <p className="mb-2 text-[11px] font-extrabold uppercase tracking-wide text-indigo-700">Câu hỏi Timi muốn hỏi bạn</p>
-                <div className="flex flex-wrap gap-2">
-                  {riskCoachQuestions.map((question) => (
-                    <button
-                      key={question}
-                      type="button"
-                      onClick={() => askRiskCoachQuestion(question)}
-                      className="rounded-xl border border-indigo-200 bg-white px-2.5 py-1.5 text-left text-[11px] font-semibold text-indigo-700 transition-colors hover:border-indigo-400 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
-                      disabled={isAssistantPending}
-                    >
-                      {question}
-                    </button>
-                  ))}
+            {riskContext &&
+              !riskCoachMutation.isPending &&
+              riskCoachQuestions.length > 0 && (
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/80 p-3">
+                  <p className="mb-2 text-[11px] font-extrabold uppercase tracking-wide text-indigo-700">
+                    Câu hỏi Timi muốn hỏi bạn
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {riskCoachQuestions.map((question) => (
+                      <button
+                        key={question}
+                        type="button"
+                        onClick={() => askRiskCoachQuestion(question)}
+                        className="rounded-xl border border-indigo-200 bg-white px-2.5 py-1.5 text-left text-[11px] font-semibold text-indigo-700 transition-colors hover:border-indigo-400 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={isAssistantPending}
+                      >
+                        {question}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
             {isAssistantPending && (
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <div className="h-6 w-6 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
                   <Sparkles className="h-3 w-3 text-white animate-pulse" />
                 </div>
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span>{riskContext ? "Timi đang giải thích cảnh báo…" : "Timi đang soạn câu trả lời…"}</span>
+                <span>
+                  {riskContext
+                    ? "Timi đang giải thích cảnh báo…"
+                    : "Timi đang soạn câu trả lời…"}
+                </span>
               </div>
             )}
           </div>
 
-          {/* Input */}
-          <form onSubmit={submitChat} className="border-t border-slate-100 bg-white/80 backdrop-blur-sm p-4">
+          <form
+            onSubmit={submitChat}
+            className="border-t border-slate-100 bg-white/80 backdrop-blur-sm p-4"
+          >
             {isListening && (
               <p className="mb-2.5 flex items-center gap-1.5 text-[11px] font-semibold text-rose-600">
                 <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
-                Đang nghe tiếng Việt… Timi sẽ soạn câu, bạn bấm Gửi khi muốn gửi.
+                Đang nghe tiếng Việt… Timi sẽ soạn câu, bạn bấm Gửi khi muốn
+                gửi.
               </p>
             )}
             {voiceError && (
-              <p className="mb-2.5 text-[10px] leading-relaxed text-rose-600">{voiceError}</p>
+              <p className="mb-2.5 text-[10px] leading-relaxed text-rose-600">
+                {voiceError}
+              </p>
             )}
             <p className="mb-2.5 text-[10px] leading-relaxed text-slate-400 flex items-center gap-1">
               <Shield className="h-3 w-3 text-amber-400" />
@@ -726,7 +990,15 @@ export default function MiniTimiAssistant() {
                 onChange={(event) => setDraft(event.target.value)}
                 maxLength={800}
                 disabled={isAssistantPending || isListening}
-                placeholder={isListening ? "Đang nhận giọng nói…" : riskContext ? (riskCoachGuidedMode ? "Trả lời câu hỏi của Timi…" : "Hỏi thêm về cảnh báo…") : "Hỏi Timi về ứng dụng…"}
+                placeholder={
+                  isListening
+                    ? "Đang nhận giọng nói…"
+                    : riskContext
+                      ? riskCoachGuidedMode
+                        ? "Trả lời câu hỏi của Timi…"
+                        : "Hỏi thêm về cảnh báo…"
+                      : "Hỏi Timi về ứng dụng…"
+                }
                 className="min-w-0 flex-1 rounded-2xl bg-slate-100 px-4 py-3 text-xs outline-none focus:ring-2 focus:ring-blue-400/30 focus:bg-white transition-all disabled:opacity-60 border border-transparent focus:border-blue-200"
               />
               <button
@@ -738,11 +1010,21 @@ export default function MiniTimiAssistant() {
                     ? "bg-rose-500 text-white shadow-md shadow-rose-200 hover:bg-rose-600"
                     : "border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100"
                 }`}
-                aria-label={isListening ? "Dừng nhập giọng nói" : "Nhập bằng giọng nói"}
+                aria-label={
+                  isListening ? "Dừng nhập giọng nói" : "Nhập bằng giọng nói"
+                }
                 aria-pressed={isListening}
-                title={voiceInputAvailable ? "Nhập bằng giọng nói" : "Trình duyệt chưa hỗ trợ nhập giọng nói"}
+                title={
+                  voiceInputAvailable
+                    ? "Nhập bằng giọng nói"
+                    : "Trình duyệt chưa hỗ trợ nhập giọng nói"
+                }
               >
-                {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                {isListening ? (
+                  <MicOff className="h-4 w-4" />
+                ) : (
+                  <Mic className="h-4 w-4" />
+                )}
               </button>
               <button
                 type="submit"
@@ -774,9 +1056,18 @@ export default function MiniTimiAssistant() {
         onPointerMove={(event) => {
           const drag = dragRef.current;
           if (!drag || drag.pointerId !== event.pointerId) return;
-          const nextX = Math.min(Math.max(event.clientX - drag.offsetX, 8), window.innerWidth - 72);
-          const nextY = Math.min(Math.max(event.clientY - drag.offsetY, 8), window.innerHeight - 72);
-          if (Math.abs(nextX - (widgetPosition?.x ?? nextX)) > 2 || Math.abs(nextY - (widgetPosition?.y ?? nextY)) > 2) {
+          const nextX = Math.min(
+            Math.max(event.clientX - drag.offsetX, 8),
+            window.innerWidth - 72,
+          );
+          const nextY = Math.min(
+            Math.max(event.clientY - drag.offsetY, 8),
+            window.innerHeight - 72,
+          );
+          if (
+            Math.abs(nextX - (widgetPosition?.x ?? nextX)) > 2 ||
+            Math.abs(nextY - (widgetPosition?.y ?? nextY)) > 2
+          ) {
             drag.moved = true;
           }
           setWidgetPosition({ x: nextX, y: nextY });
@@ -796,9 +1087,6 @@ export default function MiniTimiAssistant() {
             suppressClickRef.current = false;
             return;
           }
-          // A warning has no tip card. After the user minimizes Risk Coach,
-          // the floating button must restore that same warning conversation
-          // instead of only toggling an otherwise empty widget shell.
           if (riskContext) {
             if (isOpen && chatOpen) {
               setChatOpen(false);
@@ -809,13 +1097,28 @@ export default function MiniTimiAssistant() {
             }
             return;
           }
-          setOpen((value) => !value);
-          if (isOpen) setChatOpen(false);
+          if (isOpen) {
+            setOpen(false);
+            setChatOpen(false);
+          } else {
+            // Lần đầu mở Timi: nếu chưa xem tour thì mở chat + tour
+            if (user?.id && !hasCompletedFeatureTour(user.id)) {
+              openChatWithOptionalTour();
+            } else {
+              setOpen(true);
+            }
+          }
         }}
         className="group relative ml-auto grid h-16 w-16 cursor-grab touch-none place-items-center rounded-full bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 p-[2px] shadow-xl shadow-blue-900/30 transition-all hover:scale-105 hover:shadow-2xl hover:shadow-blue-900/40 focus:outline-none focus:ring-4 focus:ring-blue-300/30 active:cursor-grabbing"
-        aria-label={riskContext
-          ? (isOpen && chatOpen ? "Thu nhỏ trò chuyện cảnh báo" : "Mở lại trò chuyện cảnh báo")
-          : (isOpen ? "Đóng trợ lý Timi" : "Mở trợ lý Timi")}
+        aria-label={
+          riskContext
+            ? isOpen && chatOpen
+              ? "Thu nhỏ trò chuyện cảnh báo"
+              : "Mở lại trò chuyện cảnh báo"
+            : isOpen
+              ? "Đóng trợ lý Timi"
+              : "Mở trợ lý Timi"
+        }
         aria-expanded={isOpen}
         title="Kéo để di chuyển Timi"
       >
@@ -832,5 +1135,10 @@ export default function MiniTimiAssistant() {
     </aside>
   );
 
-  return createPortal(widget, document.body);
+  return (
+    <>
+      {createPortal(widget, document.body)}
+      <FeatureTour open={tourOpen} onClose={() => setTourOpen(false)} />
+    </>
+  );
 }

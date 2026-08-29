@@ -15,6 +15,15 @@ import { ScamGuardianProvider } from "@/components/guardian/ScamGuardianProvider
 import PinSetupEnforcer from "@/components/auth/PinSetupEnforcer";
 import TimiLogo from "@/components/brand/TimiLogo";
 
+const TOUR_ID_BY_PATH: Record<string, string> = {
+  "/dashboard": "nav-dashboard",
+  "/transfer": "nav-transfer",
+  "/qr": "nav-qr",
+  "/history": "nav-history",
+  "/admin": "nav-admin",
+  "/me": "nav-profile",
+};
+
 export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -72,6 +81,7 @@ export default function MainLayout() {
                 return (
                   <button
                     key={item.path}
+                    data-tour-id={TOUR_ID_BY_PATH[item.path]}
                     onClick={() => navigate(item.path)}
                     className={`flex items-center gap-2 px-2 py-2 rounded-xl text-sm font-semibold transition-all xl:px-3.5 ${
                       active
@@ -115,6 +125,7 @@ export default function MainLayout() {
             return (
               <button
                 key={item.path}
+                data-tour-id={TOUR_ID_BY_PATH[item.path]}
                 onClick={() => navigate(item.path)}
                 className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-1.5 rounded-xl transition-all ${
                   active ? "text-violet-600" : "text-slate-400"
@@ -130,7 +141,9 @@ export default function MainLayout() {
                     strokeWidth={active ? 2.5 : 2}
                   />
                 </div>
-                <span className="max-w-full truncate text-[10px] font-semibold">{item.label}</span>
+                <span className="max-w-full truncate text-[10px] font-semibold">
+                  {item.label}
+                </span>
               </button>
             );
           })}

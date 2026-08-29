@@ -135,10 +135,10 @@ export default function QrPaymentPage() {
       setUrlSafetyState(
         result.blocked
           ? {
-              status: "blocked",
-              hostname: result.hostname,
-              reason: result.reason ?? "Tên miền này nằm trong blacklist URL lừa đảo.",
-            }
+            status: "blocked",
+            hostname: result.hostname,
+            reason: result.reason ?? "Tên miền này nằm trong blacklist URL lừa đảo.",
+          }
           : { status: "clear", hostname: result.hostname },
       );
     } catch {
@@ -294,8 +294,10 @@ export default function QrPaymentPage() {
       accountName: ownAccountName,
     };
     // Deep-link QR: any camera opens Timi transfer with account prefilled after login.
-    const payload = createPaymentDeepLink(payment, "https://timi-du0u.onrender.com");
-    if (!payload) {
+    const payload = createPaymentDeepLink(
+      payment,
+      window.location.origin, // → http://localhost:5173 (hoặc port Vite của bạn)
+    ); if (!payload) {
       setCreateError(
         "Kiểm tra lại ngân hàng, số tài khoản (6–19 chữ số), số tiền và nội dung.",
       );
@@ -410,11 +412,10 @@ export default function QrPaymentPage() {
                   role="tab"
                   aria-selected={mode === "scan"}
                   onClick={() => void switchMode("scan")}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${
-                    mode === "scan"
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${mode === "scan"
                       ? "bg-violet-600 text-white shadow-md shadow-violet-200"
                       : "text-slate-500 hover:text-violet-600 hover:bg-violet-50"
-                  }`}
+                    }`}
                 >
                   <ScanLine className="w-4 h-4" />
                   Quét QR
@@ -424,11 +425,10 @@ export default function QrPaymentPage() {
                   role="tab"
                   aria-selected={mode === "create"}
                   onClick={() => void switchMode("create")}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${
-                    mode === "create"
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${mode === "create"
                       ? "bg-violet-600 text-white shadow-md shadow-violet-200"
                       : "text-slate-500 hover:text-violet-600 hover:bg-violet-50"
-                  }`}
+                    }`}
                 >
                   <QrCode className="w-4 h-4" />
                   Mã QR của tôi
@@ -844,15 +844,15 @@ export default function QrPaymentPage() {
                 <ul className="space-y-2.5">
                   {(mode === "scan"
                     ? [
-                        "Chỉ quét mã QR từ nguồn đáng tin cậy.",
-                        "Kiểm tra kỹ thông tin người nhận trước khi thanh toán.",
-                        "Timi sẽ cảnh báo nếu phát hiện mã QR có dấu hiệu rủi ro.",
-                      ]
+                      "Chỉ quét mã QR từ nguồn đáng tin cậy.",
+                      "Kiểm tra kỹ thông tin người nhận trước khi thanh toán.",
+                      "Timi sẽ cảnh báo nếu phát hiện mã QR có dấu hiệu rủi ro.",
+                    ]
                     : [
-                        "Chỉ chia sẻ mã QR với người bạn tin tưởng",
-                        "Xác minh danh tính người gửi trước khi xác nhận",
-                        "Liên hệ hỗ trợ nếu bạn phát hiện điều gì đáng ngờ",
-                      ]
+                      "Chỉ chia sẻ mã QR với người bạn tin tưởng",
+                      "Xác minh danh tính người gửi trước khi xác nhận",
+                      "Liên hệ hỗ trợ nếu bạn phát hiện điều gì đáng ngờ",
+                    ]
                   ).map((tip, i) => (
                     <li key={i} className="flex items-start gap-2.5 text-xs text-slate-600 leading-relaxed">
                       <CheckCircle2 className="w-3.5 h-3.5 text-violet-500 shrink-0 mt-0.5" />
@@ -920,9 +920,8 @@ function PaymentSummary({
     payment.bankCode;
   return (
     <div
-      className={`w-full mt-5 rounded-2xl bg-slate-50 text-left border border-slate-100 ${
-        compact ? "p-4" : "p-5"
-      }`}
+      className={`w-full mt-5 rounded-2xl bg-slate-50 text-left border border-slate-100 ${compact ? "p-4" : "p-5"
+        }`}
     >
       <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
         Thông tin nhận tiền
@@ -1013,11 +1012,11 @@ function DecodedQrSummary({
     const isBlacklisted = urlSafetyState.status === "blocked";
     const riskPresentation = isBlacklisted
       ? {
-          title: "Đã chặn link lừa đảo",
-          description: urlSafetyState.reason,
-          className: "border-rose-200 bg-rose-50 text-rose-800",
-          icon: ShieldAlert,
-        }
+        title: "Đã chặn link lừa đảo",
+        description: urlSafetyState.reason,
+        className: "border-rose-200 bg-rose-50 text-rose-800",
+        icon: ShieldAlert,
+      }
       : localRiskPresentation;
     const RiskIcon = riskPresentation.icon;
     // The database blacklist is the access-control decision. Local signals
@@ -1065,11 +1064,10 @@ function DecodedQrSummary({
 
         {safetyStatus && (
           <p
-            className={`mt-3 rounded-xl px-3 py-2 text-xs ${
-              urlSafetyState.status === "unavailable"
+            className={`mt-3 rounded-xl px-3 py-2 text-xs ${urlSafetyState.status === "unavailable"
                 ? "bg-amber-50 text-amber-800"
                 : "bg-slate-50 text-slate-600"
-            }`}
+              }`}
           >
             {urlSafetyState.status === "checking" && (
               <Loader2 className="mr-1.5 inline h-3.5 w-3.5 animate-spin" />
@@ -1130,11 +1128,10 @@ function DecodedQrSummary({
               onClick={() =>
                 window.open(content.normalizedUrl!, "_blank", "noopener,noreferrer")
               }
-              className={`w-full rounded-xl py-2.5 font-bold text-white flex items-center justify-center gap-2 text-sm transition-colors ${
-                content.riskLevel === "caution"
+              className={`w-full rounded-xl py-2.5 font-bold text-white flex items-center justify-center gap-2 text-sm transition-colors ${content.riskLevel === "caution"
                   ? "bg-amber-600 hover:bg-amber-700"
                   : "bg-violet-600 hover:bg-violet-700"
-              }`}
+                }`}
             >
               <ExternalLink className="w-4 h-4" />
               Truy cập website

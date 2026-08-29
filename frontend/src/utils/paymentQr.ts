@@ -380,3 +380,8 @@ export function parseQrContent(rawValue: string): DecodedQrContent {
   if (/^(sms:|smsto:)/i.test(raw)) return { kind: "sms", rawValue: raw };
   return { kind: "text", rawValue: raw.length <= MAX_GENERIC_QR_LENGTH ? raw : raw.slice(0, MAX_GENERIC_QR_LENGTH) };
 }
+export function parsePaymentQrSearch(search: string): PaymentQrData | null {
+  if (!search || search === "?") return null;
+  const normalized = search.startsWith("?") ? search : `?${search}`;
+  return parsePaymentDeepLink(`/transfer${normalized}`);
+}
